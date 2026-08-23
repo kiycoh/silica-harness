@@ -28,7 +28,6 @@ def client(tmp_vault, tmp_path, monkeypatch):
     """Fresh module-level session per test, backed by a tmp fs vault."""
     from silica.ui.web import server
 
-    monkeypatch.setattr(server, "SESSIONS_DIR", tmp_path / "web_sessions")
     server._reset_session()
     return TestClient(server.app), server
 

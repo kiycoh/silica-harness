@@ -18,7 +18,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 def client(tmp_vault, tmp_path, monkeypatch):
     from silica.ui.web import server
 
-    monkeypatch.setattr(server, "SESSIONS_DIR", tmp_path / "web_sessions")
     return TestClient(server.app), tmp_vault
 
 
@@ -39,6 +38,29 @@ def test_snippets_take_the_lead_sentence_of_body_and_each_section():
     assert out[0]["text"] == "The vault is a graph of notes."       # first sentence only
     assert out[1]["text"] == "Because structure beats folders."     # bullets skipped
     assert out[2]["text"] == "By writing wikilinks as you go."
+
+
+def test_a_snippet_is_prose_not_markup():
+    """The extract used to carry ==, ** and [[ ]] straight through. That was
+    tolerable in a drawer sitting under the reader; it is the first thing the
+    work panel says about a note now, and raw marks there read as a broken row
+    rather than as emphasis. The strip runs BEFORE the cut, so a highlight whose
+    closing == falls past the 140th character cannot leave its opening behind."""
+    from silica.ui.web.server import _key_snippets
+
+    body = (
+        "==A **database** is a [[Sistema azienda]], that is a set of resources "
+        "and rules that " + "hold a great deal of prose together " * 16
+        + "and finally close here.==\n\n"
+        "## **Why** it matters\n\nBecause `structure` beats [[folders|plain folders]].\n"
+    )
+    assert len(body) >= 700   # else snippets are withheld and this proves nothing
+    out = _key_snippets(body)
+    for mark in ("==", "**", "[[", "]]", "`"):
+        assert all(mark not in s["text"] and mark not in s["heading"] for s in out), mark
+    assert out[0]["text"].startswith("A database is a Sistema azienda")
+    assert out[1]["heading"] == "Why it matters"
+    assert out[1]["text"] == "Because structure beats plain folders."
 
 
 def test_snippets_are_hidden_for_a_short_note():
@@ -83,6 +105,30 @@ def test_context_reads_frontmatter_related(client):
     assert [r["name"] for r in fm] == ["B", "Ghosty"]
     assert fm[0]["path"] == "B.md"   # resolvable → clickable
     assert fm[1]["path"] == ""       # not a note → listed, not clickable
+
+
+def test_frontmatter_related_takes_the_wikilink_form_obsidian_writes(client):
+    """`related:` is hand-written and the hand writing it is usually Obsidian's,
+    which writes wikilinks. Neither resolve() nor _clean_name() sees through the
+    brackets, so every such entry came out named "[[B]]" with an empty path: a
+    dead row under a heading that promises a connection. An alias is a display
+    choice, so it survives; the target before it is what gets resolved."""
+    api, vault = client
+    vault.note("A.md", "\n".join([
+        "---", "related:",
+        '  - "[[B]]"',
+        '  - "[[B|the other one]]"',
+        '  - "[[B#A heading]]"',
+        '  - "[[Nowhere]]"',
+        "  - Plain",
+        "---", "", "Body.", "",
+    ]))
+    vault.note("B.md", "# B\n")
+    vault.note("Plain.md", "# Plain\n")
+
+    fm = api.get("/context", params={"path": "A.md"}).json()["related"]["frontmatter"]
+    assert [r["name"] for r in fm] == ["B", "the other one", "B", "Nowhere", "Plain"]
+    assert [r["path"] for r in fm] == ["B.md", "B.md", "B.md", "", "Plain.md"]
 
 
 def test_context_on_a_missing_note_is_graceful(client):

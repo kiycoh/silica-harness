@@ -481,13 +481,108 @@ function mdLite(src) {
   return out.join("");
 }
 
+// A JSON payload that rides a header. Fail-open by design: a meter is a reading,
+// and a malformed one must leave the app answering questions, not stop it.
+function jsonHeader(r, name) {
+  try { return JSON.parse(r.headers.get(name) || "null"); } catch { return null; }
+}
+
 function fmtTokens(n) {
   n = Number(n) || 0;
   return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
 }
-function setCtxTokens(used, max) {
-  max = Number(max) || 0;
-  $("#ctx-tokens").textContent = max ? `CTX ${fmtTokens(used)}/${fmtTokens(max)}` : "";
+// --- the context ring -------------------------------------------------------
+// One number, three readings: the ring is how full the window is, the panel is
+// what filled it, and the caution level is the one fill that means something.
+// The parts are counted server-side by _context_breakdown, which charges
+// litellm's per-call chat envelope exactly once so they sum to the total printed
+// beside them — a meter that invites you to add up its own segments has to
+// survive that.
+const CTX_R = 8;                    // tracks the <circle r> in index.html
+const CTX_C = 2 * Math.PI * CTX_R;
+// In the order the model meets them, which is also the reverse of the order
+// they stop being yours: the instructions never move, the read results are what
+// compaction collapses first. Ordinal ramp, not the interface palette: this is a
+// bar series and --accent is reserved for what you can click.
+const CTX_PARTS = [
+  ["system", "instructions", "ord-1"],
+  ["tools", "recall + tool results", "ord-2"],
+  ["messages", "conversation", "ord-3"],
+];
+let ctxMeter = { used: 0, max: 0, parts: null, compactAt: 0.6 };
+
+function setCtxTokens(used, max, parts, compactAt) {
+  ctxMeter = {
+    used: Number(used) || 0,
+    max: Number(max) || 0,
+    parts: parts || null,
+    compactAt: Number(compactAt) || ctxMeter.compactAt,
+  };
+  const ring = $("#ctx-ring");
+  if (!ring) return;
+  // An empty window has nothing to read: on a fresh chat the ring would be a
+  // blank circle beside send, which is a control that answers nothing. It
+  // appears with the first turn, the way #side-changes appears with the first
+  // write.
+  ring.hidden = !(ctxMeter.max && ctxMeter.used);
+  if (ring.hidden) { closeCtxPanel(); return; }
+  const frac = Math.min(1, ctxMeter.used / ctxMeter.max);
+  const pct = Math.round(frac * 100);
+  ring.querySelector(".ctx-fill").style.strokeDasharray =
+    `${(CTX_C * frac).toFixed(2)} ${CTX_C.toFixed(2)}`;
+  // Amber is caution in this palette and nothing else, so it arms where the
+  // condition it names actually begins — the fill at which the loop starts
+  // collapsing old read results — not at an eyeballed "looks full".
+  ring.dataset.level = frac >= ctxMeter.compactAt ? "high" : "";
+  ring.setAttribute("aria-label",
+    `context window ${pct}% full, ${fmtTokens(ctxMeter.used)} of ${fmtTokens(ctxMeter.max)}`);
+  ring.title = `context ${pct}% · ${fmtTokens(ctxMeter.used)}/${fmtTokens(ctxMeter.max)}`;
+  if (!$("#ctx-panel").hidden) renderCtxPanel();
+}
+
+function renderCtxPanel() {
+  const panel = $("#ctx-panel");
+  const { used, max, parts, compactAt } = ctxMeter;
+  const pct = max ? Math.round((used / max) * 100) : 0;
+  const free = Math.max(0, max - used);
+  const rows = [];
+  // The bar is the composition of what is IN the window, at full width, and the
+  // ring beside it is how full. Splitting the two questions is what keeps the
+  // bar readable: a bar that also carried the free space spent 98% of itself on
+  // the empty end at every fill anyone actually works at, and compressed the
+  // three parts it exists to compare into a six-pixel sliver.
+  const segs = [];
+  for (const [key, label, tier] of CTX_PARTS) {
+    const n = (parts && Number(parts[key])) || 0;
+    if (n > 0) segs.push(`<div class="stack-seg ${tier}" style="flex:${n}"></div>`);
+    rows.push(`<div class="ctxp-row"><span class="swatch ${tier}"></span>`
+      + `<span class="ctxp-k">${label}</span>`
+      + `<span class="ctxp-v">${fmtTokens(n)}</span></div>`);
+  }
+
+  // Stated rather than implied by the empty part of the bar: what a reader wants
+  // at 70% is how much room is left, and reading it off a track is a subtraction
+  // they should not have to do.
+  rows.push(`<div class="ctxp-row free">`
+    + `<span class="ctxp-k">free</span>`
+    + `<span class="ctxp-v">${fmtTokens(free)}</span></div>`);
+  // The one thing this panel exists to warn about, and only while it is true.
+  const note = used / max >= compactAt
+    ? `<p class="ctxp-note">Past ${Math.round(compactAt * 100)}%: old read results`
+      + ` are being collapsed to stubs that name the call to re-issue.</p>`
+    : "";
+  panel.innerHTML = `<div class="ctxp-head"><span class="ctxp-title">Context</span>`
+    + `<span class="ctxp-fig">${fmtTokens(used)} / ${fmtTokens(max)}</span>`
+    + `<span class="ctxp-pct">${pct}%</span></div>`
+    + `<div class="stack">${segs.join("")}</div>`
+    + rows.join("") + note;
+}
+
+function closeCtxPanel() {
+  const panel = $("#ctx-panel");
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  $("#ctx-ring").setAttribute("aria-expanded", "false");
 }
 
 // Both send buttons go dead for the length of a turn: the server answers one at
@@ -702,12 +797,7 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
     loadSessions(); // turn saved server-side — refresh titles/order
     loadVaultInfo(); // a turn may have written notes — refresh stats + tree
     loadChanges();   // …and the sidebar's record of what it changed
-    graphStale = true; // a turn may have written notes — rebuild next graph view
-    metricsStale = true; // …and remeasure the next time the metrics tab opens
-    // The one place shape is dropped: the other two `graphStale` sites are a
-    // theme flip and a render setting, and neither moves a note. folders/areas/
-    // read take their colours from tokens, so they survive both untouched.
-    shapeData = null;
+    markVaultChanged(); // a turn may have written notes
   }
 
   function handle(ev) {
@@ -746,11 +836,9 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
         claimed[ev.id] = { refs: ev.notes || [], effect: ev.effect || "read", verb: ev.name };
         return;
       }
-      const t = document.createElement("div");
-      t.className = "tool";
-      t.dataset.label = toolLabel(ev);
-      t.textContent = "» " + t.dataset.label + " …";
-      toolsGroup().appendChild(t);
+      const t = makeToolRow(toolLabel(ev));
+      t.section("in", ev.input);
+      toolsGroup().appendChild(t.el);
       curTools.appendChild(caret);
       toolEls[ev.id] = t;
       claimed[ev.id] = { refs: ev.notes || [], effect: ev.effect || "read", verb: ev.name };
@@ -765,7 +853,7 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
         delete pipes[ev.id];
       }
       const t = toolEls[ev.id];
-      if (t) { t.className = "tool done"; t.textContent = "✓ " + (t.dataset.label || ev.name); }
+      if (t) { t.section("out", ev.output); t.finish("done", ev.ms); }
       const c = claimed[ev.id];
       if (c) {
         // A mutation always wins over a read of the same note; a read never
@@ -783,9 +871,12 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
       }
       const t = toolEls[ev.id];
       if (t) {
-        t.className = "tool error";
-        t.textContent = "✗ " + (t.dataset.label || ev.name) + " · " + plainError(ev.error);
-        t.title = ev.error; // the raw text stays reachable for whoever is debugging
+        t.setLabel(toolLabel(ev) + " · " + plainError(ev.error));
+        // The raw text moves out of a `title` and into the card: a tooltip on a
+        // row that is already a disclosure is a second, worse copy of the same
+        // affordance, and it cannot be selected or copied.
+        t.section("error", { text: ev.error, cut: 0 });
+        t.finish("error", ev.ms);
       }
       const f = claimed[ev.id];
       // Still not claimed as written — but now recorded as a mutation that did
@@ -793,10 +884,7 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
       if (f && f.effect !== "read") for (const r of f.refs) if (!touched.has(r)) failed.set(r, f.verb || "write");
       delete claimed[ev.id]; // it failed: do not claim its notes
     } else if (ev.type === "batch") {
-      const t = document.createElement("div");
-      t.className = "tool";
-      t.textContent = "» " + ev.kind + " · " + ev.label;
-      toolsGroup().appendChild(t);
+      toolsGroup().appendChild(makeToolRow(ev.kind + " · " + ev.label).el);
       curTools.appendChild(caret);
     } else if (ev.type === "done") {
       // Uninterrupted answer (no tool split the text) → upgrade the live md to the
@@ -818,7 +906,7 @@ async function runTurn(fetchPromise, pendingLabel = "working", retry = null) {
         h.textContent = ev.hint;
         flow.appendChild(h);
       }
-      setCtxTokens(ev.context_tokens, ev.max_context_tokens);
+      setCtxTokens(ev.context_tokens, ev.max_context_tokens, ev.context_parts, ev.compact_at);
       peekDone(ev); // card gets the canonical OFM render
       announce("response ready");
     } else if (ev.type === "error") {
@@ -894,6 +982,93 @@ async function runFind(rest) {
   mirror();
 }
 
+// --- tool rows --------------------------------------------------------------
+// A tool used to be one line that said `read Etica.md` and stopped. That is the
+// verb and the object; what it cost and what came back were nowhere, so every
+// step of a turn had to be taken on trust. The row now carries its own duration
+// and opens onto the call it made and the answer it got — the two facts that
+// separate "the agent read the note" from "the agent says it read the note".
+//
+// Server-measured duration, not a client timer started when the event painted:
+// an SSE frame lands a frame late and a backgrounded tab stops scheduling
+// altogether, so a clock on this side reports the transport as the tool's cost.
+function fmtMs(ms) {
+  if (!(ms >= 0)) return "";
+  // A sub-millisecond call printed as "0ms" reads as "not measured", which is
+  // the opposite of what it means: the tool was a cache hit.
+  if (ms < 1) return "<1ms";
+  if (ms < 1000) return Math.round(ms) + "ms";
+  return (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + "s";
+}
+
+function makeToolRow(label) {
+  const el = document.createElement("div");
+  el.className = "tool";
+  el.dataset.state = "running";
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "tool-row";
+  // Inert until it has a card. A transcript replay carries no results, so a
+  // reloaded chat would otherwise put six focusable buttons in the tab order
+  // that do nothing when activated — and a keyboard user has no hover to tell
+  // them apart from the rows that open.
+  row.disabled = true;
+  row.innerHTML = '<span class="tool-mark" aria-hidden="true">\u00bb</span>'
+    + '<span class="tool-label"></span><span class="tool-ms"></span>'
+    + '<span class="tool-chev" aria-hidden="true">\u25b8</span>';
+  const card = document.createElement("div");
+  card.className = "tool-card";
+  card.hidden = true;
+  el.append(row, card);
+  const labelEl = row.querySelector(".tool-label");
+  labelEl.textContent = label;
+
+  // Only a row with something to open is a control. The rest keeps the same
+  // geometry and stays inert, so a group of tools does not read as a row of
+  // buttons half of which do nothing.
+  let sections = 0;
+  function section(kind, payload) {
+    if (!payload || !payload.text) return;
+    if (sections) card.appendChild(mkEl("div", "tc-div"));
+    const sec = mkEl("div", "tc-sec");
+    sec.appendChild(mkEl("span", "tc-k", kind));
+    // A div, not a <pre>: `:is(.msg, …) pre` gives every pre in a turn the code
+    // well's own surface, and this text already sits inside one. `white-space`
+    // below is what <pre> was ever here for, and .tc-text sets it.
+    const pre = mkEl("div", "tc-text", payload.text);
+    if (payload.cut) {
+      // Named, not elided: a result that genuinely ends in an ellipsis and one
+      // that was cut look identical once you print "…" and say nothing.
+      pre.appendChild(mkEl("span", "tc-cut", `\u2026 ${payload.cut} more characters`));
+    }
+    sec.appendChild(pre);
+    card.appendChild(sec);
+    sections++;
+    el.dataset.open = "shut";
+    row.disabled = false;
+    row.setAttribute("aria-expanded", "false");
+  }
+  row.addEventListener("click", () => {
+    if (!sections) return;
+    const opening = card.hidden;
+    card.hidden = !opening;
+    el.dataset.open = opening ? "open" : "shut";
+    row.setAttribute("aria-expanded", opening ? "true" : "false");
+  });
+
+  return {
+    el,
+    section,
+    setLabel(text) { labelEl.textContent = text; },
+    finish(state, ms) {
+      el.dataset.state = state;                          // done | error
+      row.querySelector(".tool-mark").textContent = state === "error" ? "\u2717" : "\u2713";
+      const t = fmtMs(ms);
+      if (t) row.querySelector(".tool-ms").textContent = t;
+    },
+  };
+}
+
 // --- composer ---------------------------------------------------------------
 function autoGrow(el) {
   el.style.height = "auto";
@@ -911,6 +1086,7 @@ $("#composer").addEventListener("submit", (e) => {
   input.value = "";
   autoGrow(input);
   renderCommands(input.value); // clearing by hand fires no `input` event — dismiss the picker
+  renderHighlight();           // …and clear the bands with it
   if (staged.length) nucleateStaged(t); // files attached: upload + act on them together
   else send(t);
 });
@@ -979,12 +1155,74 @@ function pickCommand(c) {
   input.value = c.name + (c.usage ? " " : "");
   input.focus();
   renderCommands(input.value);
+  renderHighlight();
+}
+
+// --- the composer mirror ----------------------------------------------------
+// A layer exactly the size of the field, behind it, drawing what the box has
+// understood: a band under the leading command, under every [[wikilink]] and
+// under every path, plus the greyed rest of a command you have started typing.
+//
+// It draws BACKGROUNDS and never glyphs. The textarea keeps its own opaque
+// text, caret and selection on top, so the two layers can only ever disagree by
+// a band sitting a pixel off — where the usual mirror trick (transparent
+// textarea, glyphs in the backdrop) disagrees by showing the wrong characters,
+// which is what makes it flicker on IME input and lag a frame behind a wheel
+// scroll. The cost of the safe version is that the tokens are tinted rather
+// than coloured; the benefit is that nothing here can ever ghost.
+const inputHl = $("#input-hl");
+// [[wikilink]] first, so a link is never re-matched as a path by its own text.
+const HL_TOKENS = [
+  [/\[\[[^\][]+\]\]/g, "link"],
+  [/(?:^|\s)((?:[\w.\-]+\/)+[\w.\-]+\.md)/g, "path"],
+];
+
+function renderHighlight() {
+  const raw = input.value;
+  if (!raw) { inputHl.textContent = ""; inputHl.scrollTop = 0; return; }
+  // Marks by offset, then one pass: overlapping patterns would otherwise nest
+  // spans inside each other and the second band would paint over the first.
+  const marks = [];
+  const cmd = /^\/[a-z-]+/.exec(raw);
+  if (cmd) marks.push([0, cmd[0].length, "cmd"]);
+  for (const [re, cls] of HL_TOKENS) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(raw))) {
+      const hit = m[1] !== undefined ? m[1] : m[0];
+      const at = m.index + m[0].indexOf(hit);
+      if (!marks.some(([a, b]) => at < b && at + hit.length > a))
+        marks.push([at, at + hit.length, cls]);
+    }
+  }
+  marks.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let at = 0;
+  for (const [start, end, cls] of marks) {
+    out += escapeHtml(raw.slice(at, start));
+    out += `<span class="hl-${cls}">${escapeHtml(raw.slice(start, end))}</span>`;
+    at = end;
+  }
+  out += escapeHtml(raw.slice(at));
+  // The ghost completes the command you are typing, and only while exactly one
+  // command can still be meant: offering the first of five is a guess wearing
+  // the clothes of an answer, and the picker below already lists all five.
+  if (cmd && cmd[0].length === raw.length) {
+    const hits = allCommands.filter((c) => c.name.startsWith(raw) && c.name !== raw);
+    if (hits.length === 1) out += `<span class="hl-ghost">${escapeHtml(hits[0].name.slice(raw.length))}</span>`;
+  }
+  inputHl.innerHTML = out;
+  inputHl.scrollTop = input.scrollTop;
 }
 
 input.addEventListener("input", () => {
   autoGrow(input);
   renderCommands(input.value);
+  renderHighlight();
 });
+// Past the 40vh cap the field scrolls, and a band that stays put while its word
+// leaves the viewport is worse than no band at all.
+input.addEventListener("scroll", () => { inputHl.scrollTop = input.scrollTop; });
 
 input.addEventListener("keydown", (e) => {
   const box = $("#commands");
@@ -1046,6 +1284,7 @@ $("#brand-logo").addEventListener("click", async () => {
   if (streaming) return;
   log.innerHTML = "";
   await fetch("/reset", { method: "POST" });
+  announceSession();
   document.querySelector('.tab[data-tab="chat"]').click(); // surface the loaded chat
   loadVault();
   loadSessions();
@@ -1055,10 +1294,86 @@ $("#brand-logo").addEventListener("click", async () => {
 if (localStorage.getItem("sidebar-collapsed") === "1")
   document.body.classList.add("sidebar-collapsed");
 $("#sidebar-toggle").addEventListener("click", () => {
+  // Below the floor the rail is already a strip of icons and there is nothing
+  // left to collapse; the same button summons it over the transcript instead.
+  if (isNarrow()) { toggleRail(railSection || "side-files"); return; }
   const collapsed = document.body.classList.toggle("sidebar-collapsed");
   localStorage.setItem("sidebar-collapsed", collapsed ? "1" : "0");
   sidebarYielded = false; // an explicit choice outranks the drawer's auto-yield
 });
+
+// --- the 1120 floor: the deck folds, it does not reflow ----------------------
+// Below the width that holds rail + reading measure + work panel side by side,
+// the rail becomes five icons and the work panel becomes an overlay over the
+// transcript. Neither disappears: what a fold must never do is take a surface
+// away and leave nothing where it was.
+//
+// The threshold itself lives in ONE place, the media query in app.css that sets
+// --narrow. Both this file and work.js read it back through here rather than
+// each carrying a pixel count of its own, because two constants that must match
+// are two constants that eventually do not.
+function isNarrow() {
+  return getComputedStyle(document.body).getPropertyValue("--narrow").trim() === "1";
+}
+window.isNarrow = isNarrow;
+
+let railSection = null; // which compartment the summoned rail is showing
+
+function toggleRail(sec) {
+  const open = railSection !== sec;
+  railSection = open ? sec : null;
+  document.body.classList.toggle("rail-open", open);
+  for (const b of document.querySelectorAll("#railmini .rm"))
+    b.classList.toggle("on", open && b.dataset.sec === sec);
+  if (!open) return;
+  // The compartment you asked for is the one that opens; the others keep the
+  // state you left them in, so summoning Files twice does not re-collapse the
+  // tree you just expanded.
+  const el = document.getElementById(sec);
+  if (el) { el.open = true; el.scrollIntoView({ block: "nearest" }); }
+}
+
+function closeRail() {
+  if (!railSection) return;
+  railSection = null;
+  document.body.classList.remove("rail-open");
+  for (const b of document.querySelectorAll("#railmini .rm")) b.classList.remove("on");
+}
+
+$("#railmini").addEventListener("click", (e) => {
+  const b = e.target.closest(".rm");
+  if (b) toggleRail(b.dataset.sec);
+});
+// The summoned rail sits over the transcript, so a click in the transcript is
+// a dismissal. The rail itself and the strip that summoned it are not.
+document.addEventListener("click", (e) => {
+  if (!railSection) return;
+  if (e.target.closest("#sidebar, #railmini, #sidebar-toggle")) return;
+  closeRail();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeRail(); });
+
+// A compartment the vault cannot fill yet (Pinned before the first pin, This
+// session before the first write) hides itself, and an icon standing for a
+// hidden compartment is a button that opens nothing. app.js unhides those
+// sections from four different places, so watch the result rather than adding a
+// fifth call site to each.
+function syncRailIcons() {
+  for (const b of document.querySelectorAll("#railmini .rm")) {
+    const sec = document.getElementById(b.dataset.sec);
+    b.hidden = !sec || sec.hidden;
+  }
+}
+new MutationObserver(syncRailIcons).observe($("#sidebar"),
+  { attributes: true, attributeFilter: ["hidden"], subtree: true });
+
+function syncNarrow() {
+  const narrow = isNarrow();
+  $("#railmini").hidden = !narrow;
+  if (!narrow) closeRail();
+  syncRailIcons();
+}
+syncNarrow();
 
 // Vault stats + file tree, from /vault_info. Best-effort: on error the placeholders stay.
 async function loadVaultInfo() {
@@ -1066,18 +1381,233 @@ async function loadVaultInfo() {
     const r = await fetch("/vault_info");
     const data = await r.json();
     if (data.error) return;
-    if (data.path) $("#vault").textContent = data.path; // follows a /vault switch
-    $("#stat-notes").textContent = data.notes;
-    $("#stat-links").textContent = data.links;
-    $("#stat-clusters").textContent = data.clusters;
-    $("#stat-unresolved").textContent = data.unresolved;
+    if (data.path) setVaultPath(data.path); // follows a /vault switch
+    renderTopCounts(data);            // the strip's copy, the only one now
     $("#tree").innerHTML = data.tree || "";
+    syncTreePins();          // a fresh tree knows nothing about the pins yet
+    renderRailAreas(data);            // the rail's spectrum, from the same call
     renderVaultFacts(data);           // the chat landing's counted line
     renderMapPicker(data.hubs || []); // map landing: best-connected notes
     buildNoteIndex();                 // explore note search reads the fresh tree
     applySidebarFilter();
   } catch { notify("couldn't refresh vault stats"); }
 }
+
+// --- the top strip: identity and counts, stated once -------------------------
+// These numbers used to live in the rail as a 2x2 board AND in metrics as four
+// of its rates, which is the same fact in two places that can disagree. Here
+// they are true on every view and cost the rail nothing.
+
+// The folder's NAME in the strip, its path on hover. The rail printed the whole
+// path over two wrapped lines; what identifies a vault at a glance is its last
+// segment, and the rest is one hover and the settings panel away.
+function setVaultPath(path) {
+  const el = $("#top-vname");
+  const was = el.title;
+  const name = String(path || "").replace(/\/+$/, "").split("/").pop();
+  el.textContent = name || "";
+  el.title = path || "";
+  // …and in full at the bottom of the rail. The strip's hover is the wrong home
+  // for the answer to "which of my two vaults is this window", which is a thing
+  // you check while reading something else.
+  const foot = $("#railfoot");
+  foot.textContent = path || "";
+  foot.title = path || "";
+  foot.hidden = !path;
+  if (path) $("#top-vault").hidden = false;
+  if (path && path !== was) loadPins(); // pins are per vault, and this is the switch
+}
+
+// A cluster count made entirely of singletons names nothing, so it is stated
+// only when there are areas worth naming. One function, because the strip and
+// the chat landing both state this number and two copies of the rule are two
+// numbers that can disagree about the same vault.
+function areaCount(data) {
+  return (data.topics || []).length ? data.clusters : 0;
+}
+
+function renderTopCounts(data) {
+  const bits = [];
+  if (data.notes) bits.push(nfmt(data.notes) + (data.notes === 1 ? " note" : " notes"));
+  if (data.links) bits.push(nfmt(data.links) + " links");
+  const areas = areaCount(data);
+  if (areas) bits.push(nfmt(areas) + " areas");
+  $("#top-counts").textContent = bits.join("  ·  ");
+  const broken = $("#top-broken");
+  broken.hidden = !data.unresolved;
+  broken.textContent = nfmt(data.unresolved || 0) + " broken";
+  broken.title = data.unresolved + " unresolved wikilinks: targets that do not exist yet. Opens metrics.";
+  $("#top-vault").hidden = !(bits.length || data.unresolved || $("#top-vname").textContent);
+}
+
+// A number you cannot act on from where it is stated is a number you read once.
+$("#top-broken").addEventListener("click", () => {
+  document.querySelector('.tab[data-tab="metrics"]').click();
+});
+
+// Two conditions, one hidden flag, and they arrive at different times: the
+// areas come from a fetch, the view from a click. Whichever moves calls this,
+// so neither can leave the compartment showing on chat or missing on explore.
+// The areas ARE the colouring of the graph and the rows of the areas surface;
+// on a transcript they are a list nothing on screen refers to.
+let railHasAreas = false;
+
+function syncAreasRail() {
+  $("#side-areas").hidden = !railHasAreas || activeTab !== "graph";
+}
+
+// The rail's area spectrum, from the same /vault_info the landing reads: one
+// fetch, two readings. The bar is proportional to the largest area, because
+// what the rail is for here is the SHAPE of the distribution; the exact size is
+// the figure beside it. The summary counts every area, not the five that fit.
+function renderRailAreas(data) {
+  const rows = (data.topics || []).filter((t) => t.label);
+  const box = $("#areas");
+  box.innerHTML = "";
+  railHasAreas = rows.length > 0;
+  syncAreasRail();
+  $("#areas-count").textContent = rows.length ? nfmt(data.clusters) : "";
+  const top = rows[0] ? rows[0].size : 1;
+  for (const t of rows) {
+    const row = mkEl("div", "area");
+    row.title = t.label + " · " + t.size + " notes";
+    row.appendChild(mkEl("span", "an", t.label));
+    row.appendChild(mkEl("span", "ac", nfmt(t.size)));
+    const bar = mkEl("span", "abar");
+    const fill = mkEl("i");
+    fill.style.width = Math.max(4, Math.round((t.size / (top || 1)) * 100)) + "%";
+    bar.appendChild(fill);
+    row.appendChild(bar);
+    box.appendChild(row);
+  }
+}
+
+// --- the rail's Layout compartment (explore only) ----------------------------
+// The ONE place the five surfaces are named. They used to be a row of tabs in
+// the graph toolbar as well, a hand's width from this list: two controls for one
+// choice, and the rail is the one that survives a narrow window. The list is
+// data here rather than markup because the toolbar copy is gone — there is no
+// second DOM to read it back off.
+const LAYOUT_MODES = [
+  ["graph", "Graph", "wikilink structure + semantic k-NN overlay; toggle the layers in the HUD"],
+  ["map", "Map", "radial map rooted on one note"],
+  // Three surfaces over the same graph that are NOT link-space: graph and map
+  // both lay notes out by how they connect, so neither can show where a note
+  // SITS, how two areas couple as a whole, or what order the vault could be
+  // read in.
+  ["folders", "Folders", "the vault as folders, shaded by how much each folder mixes areas"],
+  ["areas", "Areas", "area x area coupling: every pair at once, not a top-N list"],
+  ["read", "Read", "a reading order derived from hubs and their links"],
+  // The sixth, and the only one that is not undirected: the four above lay
+  // notes out by how they connect, where they are filed, or how two groups
+  // couple, and none of them can answer "what do I read BEFORE this".
+  ["path", "Path", "reading order around one note: what RefD says comes before it, and what it unlocks"],
+];
+
+function buildLayoutRail() {
+  const box = $("#layout-modes");
+  box.innerHTML = "";
+  for (const [mode, label, why] of LAYOUT_MODES) {
+    const row = mkEl("button", "lay");
+    row.type = "button";
+    row.dataset.gmode = mode;
+    row.title = why;
+    row.appendChild(mkEl("span", "sw"));
+    row.appendChild(mkEl("span", "t", label));
+    row.addEventListener("click", () => setGraphMode(mode));
+    box.appendChild(row);
+  }
+  syncLayoutRail();
+}
+
+function syncLayoutRail() {
+  document.querySelectorAll("#layout-modes .lay")
+    .forEach((b) => setActive(b, b.dataset.gmode === graphMode));
+}
+
+// --- pinned notes ------------------------------------------------------------
+// The one thing in the rail the vault cannot derive. Files is alphabetical,
+// History is chronological, Areas is computed: none of them can say "this one
+// matters". Stored per vault, because a pin is a statement about the folder you
+// are reading and switching vaults must not carry one vault's pins into another.
+let pinnedPaths = [];
+
+function pinKey() { return "pinned:" + ($("#top-vname").title || ""); }
+
+function loadPins() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(pinKey()) || "[]");
+    pinnedPaths = Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : [];
+  } catch { pinnedPaths = []; } // a hand-edited key is not an error to report
+  renderPins();
+}
+
+function savePins() {
+  // Quota is the one failure worth saying out loud: silently, the rail forgets
+  // a pin the moment the tab closes and the user never learns why.
+  try { localStorage.setItem(pinKey(), JSON.stringify(pinnedPaths)); }
+  catch { notify("couldn't save that pin"); }
+  renderPins();
+}
+
+function togglePin(path) {
+  if (!path) return;
+  const i = pinnedPaths.indexOf(path);
+  if (i >= 0) pinnedPaths.splice(i, 1);
+  else pinnedPaths.unshift(path); // newest first: the pin you just made is visible
+  savePins();
+}
+
+function syncPinButton() {
+  const btn = $("#note-pin");
+  const on = !!lastViewedPath && pinnedPaths.includes(lastViewedPath);
+  btn.setAttribute("aria-pressed", String(on));
+  btn.classList.toggle("on", on);
+  btn.querySelector("span").textContent = on ? "pinned" : "pin";
+}
+
+// The same pin, stated on the row it came from. Pinned is a state of the NOTE,
+// so the tree has to show it: a toggle that only ever looks unpressed is a
+// button the reader has to click twice to learn what it did.
+function syncTreePins() {
+  const on = new Set(pinnedPaths);
+  for (const b of $("#tree").querySelectorAll(".tree-pin")) {
+    const lit = on.has(b.dataset.pin);
+    b.setAttribute("aria-pressed", String(lit));
+    b.classList.toggle("on", lit);
+    b.title = lit ? "unpin this note" : "keep this note in the rail";
+  }
+}
+
+function renderPins() {
+  const box = $("#pinned");
+  box.innerHTML = "";
+  for (const path of pinnedPaths) {
+    const row = mkEl("div", "pin-row");
+    row.dataset.path = path;
+    row.title = path;
+    row.appendChild(mkEl("span", "sw"));
+    row.appendChild(mkEl("span", "t", path.replace(/\.md$/, "").split("/").pop()));
+    const x = mkEl("button", "pin-x", "✕");
+    x.type = "button";
+    x.setAttribute("aria-label", "unpin " + path);
+    row.appendChild(x);
+    box.appendChild(row);
+  }
+  $("#side-pinned").hidden = !pinnedPaths.length;
+  $("#pinned-count").textContent = pinnedPaths.length || "";
+  syncPinButton();
+  syncTreePins();
+  applySidebarFilter();
+}
+
+$("#pinned").addEventListener("click", (e) => {
+  const row = e.target.closest(".pin-row");
+  if (!row) return;
+  if (e.target.closest(".pin-x")) { togglePin(row.dataset.path); return; }
+  openNote(row.dataset.path);
+});
+$("#note-pin").addEventListener("click", () => togglePin(lastViewedPath));
 
 // --- the chat landing --------------------------------------------------------
 // Two lines about the folder you opened, over the wordmark. The counted one is
@@ -1092,7 +1622,7 @@ function renderVaultFacts(data) {
   const bits = [];
   if (data.notes) bits.push(nfmt(data.notes) + (data.notes === 1 ? " note" : " notes"));
   if (data.links) bits.push(nfmt(data.links) + " links");
-  const areas = (data.topics || []).length ? data.clusters : 0;
+  const areas = areaCount(data);
   if (areas) bits.push(nfmt(areas) + " areas");
   $("#vh-facts").textContent = bits.join("  ·  ");
   if (!$("#vh-brief").dataset.written) renderTopicLine();
@@ -1129,6 +1659,11 @@ async function loadVaultBrief() {
 // roots the radial map on the note; otherwise it opens the note drawer (which
 // also mirrors focus into the graph iframe via focusGraphNode).
 $("#tree").addEventListener("click", (e) => {
+  // The pin sits inside the row, so it is tested first: otherwise the row's own
+  // click wins and pinning a note would also open it, which is the opposite of
+  // what a pin is for (naming it without going there).
+  const pin = e.target.closest(".tree-pin");
+  if (pin) { togglePin(pin.dataset.pin); return; }
   const leaf = e.target.closest(".tree-note");
   if (!leaf) return;
   const path = leaf.dataset.id;
@@ -1229,14 +1764,26 @@ function applySidebarFilter() {
   const q = $("#side-search").value.trim().toLowerCase();
   // notes: substring on name or full path
   $("#tree").querySelectorAll(".tree-note").forEach((el) => {
-    el.hidden = !!q && !el.textContent.toLowerCase().includes(q) &&
+    const off = !!q && !el.textContent.toLowerCase().includes(q) &&
                 !(el.dataset.id || "").toLowerCase().includes(q);
+    el.hidden = off;
+    // The pin rides in a wrapper, so hiding the label alone would leave a bare
+    // pin on an empty line. Both, because every count below still asks the
+    // label whether it is hidden.
+    const row = el.closest(".tree-row");
+    if (row) row.hidden = off;
   });
   // folders: hide if nothing visible remains inside; reveal matches while searching
   $("#tree").querySelectorAll("details").forEach((d) => {
     const any = Array.from(d.querySelectorAll(".tree-note")).some((n) => !n.hidden);
     d.hidden = !!q && !any;
     if (q && any) d.open = true;
+  });
+  // pinned notes: same substring rule again, so a filtered rail is filtered
+  // everywhere and not just below the fold
+  $("#pinned").querySelectorAll(".pin-row").forEach((el) => {
+    el.hidden = !!q && !el.textContent.toLowerCase().includes(q) &&
+                !(el.dataset.path || "").toLowerCase().includes(q);
   });
   // changed notes: same substring rule as the tree, on the same names
   $("#changes").querySelectorAll(".chg-row").forEach((el) => {
@@ -1324,6 +1871,12 @@ async function loadSessions() {
   } catch { notify("couldn't load chat history"); }
 }
 
+// The work panel projects whichever narration session is current, and the two
+// places that switch it are the only ones that know. A load replays no beats
+// onto the BUS — read_beats() walks the file — so a live subscriber cannot see
+// the switch happen and has to be told.
+const announceSession = () => document.dispatchEvent(new CustomEvent("silica:session"));
+
 async function openSession(id) {
   if (streaming) return;
   try {
@@ -1335,6 +1888,7 @@ async function openSession(id) {
     if (!r.ok) { notify("couldn't load that chat"); return; }
   } catch { notify("couldn't load that chat"); return; }
   document.querySelector('.tab[data-tab="chat"]').click(); // surface the loaded chat
+  announceSession();
   await loadVault();
   loadSessions();
 }
@@ -1368,6 +1922,10 @@ function showTab(tab) {
   $("#view-graph").classList.toggle("active", tab === "graph");
   $("#view-calendar").classList.toggle("active", tab === "calendar");
   $("#view-metrics").classList.toggle("active", tab === "metrics");
+  // The rail's Layout rows name the surfaces of ONE view, so they leave with it.
+  // Areas is the same fact about the same view: what the graph is coloured by.
+  $("#side-layout").hidden = tab !== "graph";
+  syncAreasRail();
   if (tab === "graph") setGraphMode(graphMode); // load the active mode's content
   if (tab === "calendar") loadCalendar();
   if (tab === "metrics") loadMetrics();
@@ -1375,6 +1933,10 @@ function showTab(tab) {
   // see for the graph view), so a pasted URL opens on the right screen.
   const slug = tab === "graph" ? "explore" : tab;
   if (location.hash !== "#" + slug) history.replaceState(null, "", "#" + slug);
+  // The third column reads this: on metrics it stops narrating the run and
+  // becomes the Report panel. It is a separate file and has no other way to
+  // know which view is up.
+  document.dispatchEvent(new CustomEvent("silica:view", { detail: tab }));
 }
 $(".tabs").addEventListener("click", (e) => {
   const tab = e.target.dataset.tab;
@@ -1429,22 +1991,35 @@ let mapRootedPath = null; // note the radial map is rooted on, or null → picke
 // explore tab, so it must be idempotent.
 function setGraphMode(m) {
   graphMode = m;
-  document.querySelectorAll(".gmode-tabs button").forEach((b) => setActive(b, b.dataset.gmode === m));
+  syncRefreshCue(); // the offer belongs to the graph surface alone
+  syncLayoutRail();
+  // Only the graph has two renderers. On the other four the segment would be a
+  // control with nothing to switch.
+  $("#renderer-tabs").hidden = m !== "graph";
   const isMap = m === "map";
   // folders / areas / read render in-page. They take the whole pane, so both
   // iframes hide and the note search goes with them: it flies the graph camera
   // and roots the map, and neither means anything on a treemap or a matrix.
   const isShape = m in SHAPE_VIEWS;
-  $("#shape-pane").hidden = !isShape;
+  // path renders in the same pane as the three shape views and is NOT one of
+  // them: it is rooted on a note, so it keeps the search the shape views hide.
+  const isPath = m === "path";
+  $("#shape-pane").hidden = !(isShape || isPath);
   $("#node-search-wrap").hidden = isShape;
-  $("#graph-frame").hidden = isMap || isShape;
+  // The pane's top padding clears a toolbar carrying only the renderer segment.
+  // path is the one pane surface that KEEPS the note search, which makes that
+  // toolbar 67px tall, and at 1100px the ladder's own title landed underneath
+  // it (measured 2026-08-22: title top 97, search bottom 104). The three shape
+  // views hide the search and need no such reservation.
+  $("#shape-pane").classList.toggle("with-bar", isPath);
+  $("#graph-frame").hidden = isMap || isShape || isPath;
   $("#map-frame").hidden = !isMap || !mapRootedPath;
   $("#map-picker").hidden = !isMap || !!mapRootedPath;
   closeNodeResults();
-  if (isShape) {
+  if (isShape || isPath) {
     $("#graph-loading").hidden = true;
     $("#map-loading").hidden = true;
-    drawShape();
+    if (isPath) { drawPath(); $("#node-search").focus(); } else { drawShape(); }
     return;
   }
   $("#shape-loading").hidden = true;
@@ -1458,15 +2033,34 @@ function setGraphMode(m) {
       $("#graph-loading").hidden = false;
       $("#graph-frame").src = "/graph?theme=" + liveTheme() + "&t=" + Date.now();
       graphStale = false;
+      syncRefreshCue(); // …and this rebuild is what it was offering
     }
   }
 }
 
-$("#graph-bar").addEventListener("click", (e) => {
-  const m = e.target.dataset.gmode; // only the mode buttons carry it; inputs don't
-  if (!m || m === graphMode) return;
-  setGraphMode(m);
+$("#graph-refresh").addEventListener("click", () => {
+  setGraphMode("graph"); // graphStale is already true, so this is the rebuild
 });
+
+$("#graph-bar").addEventListener("click", (e) => {
+  // The renderer lives inside the frame (it owns the WebGL/canvas instance), so
+  // this asks rather than sets. Nothing is painted here on the way out: the
+  // frame answers with the mode it actually built, which is the only value that
+  // cannot be a lie, and syncRenderer() paints that.
+  const r = e.target.dataset.renderer;
+  if (!r) return;
+  const f = $("#graph-frame");
+  if (f.contentWindow) f.contentWindow.postMessage({ type: "silica-set-renderer", mode: r }, "*");
+});
+
+// The frame states its renderer on every build and on every switch, embedded or
+// not. Before the first answer the segment shows neither: an unanswered toolbar
+// that guesses 3D is a toolbar that is wrong for as long as the graph takes to
+// build.
+function syncRenderer(mode) {
+  document.querySelectorAll("#renderer-tabs button")
+    .forEach((b) => setActive(b, b.dataset.renderer === mode));
+}
 
 // #graph-frame finishes loading only once the server is done building — drop the
 // loader then and re-sync the focus dim state after a (re)load.
@@ -1631,10 +2225,8 @@ function renderFolders(s) {
 // Area x area coupling. Every pair at once, where the metrics tab's gap list is
 // a top-N: an absence is only readable against the pairs that are present, and
 // a ranked list of the emptiest pairs cannot show that.
-// Two scales in one grid, so they get two treatments: off-diagonal cells ramp on
-// the accent by inter-area link count, the diagonal is neutral and carries the
-// area's own cohesion. A shared ramp would put a 0.11 cohesion and 11 links in
-// the same ink and invite reading one as the other.
+// The grid itself is `couplingMatrix`, which the metrics tab draws too: this
+// surface owns the framing and the caveat, not the cells.
 function renderAreas(s) {
   const pane = mkEl("div", "shape-body");
   const head = mkEl("div", "shape-head");
@@ -1648,48 +2240,7 @@ function renderAreas(s) {
     `${s.areas.length} areas · ${linked} of ${pairs} pairs share a link · diagonal is cohesion`));
   pane.appendChild(head);
 
-  let max = 1;
-  for (let i = 0; i < s.areas.length; i++) {
-    for (let j = 0; j < s.areas.length; j++) if (i !== j) max = Math.max(max, s.matrix[i][j]);
-  }
-  const wrap = mkEl("div", "smx-scroll");
-  const g = mkEl("div", "smx dense");
-  g.style.setProperty("--cols", s.areas.length);
-  g.appendChild(mkEl("div", "smx-corner"));
-  for (const a of s.areas) {
-    const h = mkEl("div", "smx-col", a.label);
-    h.title = `${a.label} · ${a.size} notes · cohesion ${a.cohesion}`;
-    g.appendChild(h);
-  }
-  s.areas.forEach((a, i) => {
-    const lbl = mkEl("div", "smx-row", a.label);
-    lbl.title = `${a.label} · ${a.size} notes`;
-    if (a.path) { lbl.dataset.path = a.path; lbl.classList.add("clickable"); }
-    g.appendChild(lbl);
-    s.areas.forEach((b, j) => {
-      const v = s.matrix[i][j];
-      if (i === j) {
-        // ".55" saves two characters in a 22px cell, but only where there IS a
-        // leading zero: slicing it off 1.00 printed ".00", so a perfectly
-        // cohesive area read as the least cohesive one on the grid.
-        const coh = a.cohesion >= 1 ? "1" : a.cohesion ? a.cohesion.toFixed(2).slice(1) : "";
-        const c = mkEl("div", "smx-cell diag", coh);
-        c.title = `${a.label}: cohesion ${a.cohesion}, ${a.intra} linked pairs inside ${a.size} notes`;
-        g.appendChild(c);
-        return;
-      }
-      const c = mkEl("div", "smx-cell" + (v ? "" : " empty"), v ? String(v) : "");
-      if (v) {
-        c.style.setProperty("--i", Math.sqrt(v / max).toFixed(3));
-        c.title = `${a.label} ↔ ${b.label}: ${v} linked note pairs`;
-      } else {
-        c.title = `${a.label} ↮ ${b.label}: nothing links them`;
-      }
-      g.appendChild(c);
-    });
-  });
-  wrap.appendChild(g);
-  pane.appendChild(wrap);
+  pane.appendChild(couplingMatrix(s.areas, s.matrix));
   pane.appendChild(mkEl("p", "mnote",
     `${nfmt(s.totals.singletons)} single-note areas are left out: each would be a row and a column `
     + "of zeroes, and 65 of them would bury the 26 that carry the vault."));
@@ -1798,10 +2349,20 @@ async function drawShape() {
   pane.appendChild(SHAPE_VIEWS[graphMode](s));
 }
 
-// Same convention the metrics rows use: a row that names a note opens it.
+// Same convention the metrics rows use: a shape row is a measurement ABOUT a
+// note, not the note, so it points rather than names and fills the work panel.
 $("#shape-pane").addEventListener("click", (e) => {
+  // The path surface puts a re-root button INSIDE its chips, so the chip's own
+  // "select this note" verb has to stand aside for it. Registration order on
+  // one node cannot be relied on, so the generic handler declines rather than
+  // the specific one shouting.
+  if (e.target.closest("[data-root]")) return;
   const el = e.target.closest("[data-path]");
-  if (el && el.dataset.path) openContext({ path: el.dataset.path });
+  // Off a row is a deselection, the same way the graph's background is one:
+  // without it a row click is a one-way door and the panel keeps stating a note
+  // you have stopped looking at.
+  if (el && el.dataset.path) showNode({ path: el.dataset.path });
+  else announceNode(null, null);
 });
 
 // --- metrics tab -------------------------------------------------------------
@@ -1846,14 +2407,16 @@ async function loadMetrics(force = false, proposals = false) {
   // short of switching tab and hoping. The previous render stays underneath at
   // reduced opacity, so cancelling leaves you exactly where you were.
   metricsAbort = new AbortController();
+  let data = null;
   try {
-    const data = await (await fetch("/metrics" + (proposals ? "?proposals=1" : ""),
-                                    { signal: metricsAbort.signal })).json();
-    if (data.error) { notify("metrics unavailable: " + data.error); return; }
-    metricsDepth = data.depth || "structural";
-    renderMetrics(data);
-    metricsStale = false;
+    data = await (await fetch("/metrics" + (proposals ? "?proposals=1" : ""),
+                              { signal: metricsAbort.signal })).json();
   } catch (e) {
+    // Reaching the endpoint is the ONLY failure this message can honestly
+    // describe. renderMetrics used to sit inside this try, so a bug in the view
+    // -- a chart reading a field the payload stopped carrying, say -- surfaced
+    // as "couldn't measure the vault" over a body left half-drawn, which sends
+    // every render bug to the wrong place to look and blames the vault for it.
     if (e.name !== "AbortError") notify("couldn't measure the vault");
   } finally {
     metricsAbort = null;
@@ -1861,17 +2424,45 @@ async function loadMetrics(force = false, proposals = false) {
     loading.hidden = true;
     body.style.opacity = "";
   }
+  if (!data) return;                         // aborted, or the fetch failed above
+  if (data.error) { notify("metrics unavailable: " + data.error); return; }
+  metricsDepth = data.depth || "structural";
+  // The Report panel is the same payload read a different way, so it rides this
+  // fetch rather than making a second one that would recompute the vault. Sent
+  // BEFORE the render: the two are separate surfaces over one reading, and a
+  // chart that throws should not also blank the panel in the third column.
+  document.dispatchEvent(new CustomEvent("silica:report", { detail: data }));
+  try {
+    renderMetrics(data);
+  } catch (e) {
+    // The vault was measured; this file could not draw it. Said out loud and
+    // logged with the stack, because the half-built body left on screen is the
+    // most misleading state this view has -- it reads as a complete report that
+    // happens to be missing its last few cards.
+    console.error("metrics: render failed", e);
+    body.innerHTML = "";
+    body.appendChild(mkEl("p", "mempty",
+      "The vault was measured, but this view could not draw the result. "
+      + "The console carries the error."));
+    return;
+  }
+  metricsStale = false;
 }
 
 $("#metrics-refresh").addEventListener("click", () => loadMetrics(true, metricsDepth === "full"));
 
-// Clicking any row that names a note opens its context — the metrics are only
-// useful if the note they point at is one click away, and a metrics row is a
-// measurement about a note's PLACE in the vault, which is what context answers.
+// A metrics row is a measurement about a note's PLACE in the vault, so it fills
+// the work panel: same question, same answer, same surface as a graph node. It
+// used to open the drawer's context mode instead, which is how one payload came
+// to have two renderers that disagreed.
 $("#metrics-body").addEventListener("click", (e) => {
   if (e.target.id === "metrics-proposals") { loadMetrics(true, true); return; }
   const row = e.target.closest("[data-path]");
-  if (row && row.dataset.path) openContext({ path: row.dataset.path });
+  // Off a row is a deselection, the same way the graph's background is one, and
+  // here it is what makes the report reachable again after a row has taken the
+  // column over.
+  if (row && row.dataset.path) showNode({ path: row.dataset.path });
+  else announceNode(null, null);
 });
 
 const mkEl = (tag, cls, text) => {
@@ -1894,19 +2485,6 @@ function mCard(title, sub) {
   if (sub) h.appendChild(mkEl("span", "mcard-sub", sub));
   c.appendChild(h);
   return c;
-}
-
-// Open whatever section holds a card and put it in front of you. A worklist row
-// that named a card you then had to go find would be a label, not a control.
-function revealCard(title) {
-  const card = document.querySelector(`#metrics-body [data-card="${CSS.escape(title)}"]`);
-  if (!card) return;
-  const sec = card.closest("details.msec");
-  if (sec) sec.open = true;
-  card.scrollIntoView({ block: "center", behavior: "smooth" });
-  card.classList.remove("flash");
-  void card.offsetWidth; // restart the animation when the same row is clicked twice
-  card.classList.add("flash");
 }
 
 function mEmpty(card, msg) { card.appendChild(mkEl("p", "mempty", msg)); return card; }
@@ -1996,7 +2574,9 @@ function waterfall(rows, total, { negLabel, posLabel }) {
 // readable without hovering; the row beneath is the axis.
 function histogram(bins) {
   const max = Math.max(...bins.map((b) => b.count), 1);
-  const wrap = mkEl("div", "hist");
+  // No wrapper: it used to be a div.hist, which is the tail chart's class and
+  // carries `height: 44px` -- a 120px track, its caps and its axis inside a
+  // 44px box, overflowing the card and painting over the note under it.
   const plot = mkEl("div", "hist-plot");
   for (const b of bins) {
     const col = mkEl("div", "hist-col");
@@ -2016,18 +2596,23 @@ function histogram(bins) {
     col.appendChild(mkEl("div", "hist-tick", b.label));
     plot.appendChild(col);
   }
-  wrap.appendChild(plot);
-  return wrap;
+  return plot;
 }
 
 // A legend is always present for two or more series — identity never rests on
 // color alone. Single-series charts get none; their title already names them.
+//
+// `note` puts the segment's own figure on the key. A stacked bar shows shares
+// and a reader who wants the count had to find it again in a table underneath,
+// which is the same three numbers rendered twice — and two renderings of one
+// measurement are two things that can disagree after an edit.
 function mLegend(items) {
   const l = mkEl("div", "mlegend");
   for (const it of items) {
     const row = mkEl("span", "mlegend-item");
     row.appendChild(mkEl("i", "swatch " + it.tone));
     row.appendChild(mkEl("span", null, it.label));
+    if (it.note) row.appendChild(mkEl("span", "mlegend-n", it.note));
     l.appendChild(row);
   }
   return l;
@@ -2105,6 +2690,367 @@ function sessionMatrix(s) {
   return wrap;
 }
 
+// --- the four forms this view had no way to draw -----------------------------
+// Every chart above answers a question about ONE reading of the vault. These
+// four answer questions a single reading cannot hold: which way a count is
+// going, how two measurements sit against each other, which areas touch, and
+// how the vault's mass is distributed. Each is inline SVG or CSS boxes for the
+// same reason `squarify` is thirty lines rather than d3-hierarchy: the vendored
+// graph bundles are the only libraries on this page and a layout dependency for
+// a polyline would be the largest of them.
+
+const SVGNS = "http://www.w3.org/2000/svg";
+const svgEl = (name, attrs) => {
+  const el = document.createElementNS(SVGNS, name);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+};
+
+// One series, its own scale, no axis. A sparkline is a direction, not a
+// measurement: the number beside it is the measurement, which is why every
+// caller here prints one.
+//
+// Two points is the floor. A single reading drawn as a line would be a flat
+// mark, and a flat mark is what an unchanged series looks like — the reader
+// cannot tell "never measured twice" from "measured, holding steady", and only
+// one of those is true of a vault nobody has run a report on yet. Callers get
+// null and leave the slot empty, the same way an empty histogram bin gets its
+// label and no bar.
+function sparkline(values, { w = 84, h = 22, title = "" } = {}) {
+  const pts = values.filter((v) => typeof v === "number" && isFinite(v));
+  if (pts.length < 2) return null;
+  const lo = Math.min(...pts), hi = Math.max(...pts);
+  // A flat series has no range to scale against. Centred rather than pinned to
+  // an edge: at y=0 it would read as a maximum and at y=h as a floor, and it is
+  // neither. `span` is the divisor everywhere below, so it can never be 0.
+  const span = hi - lo || 1;
+  const flat = hi === lo;
+  const x = (i) => (i / (pts.length - 1)) * w;
+  const y = (v) => (flat ? h / 2 : h - ((v - lo) / span) * h);
+  // 1px of inset top and bottom: a stroke centred on y=0 renders half outside
+  // the box and the peak of every rising series is clipped to a hairline.
+  const pad = 1.5;
+  const yi = (v) => pad + (y(v) / h) * (h - pad * 2);
+
+  // Rendered at its viewBox size, so nothing scales: a stretched sparkline
+  // draws its head dot as an ellipse and its stroke as a wedge, and both read
+  // as data. Callers pick the box; the CSS only stops it overflowing a narrow
+  // one, it never stretches it.
+  const svg = svgEl("svg", {
+    class: "spark", viewBox: `0 0 ${w} ${h}`, width: w, height: h,
+    "aria-hidden": "true", focusable: "false",
+  });
+  const d = pts.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(2)},${yi(v).toFixed(2)}`).join("");
+  svg.appendChild(svgEl("path", { class: "spark-l", d }));
+  // The head, so "where it ended" reads without counting points from the left.
+  svg.appendChild(svgEl("circle", {
+    class: "spark-h", cx: x(pts.length - 1).toFixed(2), cy: yi(pts[pts.length - 1]).toFixed(2), r: 1.9,
+  }));
+  if (title) {
+    const t = svgEl("title");
+    t.textContent = title;
+    svg.appendChild(t);
+  }
+  return svg;
+}
+
+// A delta chip: the move, and whether the move was the good direction.
+// `good` is the sign that means progress, because it differs per signal — one
+// fewer orphan is progress, one fewer note is not — and a single hardcoded
+// direction would paint half the band the wrong colour.
+function deltaChip(now, then, good, fmt = nfmt) {
+  if (typeof then !== "number" || typeof now !== "number") return null;
+  const d = now - then;
+  // Formatted through the caller's own formatter, or a 0.4 move on a ratio
+  // rounds to "0" and a tile that changed reads as one that held still.
+  const mag = fmt(Math.abs(d));
+  // And when the formatter rounds the move away entirely, it is not a move the
+  // reader can see: "+0.0" claims a direction and then prints the figure that
+  // denies it. No non-zero digit survived the rounding, so it reads as no
+  // change -- which is what the value beside it already shows.
+  const moved = /[1-9]/.test(String(mag));
+  // good === 0 means the count is not progress in either direction -- more
+  // areas is fragmentation or coverage depending on the vault, and painting a
+  // guess green would be the view asserting something it cannot know.
+  const tone = !moved || !good ? "" : (d > 0) === (good > 0) ? " up" : " down";
+  const sign = !moved ? "±" : d > 0 ? "+" : "−";
+  return mkEl("span", "dchip" + tone, sign + mag);
+}
+
+// Every chart that measures its own container registers its observer here, so
+// a re-render can release them. ResizeObserver holds its targets strongly, and
+// `renderMetrics` rebuilds the whole body on every recompute -- without this,
+// each run would leave one live observation per chart pointing at a detached
+// subtree, and the leak would grow with how often the tab is opened.
+let chartObservers = [];
+
+function releaseChartObservers() {
+  for (const o of chartObservers) o.disconnect();
+  chartObservers = [];
+}
+
+// Two continuous measurements at once, split at their own medians.
+//
+// The median and not a fixed threshold: these axes have no absolute scale -- a
+// betweenness of 0.04 is high on one vault and unremarkable on another -- so the
+// only honest split is the vault's own middle, and the quadrant caption then
+// reads "busier than typical HERE".
+//
+// The svg is drawn at its container's measured width rather than scaled from a
+// fixed viewBox. The cards here run from ~330px in a three-column layout to
+// ~650px in one, so a fixed box would be scaled by 2x between them: one unit is
+// one CSS pixel at every width instead, which keeps a 9px axis label 9px and
+// stops the quadrant captions outgrowing the field they annotate. It also makes
+// the hover ring's position a plain read of the point's own coordinates.
+//
+// Points are placed by value and drawn once. Hover is delegated from the svg and
+// reads `data-i` off the target rather than binding two listeners per dot, and
+// the ring is drawn over the field instead of restyling the hovered circle, so
+// pointer movement never touches the field's DOM.
+function scatter(points, {
+  x, y, r, label, xLabel, yLabel, quadrants = [], height = 240, onPick,
+} = {}) {
+  const wrap = mkEl("div", "sc-wrap");
+  const data = points.filter((p) => isFinite(x(p)) && isFinite(y(p)));
+  if (data.length < 2) {
+    wrap.appendChild(mkEl("p", "mempty", "Too few measured notes to plot."));
+    return wrap;
+  }
+  const H = height;
+  const padL = 30, padR = 12, padT = 14, padB = 24;
+  const plotH = H - padT - padB;
+  const xs = data.map(x), ys = data.map(y);
+  const xMax = Math.max(...xs) || 1, yMax = Math.max(...ys) || 1;
+  const med = (vals) => {
+    const s = [...vals].sort((a, b) => a - b), m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  };
+  const rMax = r ? Math.max(...data.map(r), 1) : 1;
+  const sr = (p) => (r ? 1.6 + Math.sqrt(r(p) / rMax) * 4.2 : 2.6);
+  // 4% of headroom, so a point at the maximum sits inside the frame rather than
+  // half-outside it on the axis line.
+  const sy = (v) => padT + (1 - v / (yMax * 1.04)) * plotH;
+  const midY = sy(med(ys));
+
+  const tip = mkEl("div", "sc-tip");
+  tip.hidden = true;
+  // Rebuilt on a width change rather than patched: every x coordinate is a
+  // function of the width, so a partial update would have to touch every node
+  // anyway, and a fresh subtree cannot leave a stale one behind.
+  let sx = null, midX = null, W = 0;
+
+  function draw(width) {
+    W = Math.max(240, Math.round(width));
+    const plotW = W - padL - padR;
+    sx = (v) => padL + (v / (xMax * 1.04)) * plotW;
+    midX = sx(med(xs));
+
+    const svg = svgEl("svg", {
+      class: "sc", viewBox: `0 0 ${W} ${H}`, width: W, height: H,
+      role: "img", "aria-label": `${yLabel} against ${xLabel}, one dot per note`,
+    });
+    // One quadrant washed, not four coloured panels: the dots are the content,
+    // and a tint behind all four would spend the visual budget re-saying what
+    // the two dashed guides already say.
+    for (const q of quadrants) {
+      if (!q.tint) continue;
+      svg.appendChild(svgEl("rect", {
+        class: "sc-tint",
+        x: q.at[0] === "r" ? midX : padL, y: q.at[1] === "t" ? padT : midY,
+        width: (q.at[0] === "r" ? W - padR - midX : midX - padL).toFixed(2),
+        height: (q.at[1] === "t" ? midY - padT : H - padB - midY).toFixed(2),
+      }));
+    }
+    for (const [x1, y1, x2, y2, cls] of [
+      [padL, padT, padL, H - padB, "sc-ax"], [padL, H - padB, W - padR, H - padB, "sc-ax"],
+      [midX, padT, midX, H - padB, "sc-med"], [padL, midY, W - padR, midY, "sc-med"],
+    ]) svg.appendChild(svgEl("line", { class: cls, x1, y1, x2, y2 }));
+
+    const field = svgEl("g", { class: "sc-field" });
+    data.forEach((p, i) => {
+      field.appendChild(svgEl("circle", {
+        class: "sc-dot", "data-i": i,
+        cx: sx(x(p)).toFixed(2), cy: sy(y(p)).toFixed(2), r: sr(p).toFixed(2),
+      }));
+    });
+    svg.appendChild(field);
+    const ring = svgEl("circle", { class: "sc-ring", r: 0, cx: 0, cy: 0 });
+    svg.appendChild(ring);
+
+    for (const q of quadrants) {
+      const t = svgEl("text", {
+        class: "sc-q",
+        x: q.at[0] === "r" ? W - padR - 5 : padL + 5,
+        y: q.at[1] === "t" ? padT + 10 : H - padB - 5,
+        "text-anchor": q.at[0] === "r" ? "end" : "start",
+      });
+      t.textContent = q.label;
+      svg.appendChild(t);
+    }
+    const ax = (attrs, text) => {
+      const t = svgEl("text", { class: "sc-al", ...attrs });
+      t.textContent = text;
+      svg.appendChild(t);
+    };
+    ax({ x: padL + plotW / 2, y: H - 4, "text-anchor": "middle" }, xLabel);
+    ax({ x: 9, y: padT + plotH / 2, "text-anchor": "middle",
+         transform: `rotate(-90 9 ${padT + plotH / 2})` }, yLabel);
+
+    const at = (t) => {
+      const raw = t && t.getAttribute && t.getAttribute("data-i");
+      return raw == null ? null : data[Number(raw)];
+    };
+    svg.addEventListener("mouseover", (e) => {
+      const p = at(e.target);
+      if (!p) return;
+      ring.setAttribute("cx", sx(x(p)).toFixed(2));
+      ring.setAttribute("cy", sy(y(p)).toFixed(2));
+      ring.setAttribute("r", (sr(p) * 1.9).toFixed(2));
+      tip.textContent = label(p);
+      tip.hidden = false;
+    });
+    svg.addEventListener("mouseout", (e) => {
+      if (at(e.target)) { ring.setAttribute("r", 0); tip.hidden = true; }
+    });
+    if (onPick) {
+      svg.classList.add("pick");
+      svg.addEventListener("click", (e) => { const p = at(e.target); if (p) onPick(p); });
+    }
+    const prev = wrap.querySelector("svg");
+    if (prev) wrap.replaceChild(svg, prev);
+    else wrap.insertBefore(svg, tip);
+  }
+
+  // The tooltip goes in first: `draw` inserts the svg before it, and a node
+  // that is not yet a child is not a reference point insertBefore will accept.
+  wrap.appendChild(tip);
+  // A first paint at a plausible width, so the card has its height before the
+  // observer fires and the section below it does not jump a frame later.
+  draw(360);
+  if (window.ResizeObserver) {
+    let lastW = 0;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      // Width only. The tooltip appearing changes the wrapper's HEIGHT, and
+      // redrawing on that would be a redraw per pointer entry -- and, since the
+      // redraw itself can change the height, a loop.
+      if (w > 0 && w !== lastW) { lastW = w; draw(w); }
+    });
+    ro.observe(wrap);
+    chartObservers.push(ro);
+  }
+  return wrap;
+}
+
+// Area x area coupling, drawn once for both surfaces that show it.
+//
+// `/shape` owns the containment and coupling views; the metrics tab reaches the
+// same grid from its structural-gaps row. Two renderers over one payload is two
+// places to fix a contrast bug in, and the payloads are already identical by
+// construction (`_area_matrix` mirrors `/shape`'s shape for exactly this).
+//
+// Two scales in one grid, so they get two treatments: off-diagonal cells ramp on
+// the accent by inter-area link count, the diagonal is neutral and carries the
+// area's own cohesion. A shared ramp would put a 0.11 cohesion and 11 links in
+// the same ink and invite reading one as the other.
+function couplingMatrix(areas, matrix, { dense = true } = {}) {
+  let max = 1;
+  for (let i = 0; i < areas.length; i++) {
+    for (let j = 0; j < areas.length; j++) if (i !== j) max = Math.max(max, matrix[i][j]);
+  }
+  const wrap = mkEl("div", "smx-scroll");
+  const g = mkEl("div", "smx" + (dense ? " dense" : ""));
+  g.style.setProperty("--cols", areas.length);
+  g.appendChild(mkEl("div", "smx-corner"));
+  for (const a of areas) {
+    const h = mkEl("div", "smx-col", a.label);
+    h.title = `${a.label} · ${a.size} notes · cohesion ${a.cohesion}`;
+    g.appendChild(h);
+  }
+  areas.forEach((a, i) => {
+    const lbl = mkEl("div", "smx-row", a.label);
+    lbl.title = `${a.label} · ${a.size} notes`;
+    if (a.path) { lbl.dataset.path = a.path; lbl.classList.add("clickable"); }
+    g.appendChild(lbl);
+    areas.forEach((b, j) => {
+      const v = matrix[i][j];
+      if (i === j) {
+        // ".55" saves two characters in a 22px cell, but only where there IS a
+        // leading zero: slicing it off 1.00 printed ".00", so a perfectly
+        // cohesive area read as the least cohesive one on the grid.
+        const coh = a.cohesion >= 1 ? "1" : a.cohesion ? a.cohesion.toFixed(2).slice(1) : "";
+        const c = mkEl("div", "smx-cell diag", coh);
+        c.title = `${a.label}: cohesion ${a.cohesion}, ${a.intra} linked pairs inside ${a.size} notes`;
+        g.appendChild(c);
+        return;
+      }
+      const c = mkEl("div", "smx-cell" + (v ? "" : " empty"), v ? String(v) : "");
+      if (v) {
+        c.style.setProperty("--i", Math.sqrt(v / max).toFixed(3));
+        c.title = `${a.label} ↔ ${b.label}: ${v} linked note pairs`;
+      } else {
+        c.title = `${a.label} ↮ ${b.label}: nothing links them`;
+      }
+      g.appendChild(c);
+    });
+  });
+  wrap.appendChild(g);
+  return wrap;
+}
+
+// Areas as area. A ranked bar list can only show the top fourteen before the
+// rows become stubs, and the tail then has to be stated in a sentence — "94
+// smaller areas hold the other 210 notes" — which is the one part of the
+// distribution a reader cannot see. Every area gets a tile here, and the small
+// ones being small IS the reading.
+//
+// The fill is a lens: with no signal selected it ramps on cohesion, so a
+// loosely-held area reads pale; with one selected it ramps on that signal's
+// share of the area, so the areas carrying the work light up. One field
+// recoloured rather than one card per signal, which is what a metrics view
+// turns into if every measurement gets its own chart.
+function areaTreemap(areas, { lens = null, lensLabel = "" } = {}) {
+  const rows = areas.map((a) => ({ ...a, value: a.size }));
+  const box = mkEl("div", "tmap tmap-a");
+  // Under a lens: the per-note SHARE, not the raw count. A 60-note area with 6
+  // hits and a 6-note area with 6 hits paint the same on a count ramp, and only
+  // one of them is a problem.
+  const value = lens
+    ? (a) => (a.size ? (lens[String(a.id)] || 0) / a.size : 0)
+    : (a) => a.cohesion || 0;
+  // Normalised to the loudest tile, then square-rooted -- the same treatment
+  // and the same reason as the session matrix's cells.
+  //
+  // Both readings are bounded in [0, 1], and normalising alone does nothing to
+  // cohesion because the top of that range is already occupied: a two-note area
+  // whose notes link scores exactly 1.0 by construction, and a vault has
+  // several. The areas that actually carry it sit between 0.05 and 0.2, so on a
+  // linear ramp every tile a reader can see is painted at 2-9% alpha and the
+  // field reads as blank while three 20px tiles burn solid. sqrt lifts the
+  // populated end without reordering anything.
+  //
+  // The exact figure rides the tooltip, and cohesion is printed outright on the
+  // coupling matrix's own diagonal; the fill is here to rank the tiles against
+  // each other. 1e-4 is a divide-by-zero floor, not a threshold.
+  const top = Math.max(...rows.map(value), 1e-4);
+  for (const t of squarify(rows, 0, 0, 100, 100)) {
+    const tile = mkEl("div", "tmap-tile clickable");
+    tile.style.cssText = `left:${t.x}%;top:${t.y}%;width:${t.w}%;height:${t.h}%`;
+    const hits = lens ? (lens[String(t.id)] || 0) : 0;
+    tile.style.setProperty("--i", Math.sqrt(value(t) / top).toFixed(3));
+    tile.title = lens
+      ? `${t.label} · ${t.size} notes · ${hits} ${lensLabel}`
+      : `${t.label} · ${t.size} notes · cohesion ${t.cohesion}`;
+    if (t.path) tile.dataset.path = t.path;
+    const lbl = mkEl("div", "tmap-lbl");
+    lbl.appendChild(mkEl("span", "tmap-name", t.label));
+    lbl.appendChild(mkEl("span", "tmap-n", lens && hits ? `${hits} / ${t.size}` : nfmt(t.size)));
+    tile.appendChild(lbl);
+    box.appendChild(tile);
+  }
+  return box;
+}
+
 // cols: [{key, label, num?}] — `num` right-aligns and tabularises the column.
 function mTable(cols, rows) {
   const t = mkEl("table", "chart data");
@@ -2152,7 +3098,7 @@ const nfmt = (n) => (typeof n === "number" ? n.toLocaleString() : String(n));
 // shape in the link graph, not evidence that the two areas belong connected.
 // stopPropagation: the row itself is clickable and means "open that note".
 function mBridgeBtn(a, b) {
-  const btn = mkEl("button", "cx-do", "bridge");
+  const btn = mkEl("button", "m-do", "bridge");
   btn.type = "button";
   btn.title = "draft a note that connects these two areas";
   btn.addEventListener("click", (e) => {
@@ -2171,8 +3117,446 @@ function mMore(shown, total, noun) {
   return shown < total ? mkEl("p", "mnote", `showing ${shown} of ${nfmt(total)} ${noun}`) : null;
 }
 
+// --- the evidence pane -------------------------------------------------------
+// One signal at a time: what it counts, the reading that says what the SHAPE of
+// the list means, the rows themselves, and the action on the row that carries
+// it. A report whose rows cannot be acted on is a report nobody runs twice.
+//
+// Every pane is built from the payload the report already returned. The only
+// two fields added for this were the ones the unresolved tail could not be
+// stated without: who references a missing target, and the distribution of
+// references over ALL targets rather than the twelve that fit on screen.
+let metricsSignal = "dangling"; // survives a recompute: you came back to check one number
+
+function evHead(title, sub) {
+  const h = mkEl("div", "ev-h");
+  h.appendChild(mkEl("span", "ev-t", title));
+  if (sub) h.appendChild(mkEl("span", "ev-n", sub));
+  return h;
+}
+
+// The reading, not a caption. It says what the numbers mean together, which is
+// the one thing a table of them cannot.
+const evProse = (text) => mkEl("p", "ev-s", text);
+
+// An action drafts the turn and leaves it in the composer: the vault is changed
+// by a turn you sent, never by a metrics view deciding on your behalf.
+function evAct(label, prompt, primary) {
+  const b = mkEl("button", "mini" + (primary ? " go" : ""), label);
+  b.type = "button";
+  b.addEventListener("click", (e) => { e.stopPropagation(); prefillChat(prompt); });
+  return b;
+}
+
+function evEmpty(box, text) {
+  box.appendChild(mkEl("p", "mempty", text));
+  return box;
+}
+
+function evDangling(d, T) {
+  const box = mkEl("div", "ev");
+  const targets = T.dangling_links || 0, refs = T.unresolved || 0;
+  box.appendChild(evHead("Unresolved links",
+    `${nfmt(targets)} targets · ${nfmt(refs)} references`));
+  if (!d.dangling?.length) return evEmpty(box, "None. Every wikilink resolves.");
+
+  const hist = d.dangling_hist || [];
+  const once = (hist.find((h) => h.refs === 1) || {}).targets || 0;
+  const carried = d.dangling_top_refs || 0;
+  const topN = Math.min(20, targets);
+  // Stated only when the concentration is real: on a vault whose targets are
+  // all referenced once, "the top twenty carry most of it" would be a sentence
+  // about nothing. The number of targets left in the tail is what decides
+  // whether writing twenty notes is a move or a rounding error.
+  if (targets > topN && refs && carried) {
+    box.appendChild(evProse(
+      `${Math.round((carried / refs) * 100)}% of the references point at ${nfmt(topN)} targets. `
+      + `Writing those ${nfmt(topN)} notes closes ${nfmt(carried)} broken links; `
+      + `${nfmt(once)} of the rest are referenced once each and are better left alone `
+      + `than stubbed.`));
+  }
+
+  box.appendChild(mTable(
+    [{ key: "target", label: "Target" }, { key: "refs", label: "Refs", num: true },
+     { key: "src", label: "Referenced from" },
+     { label: "", el: (r) => evAct("write it", writePrompt(r._row), true) }],
+    d.dangling.map((r) => ({ target: r.target, refs: r.refs, _row: r, src: srcLabel(r) })),
+  ));
+  const more = mMore(d.dangling.length, targets, "targets");
+  if (more) box.appendChild(more);
+
+  if (hist.length > 1) box.appendChild(evTail(hist));
+  if (targets > topN) {
+    const foot = mkEl("div", "ev-act");
+    foot.appendChild(evAct(`write the top ${topN}`, bulkWritePrompt(d, topN), true));
+    box.appendChild(foot);
+  }
+  return box;
+}
+
+// The two bulk turns this view offers, named once because the Report panel in
+// the third column offers the same two: a prompt stated twice is two turns that
+// can drift apart, and the one people would notice is the one that writes.
+function bulkWritePrompt(d, topN) {
+  return `These ${topN} wikilink targets are the most referenced ones that do not exist yet: `
+    + (d.dangling || []).slice(0, topN).map((r) => `"${r.target}"`).join(", ")
+    + `. Write them, each grounded in the notes that already link to it, and stop `
+    + `if a target turns out to be a typo rather than a missing note.`;
+}
+
+function bulkAutolinkPrompt(n) {
+  return `${nfmt(n)} notes in the vault have nothing linking to them. Go through them, `
+    + `and for each one add the wikilinks that genuinely belong, from the notes that `
+    + `already cover the same ground. Skip the ones that have no real neighbour.`;
+}
+window.bulkWritePrompt = bulkWritePrompt;
+window.bulkAutolinkPrompt = bulkAutolinkPrompt;
+
+// Two names and a count, without the extension. Three full filenames run past
+// sixty characters and take the width from the target column, which is the one
+// the row is named by; the full set is what the write prompt carries.
+function srcLabel(r) {
+  const names = (r.from || []).map(noExt);
+  const shown = names.slice(0, 2);
+  const more = names.length - shown.length + (r.from_more || 0);
+  return shown.join(", ") + (more ? ` +${more}` : "");
+}
+
+const noExt = (n) => String(n).replace(/\.md$/, "");
+
+// The same sentence the ghost drawer and the explore panel send, so a target
+// written from here and one written from either of those arrive as the same
+// turn. It used to be a hand-kept copy of that sentence, which had already
+// drifted: this one left the source names unquoted.
+const writePrompt = (r) => ghostWritePrompt(r.target, r.from);
+
+// The tail: how many targets are asked for once, twice, fourteen times. Linear
+// height on purpose, and the caption names both ends -- the skew IS the reading
+// ("431 asked for once" is what makes stubbing them the wrong move), and a log
+// axis that needed a disclaimer would be a chart arguing with its own caption.
+function evTail(hist) {
+  const wrap = mkEl("div", "ev-tail");
+  wrap.appendChild(mkEl("div", "ev-tl", "The tail: references per target"));
+  const chart = mkEl("div", "hist");
+  const top = Math.max(...hist.map((h) => h.targets));
+  const by = new Map(hist.map((h) => [h.refs, h.targets]));
+  // Every bin from 1 to the maximum, including the empty ones. The payload
+  // carries only the bins that exist, and drawing those side by side would put
+  // "9 refs" next to "12 refs" at even spacing, which hides the gap that is
+  // half of what a tail looks like.
+  for (let refs = hist[0].refs; refs <= hist[hist.length - 1].refs; refs++) {
+    const n = by.get(refs) || 0;
+    const bar = mkEl("i", n === top ? "hot" : null);
+    bar.style.height = (n ? Math.max(1, Math.round((n / top) * 100)) : 0) + "%";
+    bar.title = `${nfmt(n)} target${n === 1 ? "" : "s"} referenced `
+      + `${refs} time${refs === 1 ? "" : "s"}`;
+    chart.appendChild(bar);
+  }
+  wrap.appendChild(chart);
+  const lo = hist[0], hi = hist[hist.length - 1];
+  wrap.appendChild(mkEl("div", "ev-tc",
+    `${lo.refs} ref · ${nfmt(lo.targets)} targets  →  ${hi.refs} refs · ${nfmt(hi.targets)} target`
+    + (hi.targets === 1 ? "" : "s")));
+  return wrap;
+}
+
+function evOrphans(d, T) {
+  const box = mkEl("div", "ev");
+  box.appendChild(evHead("Orphans", `${nfmt(T.orphans || 0)} notes`));
+  if (!d.orphans?.length) return evEmpty(box, "None. Every note is reachable.");
+  box.appendChild(evProse(
+    "Nothing links to these. They may still link out: an orphan is a fact about "
+    + "what points AT a note, which is what recall follows and what the graph "
+    + "cannot reach."));
+  box.appendChild(mTable(
+    [{ key: "label", label: "Note" },
+     { label: "", el: (r) => evAct("link it",
+       `Read "${r.label}" and link it into the vault: find the notes it belongs beside `
+       + `and add the wikilinks in both directions where they are genuine. Do not invent `
+       + `a connection to place it.`) }],
+    d.orphans.map((o) => ({ ...o, _path: o.path })),
+  ));
+  const more = mMore(d.orphans.length, T.orphans || 0, "orphans");
+  if (more) box.appendChild(more);
+  const foot = mkEl("div", "ev-act");
+  foot.appendChild(evAct("autolink them all", bulkAutolinkPrompt(T.orphans || 0), true));
+  box.appendChild(foot);
+  return box;
+}
+
+function evLean(d, T) {
+  const box = mkEl("div", "ev");
+  box.appendChild(evHead("Lean notes", `${nfmt(T.lean_notes || 0)} notes`));
+  if (!d.lean_notes?.length) return evEmpty(box, "None. Every note carries its topic.");
+  const limit = d.lean_limit || 0;
+  box.appendChild(evProse(
+    "Too thin to carry their topic: a title and a line or two. They are not "
+    + "wrong, they are unfinished, and they are what a recall answer has least "
+    + "to quote from."
+    + (limit ? ` A note is counted here when its body is under ${nfmt(limit)} `
+        + "characters, frontmatter excluded." : "")));
+  box.appendChild(mTable(
+    // The measurement that put each row in this list, on the row. Without it
+    // "too thin" is a verdict the pane asks you to take on trust, and a note
+    // three characters under the limit is indistinguishable from an empty one
+    // -- which is the difference between finishing a note and writing it.
+    [{ key: "label", label: "Note" },
+     { key: "chars", label: "Chars", num: true },
+     { label: "", el: (r) => evAct("expand it",
+       `The note "${r.label}" is too thin to carry its topic. Expand it from what the vault `
+       + `already holds, and say what is still missing rather than padding it.`) }],
+    d.lean_notes.map((x) => ({
+      ...x, _path: x.path,
+      // "empty" and not "0": a note with no body at all is a different job from
+      // a short one, and the report's own triage already separates them.
+      chars: x.chars ? nfmt(x.chars) : "empty",
+      _title: x.chars
+        ? `${nfmt(x.chars)} characters` + (limit ? ` · ${nfmt(limit - x.chars)} under the limit` : "")
+        : "no body at all",
+    })),
+  ));
+  const more = mMore(d.lean_notes.length, T.lean_notes || 0, "notes");
+  if (more) box.appendChild(more);
+  return box;
+}
+
+function evGaps(d, T) {
+  const box = mkEl("div", "ev");
+  box.appendChild(evHead("Structural gaps", `${nfmt(T.structural_gaps || 0)} area pairs`));
+  if (!d.gaps?.length) return evEmpty(box, "No gaps measured.");
+  // Sizes, not the absent-link fraction: that fraction reads 99.7-100% on every
+  // row of a real vault, so it cannot explain why row 1 outranks row 20. Size ×
+  // size ÷ (1 + links) is the actual ranking, and with both sizes on the row
+  // the order is readable instead of asserted.
+  box.appendChild(evProse(
+    "Two well-formed areas with almost nothing between them. Ranked by "
+    + "size × size ÷ (1 + links), so the pair at the top is the one where the "
+    + "most notes stand apart."));
+  // The ranking is a top-N of the emptiest pairs, and a list of absences cannot
+  // show what they are absences against: twelve rows reading "0 links" look the
+  // same on a vault where everything couples and on one where nothing does. The
+  // grid is every pair at once, so a hole is legible as a hole. Same renderer
+  // and same payload shape as `/shape`'s coupling view, which is the surface
+  // that owns the framing; here it is evidence for one worklist row.
+  if (d.area_matrix) {
+    box.appendChild(couplingMatrix(d.area_matrix.areas, d.area_matrix.matrix));
+    box.appendChild(mkEl("p", "mnote",
+      "every pair of multi-note areas · a filled cell is linked note pairs, "
+      + "the diagonal is the area's own cohesion, an empty cell is a hole"));
+  }
+  box.appendChild(mTable(
+    [{ key: "pair", label: "Area hubs" }, { key: "sizes", label: "Notes", num: true },
+     { key: "inter_edges", label: "Links", num: true },
+     { label: "", el: (r) => mBridgeBtn(r._a, r._b) }],
+    d.gaps.map((g) => ({
+      pair: g.a + " ↮ " + g.b, sizes: `${g.size_a} × ${g.size_b}`,
+      inter_edges: g.inter_edges, _path: g.a_path, _a: g.a, _b: g.b,
+    })),
+  ));
+  return box;
+}
+
+// The deck's second fix, and the reason this pane is not a table: the view used
+// to print fifteen rows of `113 · 0 · 114`. Three columns, one value each,
+// fifteen times. A constant column is not data, so when every candidate carries
+// the same idle count and none was ever missed, the pane states the one figure
+// and the reading it supports instead of ranking notes by a score that is
+// measuring the vault sitting still.
+function evAttention(d, T, rows, measured) {
+  const box = mkEl("div", "ev");
+  box.appendChild(evHead("Attention", `${nfmt(rows.length)} candidates`));
+  if (!rows.length) return evEmpty(box, "Nothing overdue.");
+
+  const idles = rows.map((a) => a.days_idle || 0);
+  const flat = idles.every((v) => v === idles[0]);
+  const noMiss = rows.every((a) => !(a.misses || 0));
+  if (flat && noMiss) {
+    const fig = mkEl("div", "ev-fig");
+    fig.appendChild(mkEl("div", "ev-figv", nfmt(idles[0])));
+    const when = new Date(Date.now() - idles[0] * 86400000);
+    fig.appendChild(mkEl("p", "ev-figc",
+      `Days since any of the ${rows.length} was read. All ${rows.length} carry the same figure `
+      + `and none was ever missed in recall, so the score is measuring the vault sitting still, `
+      + `not any note in it.`
+      + (idles[0] > 0 ? ` Last read ${when.toLocaleDateString(undefined,
+          { day: "numeric", month: "long", year: "numeric" })}.` : "")));
+    box.appendChild(fig);
+    // The candidates themselves, which this pane used to withhold. The reading
+    // above is about the SCORE, and it is correct: with idle flat and misses at
+    // zero the ranking carries no signal. It is not a reason to answer "20" and
+    // show nothing -- the worklist row says twenty notes are waiting and the
+    // only question it raises is which twenty.
+    //
+    // No score column, because that is the column the reading just disowned.
+    // Links instead: with the other two inputs constant the score reduces to a
+    // function of degree, so links is both the one input that varies and the
+    // reason the rows are in this order.
+    // Every column that VARIES, and none that does not. Measured on this vault
+    // all twenty candidates carry 0 links and 0 attempts, so a Links column
+    // would be twenty zeroes: the defect this pane was built to remove,
+    // reintroduced one column over. The check is on the data rather than on a
+    // hardcoded column list, because which input is flat depends on the vault.
+    const varies = (k) => new Set(rows.map((a) => a[k] || 0)).size > 1;
+    const cols = [{ key: "label", label: "Note" }];
+    for (const [k, lbl] of [["degree", "Links"], ["attempts", "Quizzed"]]) {
+      if (varies(k)) cols.push({ key: k, label: lbl, num: true });
+    }
+    // And the order is only worth asserting where something can order them.
+    // With every input identical the sort is a tie broken arbitrarily, and
+    // "least linked first" would be a caption about nothing.
+    box.appendChild(evProse(cols.length > 1
+      ? "The candidates. Nothing was missed and every note is idle the same "
+        + "number of days, so the score ranks them by what is left: the columns "
+        + "below."
+      : `The candidates. All ${nfmt(rows.length)} carry the same reading, `
+        + `${nfmt(rows[0].degree || 0)} resolved `
+        + (rows[0].degree === 1 ? "link" : "links") + " and "
+        + (rows[0].attempts ? `${nfmt(rows[0].attempts)} recall attempts` : "no recall attempt")
+        + ", so nothing separates them and the order below is arbitrary."));
+    cols.push({ label: "", el: (r) => evAct("quiz me", `/quiz ${shellQuote(r._path)}`) });
+    box.appendChild(mTable(cols, rows.map((a) => ({
+      ...a, _path: a.path,
+      _title: `${a.days_idle}d idle · never missed · ${a.degree} links`,
+    }))));
+    const more = mMore(rows.length, T.attention_candidates || 0, "candidates");
+    if (more) box.appendChild(more);
+    return box;
+  }
+  if (!measured) {
+    return evEmpty(box, "No signal yet. Every candidate was touched today and none "
+      + "has been quizzed, so idle days and recall misses are both zero and there is "
+      + "nothing to rank.");
+  }
+  box.appendChild(evProse("Ranked by (idle + 1)(1 + misses) ÷ ((1 + links)(1 + correct)): "
+    + "long unread, missed when it should have been recalled, and weakly linked."));
+  // The score is a product of two measurements, and a product hides which of
+  // them is doing the work: a note idle for 200 days and never missed scores
+  // like one idle for 20 and missed ten times. Plotted apart they separate, and
+  // the degenerate case this pane guards against above -- every candidate on
+  // both floors -- is visible as a single stack on the origin rather than
+  // asserted in prose.
+  box.appendChild(scatter(rows, {
+    x: (a) => a.days_idle || 0,
+    y: (a) => a.misses || 0,
+    r: (a) => (a.degree || 0) + 1,
+    xLabel: "days idle", yLabel: "recall misses",
+    label: (a) => `${a.label} · ${a.days_idle}d idle · ${a.misses} missed `
+      + `· ${a.degree} links · score ${a.score}`,
+    quadrants: [
+      { at: "rt", label: "idle and missed", tint: true },
+      { at: "rb", label: "idle, never missed" },
+      { at: "lt", label: "missed, read recently" },
+    ],
+    height: 210,
+    onPick: (a) => showNode({ path: a.path }),
+  }));
+  box.appendChild(mkEl("p", "mnote",
+    "dot size = links · split at this vault's own medians, since neither axis "
+    + "has a scale that means anything across vaults"));
+  // Idle and misses are the scatter's two axes now, so the columns that
+  // reprinted them are gone: the table is what you act from, not a second
+  // rendering of the chart above it.
+  box.appendChild(mTable(
+    [{ key: "label", label: "Note" }, { key: "score", label: "Score", num: true },
+     { label: "", el: (r) => evAct("quiz me", `/quiz ${shellQuote(r._path)}`) }],
+    rows.map((a) => ({ ...a, _path: a.path,
+                       _title: `${a.days_idle}d idle · ${a.misses} missed · ${a.degree} links` })),
+  ));
+  return box;
+}
+
+function evList(title, sub, rows, cols, empty) {
+  const box = mkEl("div", "ev");
+  box.appendChild(evHead(title, sub));
+  if (!rows?.length) return evEmpty(box, empty);
+  box.appendChild(mTable(cols, rows));
+  return box;
+}
+
+function evidence(key, d, T, attnRows, attnMeasured) {
+  switch (key) {
+    case "dangling": return evDangling(d, T);
+    case "orphans": return evOrphans(d, T);
+    case "lean": return evLean(d, T);
+    case "gaps": return evGaps(d, T);
+    case "attention": return evAttention(d, T, attnRows, attnMeasured);
+    case "contested":
+      return evList("Contested", `${nfmt(T.contested || 0)} notes`,
+        (d.contested || []).map((c) => ({
+          label: c.label, refs: (c.refs || []).join(", "), _path: c.path })),
+        [{ key: "label", label: "Note" }, { key: "refs", label: "Conflicts with" }],
+        "None. No note flags a conflict.");
+    case "drift":
+      return evList("Source drift", `${nfmt(T.source_drift || 0)} notes`,
+        (d.source_drift || []).map((x) => ({ ...x, _path: x.path })),
+        [{ key: "label", label: "Note" }, { key: "source", label: "Source" }],
+        "None. Every note is level with its source.");
+    case "sprawling":
+      return evList("Sprawling notes", `${nfmt(T.sprawling || 0)} notes`,
+        (d.sprawling || []).map((x) => ({ ...x, _path: x.path })),
+        [{ key: "label", label: "Note" }, { key: "concepts", label: "Concepts", num: true },
+         { key: "entropy", label: "Bits", num: true },
+         { key: "flatness", label: "Flatness", num: true }],
+        "None. Every note has a concept that dominates it.");
+    case "deficits":
+      return evList("Integration deficits", `${nfmt(T.integration_deficits || 0)} notes`,
+        (d.deficits || []).map((x) => ({ ...x, _path: x.path })),
+        [{ key: "label", label: "Note" }, { key: "concepts", label: "Concepts", num: true },
+         { key: "degree", label: "Links", num: true }, { key: "score", label: "Score", num: true }],
+        "None measured.");
+    default: {
+      const box = mkEl("div", "ev");
+      box.appendChild(evHead("Nothing to act on", ""));
+      return evEmpty(box, "Every signal the report measures is at zero. "
+        + "The readings below still describe the vault's shape.");
+    }
+  }
+}
+
+// Which stored reading each worklist signal moves with, and which way is
+// progress. `report_history.jsonl` keeps only the counts that mean the same
+// thing at either depth (see history.py's SIGNALS), so four of the nine rows
+// have no series at all. Those get no sparkline rather than a flat one: a flat
+// line is what an unchanged signal looks like, and a reader cannot tell that
+// from one the store has never seen twice.
+//
+// `good` is the sign that means progress. One fewer orphan is progress and one
+// fewer note is not, so the direction is per row and never global.
+const SIGNAL_SERIES = {
+  dangling: { key: "dangling_links", good: -1 },
+  lean: { key: "lean_notes", good: -1 },
+  orphans: { key: "orphans", good: -1 },
+  gaps: { key: "structural_gaps", good: -1 },
+  contested: { key: "contested", good: -1 },
+};
+
+// The stored series for one signal, oldest first. Readings that predate the
+// signal simply have no value for it and are skipped rather than read as zero:
+// history.py appends a key the first time it is emitted, so an older line
+// missing `contested` means "not yet measured", not "none".
+function seriesOf(history, key) {
+  return (history || []).map((r) => r.signals && r.signals[key])
+    .filter((v) => typeof v === "number");
+}
+
+// The worklist's right-hand slot: where the count has been going, and by how
+// much since the last report that differed. Null when the store cannot say.
+function signalTrend(history, sigKey, { w = 84 } = {}) {
+  const meta = SIGNAL_SERIES[sigKey];
+  if (!meta) return null;
+  const vals = seriesOf(history, meta.key);
+  const line = sparkline(vals, { w, title: `${meta.key}: ${vals.join(" → ")}` });
+  if (!line) return null;
+  const slot = mkEl("span", "wl-b");
+  slot.appendChild(line);
+  const chip = deltaChip(vals[vals.length - 1], vals[vals.length - 2], meta.good);
+  if (chip) slot.appendChild(chip);
+  return slot;
+}
+
 function renderMetrics(d) {
   const body = $("#metrics-body");
+  releaseChartObservers();   // the subtree about to be dropped owns some
   body.innerHTML = "";
   const T = d.totals || {};
   $("#metrics-stamp").textContent = d.generated_at ? d.generated_at.slice(0, 16).replace("T", " ") : "";
@@ -2204,81 +3588,259 @@ function renderMetrics(d) {
   const attnMeasured = attnRows.some((a) => (a.days_idle || 0) > 0 || (a.misses || 0) > 0);
   const attnCount = attnRows.length && !attnMeasured ? 0 : (T.attention_candidates || 0);
 
-  const head = mkEl("section", "mstand");
-  const work = mkEl("div", "mstand-work");
-  work.appendChild(mkEl("h3", "mstand-h", "What needs attention"));
-  // Counts of things, ranked by how many. No invented weighting across units:
-  // each row names its own unit, and the order is the only claim made.
-  const signals = [
-    [T.orphans, "orphans", "notes nothing links to", "Orphans"],
-    [T.dangling_links, "unresolved links", "wikilinks with no target", "Unresolved links"],
-    [T.lean_notes, "lean notes", "too thin to carry their topic", null],
-    [attnCount, "waiting on attention", "idle and missed in recall", "Attention"],
-    [T.structural_gaps, "structural gaps", "areas that should connect, don't", "Structural gaps"],
-    [T.contested, "contested notes", "frontmatter flags a conflict", "Contested"],
-    [T.source_drift, "drifted sources", "the source moved on without the note", null],
-  ].filter(([n]) => n > 0).sort((a, b) => b[0] - a[0]).slice(0, 4);
+  // --- the worklist is the navigation, the pane beside it is the evidence ----
+  // This view used to be three walls of tables: 63 orphans and 532 unresolved
+  // targets printed as rows, in cards you had to go find, with nothing to do
+  // about any of them from the view that found them. The worklist on the left
+  // is now what you steer with, the pane on the right is THAT row's evidence,
+  // and the action sits on the row that carries it.
+  const mv = mkEl("section", "mv");
+  const left = mkEl("div", "mv-l");
+  const right = mkEl("div", "mv-r");
+  left.appendChild(mkEl("div", "mv-lh", "What needs attention"));
 
-  if (signals.length) {
-    for (const [n, label, means, card] of signals) {
-      // The rows that go somewhere are buttons: this list is the metrics view's
-      // whole call to action, and as click-only divs none of it was reachable
-      // without a mouse. The rows that go nowhere stay divs, because a button
-      // that does nothing is worse than a line of text.
-      const row = mkEl(card ? "button" : "div", "mstand-row" + (card ? " clickable" : ""));
-      if (card) row.type = "button";
-      row.appendChild(mkEl("span", "msr-n", nfmt(n)));
-      const t = mkEl("span", "msr-t");
-      t.appendChild(mkEl("b", "", label));
-      t.appendChild(mkEl("i", "", means));
-      row.appendChild(t);
-      if (card) {
-        row.title = "show the " + card.toLowerCase() + " card";
-        row.addEventListener("click", () => revealCard(card));
-      }
-      work.appendChild(row);
+  // Every signal the report measures, zeroes included. The zeroes are the part
+  // a top-four worklist could not say, and they are the reason the Maintenance
+  // table existed: a row reading 0 is an answer, it just is not a destination.
+  const signals = [
+    ["dangling", T.dangling_links, "unresolved links", "wikilinks with no target"],
+    ["lean", T.lean_notes, "lean notes", "too thin to carry their topic"],
+    ["orphans", T.orphans, "orphans", "nothing links to them"],
+    ["gaps", T.structural_gaps, "structural gaps", "areas that should connect and do not"],
+    ["attention", attnCount, "waiting on attention", "idle and missed in recall"],
+    // "—" not "0" when the leg that measures it never ran: a printed zero reads
+    // as "measured, came out flat".
+    ["deficits", full ? T.integration_deficits : null, "integration deficits",
+     "concept-rich text, few wikilinks"],
+    ["contested", T.contested, "contested", "frontmatter flags a conflict"],
+    ["drift", T.source_drift, "source drift", "the source moved on without the note"],
+    // V7. A row, not a card: it is a list of notes to act on, which is what the
+    // worklist is for. Its own judge gate came back uninformative (the judge
+    // would split 60-90% of RANDOM notes too), so the row says what it measured
+    // - broad and flat - and never that the note is wrong.
+    ["sprawling", full ? T.sprawling : null, "sprawling notes",
+     "many concepts, none of them dominant"],
+  ].sort((a, b) => (b[1] || 0) - (a[1] || 0));
+
+  let firstRow = null;
+  for (const [key, n, label, means] of signals) {
+    const live = n > 0;
+    // A row that goes nowhere stays a div: a button that does nothing is worse
+    // than a line of text, and a zero has no evidence to show.
+    const row = mkEl(live ? "button" : "div", "wl" + (live ? "" : " zero"));
+    if (live) { row.type = "button"; row.dataset.sig = key; }
+    row.appendChild(mkEl("span", "wl-q", n === null ? "—" : nfmt(n)));
+    row.appendChild(mkEl("span", "wl-l", label));
+    row.appendChild(mkEl("span", "wl-d", means));
+    if (live) {
+      // The slot that held a magnitude bar. n/max across these rows compared
+      // counts with no shared unit -- unresolved links against lean notes
+      // against area pairs -- so the bar ranked them on a scale nobody can
+      // name, and the sort order plus the printed count already said which was
+      // biggest. What a worklist actually raises is which way a count is going.
+      const trend = signalTrend(d.history, key);
+      if (trend) row.appendChild(trend);
+      row.addEventListener("click", () => selectSignal(key));
+      if (!firstRow) firstRow = key;
     }
-  } else {
-    work.appendChild(mkEl("p", "mempty", "Nothing is out of place. Every note is "
+    left.appendChild(row);
+  }
+  if (!signals.some(([, n]) => n > 0)) {
+    left.appendChild(mkEl("p", "mempty", "Nothing is out of place. Every note is "
       + "reachable, every wikilink resolves."));
   }
-  head.appendChild(work);
 
   // The four rates that put those counts in proportion. Not counts: notes,
-  // links, areas and broken links already sit in the sidebar two panes left,
-  // and printing them twice spends a row on nothing.
+  // links, areas and broken links are stated in the top strip on every view,
+  // and printing them again spends a row on nothing.
   // Three of these tiles and the worklist above them all count something about
   // links, and the panel used to print "36 orphans", "3% orphaned" and "46 no
   // link at all" side by side with nothing saying how the three relate. They
   // are not the same measure: an orphan has nothing pointing AT it and may link
   // out freely, "no link either way" has neither direction and includes the
-  // staging notes orphans deliberately skips. Each tile now carries its own
+  // staging notes orphans deliberately skips. Each tile carries its own
   // definition rather than leaving the reader to guess which number to believe.
   const kpi = mkEl("div", "mkpi");
+  // A rate over time, derived per reading rather than from today's counts: a
+  // links-per-note that fell because the vault gained notes is a different
+  // event from one that fell because links were removed, and only the series
+  // built reading-by-reading can tell them apart.
+  const rate = (num, den) => (d.history || [])
+    .map((r) => (r.signals && r.signals[den] ? r.signals[num] / r.signals[den] : null))
+    .filter((v) => typeof v === "number");
+  const d1 = (v) => v.toFixed(1);
+  const pp = (v) => Math.round(v * 100) + "%";
   const tiles = [
-    ["Links / note", notes ? (links / notes).toFixed(1) : "0", false,
-      "resolved wikilinks divided by notes"],
+    ["Links / note", notes ? d1(links / notes) : "0", false,
+      "resolved wikilinks divided by notes",
+      rate("links", "notes"), +1, d1],
     ["Orphaned", pct(orphans, notes), orphans > 0,
-      `share of notes nothing links to (${nfmt(orphans)} of ${nfmt(notes)}). They may still link out.`],
+      `share of notes nothing links to (${nfmt(orphans)} of ${nfmt(notes)}). They may still link out.`,
+      rate("orphans", "notes"), -1, pp],
+    // No series: the reading comes from the degree histogram, which the report
+    // store does not keep. An empty slot, never a flat line.
     ["No link either way", nfmt(isolated), isolated > 0,
-      "notes with no link in and none out. Counted over every note, including the staging folders orphans skips."],
+      "notes with no link in and none out. Counted over every note, including the staging folders orphans skips.",
+      [], +1, nfmt],
     ["Areas > 1 note", nfmt((d.clusters || []).filter((c) => c.size > 1).length), false,
-      "structural areas holding more than a single note"],
+      "structural areas holding more than a single note",
+      seriesOf(d.history, "areas"), +1, nfmt],
   ];
-  for (const [lbl, val, warn, why] of tiles) {
-    const s = mkEl("div", "stat");
-    if (why) s.title = why;
-    s.appendChild(mkEl("div", "val" + (warn ? " warn" : ""), nfmt(val)));
-    s.appendChild(mkEl("div", "lbl", lbl));
-    kpi.appendChild(s);
+  for (const [lbl, val, warn, why, vals, good, fmt] of tiles) {
+    const st = mkEl("div", "stat");
+    if (why) st.title = why;
+    const head = mkEl("div", "stat-h");
+    head.appendChild(mkEl("div", "val" + (warn ? " warn" : ""), nfmt(val)));
+    const chip = deltaChip(vals[vals.length - 1], vals[vals.length - 2], good, fmt);
+    if (chip) head.appendChild(chip);
+    st.appendChild(head);
+    st.appendChild(mkEl("div", "lbl", lbl));
+    const line = sparkline(vals, { w: 96, h: 18, title: vals.map(fmt).join(" → ") });
+    if (line) st.appendChild(line);
+    kpi.appendChild(st);
   }
-  head.appendChild(kpi);
-  body.appendChild(head);
+  left.appendChild(kpi);
 
-  // --- three sections, one question each -------------------------------------
-  // Health opens because it is the one the worklist above points into. The
-  // other two are readings you come looking for, and sixteen cards unrolled at
-  // once is what made this view unreadable.
+  // Set by the Areas card once it exists. Selecting a worklist row recolours
+  // that field as well as filling the pane, which is the difference between a
+  // view with sixteen small charts and a view with one field read sixteen ways.
+  // A no-op until then, because the pane is built and selected before the
+  // sections below it are.
+  let relens = () => {};
+
+  // The pane holds one signal at a time, and the choice survives a recompute:
+  // the number you were reading is exactly the one you came back to check.
+  function selectSignal(key) {
+    metricsSignal = key;
+    for (const r of left.querySelectorAll(".wl[data-sig]"))
+      r.classList.toggle("on", r.dataset.sig === key);
+    right.textContent = "";
+    right.appendChild(evidence(key, d, T, attnRows, attnMeasured));
+    right.scrollTop = 0;
+    relens(key);
+  }
+  // `preview ops` in the Report panel means "show me the rows this would touch",
+  // and those rows are already a pane here. Re-exported on every render because
+  // selectSignal closes over THIS render's panes; the previous one is detached.
+  window.selectMetricSignal = selectSignal;
+  mv.appendChild(left);
+  mv.appendChild(right);
+  body.appendChild(mv);
+  selectSignal(signals.some(([k, n]) => k === metricsSignal && n > 0) ? metricsSignal : firstRow);
+
+  // --- how the vault moved (graft: the series the store already kept) --------
+  // Small multiples, one frame per signal, and deliberately NOT one chart with
+  // nine lines. These counts do not share a domain: notes and links run to the
+  // hundreds while gaps and contested run to single digits, so on one linear
+  // axis the four that matter resolve to a flat line along the bottom -- the
+  // same failure the waterfall exists to avoid for E's terms. Scaling each
+  // series to its own range inside one frame would fix the flatness by lying
+  // about magnitude: a signal that moved by 1 would swing as hard as one that
+  // moved by 100.
+  //
+  // What the panels DO share is the x axis, because every panel is drawn from
+  // the same readings in the same order. That is the comparison this band is
+  // for: which signals moved together.
+  //
+  // The series is depth-independent by construction (history.py stores only
+  // counts that mean the same thing at either depth), so a structural report
+  // and a full one land on the same line without one of them reading as a
+  // hundred deficits closed by nobody.
+  const hist = d.history || [];
+  const band = mkEl("section", "mband");
+  const bh = mkEl("div", "mband-h");
+  bh.appendChild(mkEl("span", "mband-t", "How the vault moved"));
+  const series = [
+    ["notes", "notes", +1, nfmt],
+    ["links", "links", +1, nfmt],
+    ["unresolved", "unresolved refs", -1, nfmt],
+    ["dangling_links", "missing targets", -1, nfmt],
+    ["orphans", "orphans", -1, nfmt],
+    ["lean_notes", "lean notes", -1, nfmt],
+    ["structural_gaps", "gaps", -1, nfmt],
+    ["contested", "contested", 0, nfmt],
+    ["areas", "areas", 0, nfmt],
+  ].map(([key, label, good, fmt]) => [key, label, good, fmt, seriesOf(hist, key)]);
+  const panels = series.filter(([, , , , vals]) => vals.length >= 2);
+  // One reading is a state, not a movement -- but it is a real state, and the
+  // figures in it are the points every future line will start from. So the band
+  // still draws its frames, with the value and no line: what is missing here is
+  // the second reading, not the measurement.
+  const waiting = panels.length ? [] : series.filter(([, , , , v]) => v.length === 1);
+
+  if (waiting.length) {
+    bh.appendChild(mkEl("span", "mband-s",
+      `${nfmt(hist.length)} reading stored · a direction needs two`));
+    band.appendChild(bh);
+    // Said in full rather than in a half-line, because the thing a reader has
+    // to learn here is not "it is empty" but WHY it is empty and what fills it:
+    // the store appends only when a count actually moves, so reopening this tab
+    // on an unchanged vault will never produce the second point, and waiting is
+    // the wrong response.
+    band.appendChild(mkEl("p", "mband-p",
+      "This band reads which counts are rising and which are falling, one frame "
+      + "per signal. It needs two readings to draw a line, and a reading is only "
+      + "stored when a count actually moves: recomputing an unchanged vault "
+      + "deliberately does not manufacture one. Write a note, resolve a broken "
+      + "link, run a nucleation: the next report becomes the second point and "
+      + "these figures start carrying a direction."));
+    const grid = mkEl("div", "mband-g");
+    for (const [, label, , fmt, vals] of waiting) {
+      const cell = mkEl("div", "mband-c waiting");
+      const top = mkEl("div", "mband-ct");
+      top.appendChild(mkEl("span", "mband-v", fmt(vals[0])));
+      cell.appendChild(top);
+      // A dotted rule where the line will go. Dotted because nothing in this
+      // view draws a VALUE that way, so it cannot be misread as a flat series
+      // -- which is exactly what a solid stroke here would say, and the one
+      // thing the store cannot claim yet.
+      cell.appendChild(mkEl("div", "mband-wait"));
+      cell.appendChild(mkEl("div", "mband-l", label));
+      cell.title = `${label}: ${fmt(vals[0])} at the only stored reading`;
+      grid.appendChild(cell);
+    }
+    band.appendChild(grid);
+  } else if (!panels.length) {
+    // Nothing stored at all: no figures to show either, so there is no frame to
+    // draw. A vault reaches this only before its first report is ever filed.
+    bh.appendChild(mkEl("span", "mband-s", "no readings stored yet"));
+    band.appendChild(bh);
+    band.appendChild(mkEl("p", "mband-p",
+      "The first report files one. From the second onward, this band shows which "
+      + "counts are rising and which are falling."));
+  } else {
+    const first = hist[0].at || "", last = hist[hist.length - 1].at || "";
+    bh.appendChild(mkEl("span", "mband-s",
+      `${nfmt(hist.length)} readings · ${first.slice(0, 10)} to ${last.slice(0, 10)} `
+      + "· one frame per signal, oldest left, each on its own scale"));
+    band.appendChild(bh);
+    const grid = mkEl("div", "mband-g");
+    for (const [key, label, good, fmt, vals] of panels) {
+      const cell = mkEl("div", "mband-c");
+      const top = mkEl("div", "mband-ct");
+      top.appendChild(mkEl("span", "mband-v", fmt(vals[vals.length - 1])));
+      const chip = deltaChip(vals[vals.length - 1], vals[vals.length - 2], good, fmt);
+      if (chip) top.appendChild(chip);
+      cell.appendChild(top);
+      const line = sparkline(vals, { w: 130, h: 26,
+        title: `${label}: ${vals.map(fmt).join(" → ")}` });
+      if (line) cell.appendChild(line);
+      cell.appendChild(mkEl("div", "mband-l", label));
+      // The whole series on the frame, not only the sparkline's own tooltip:
+      // the number under the pointer has to be readable without hitting a 130px
+      // path with a 1px stroke.
+      cell.title = `${label}: ${vals.map(fmt).join(" → ")}`;
+      grid.appendChild(cell);
+    }
+    band.appendChild(grid);
+  }
+  body.appendChild(band);
+
+  // --- two sections, one question each ---------------------------------------
+  // Health used to hold the seven lists and to open on load, because the
+  // worklist above pointed into it. Those lists are the evidence pane now, so
+  // what is left here are readings you come looking for, and neither unrolls
+  // by itself: sixteen cards open at once is what made this view unreadable.
   const sec = (title, sub, open) => {
     const box = mkEl("details", "msec");
     box.open = open;
@@ -2291,7 +3853,6 @@ function renderMetrics(d) {
     body.appendChild(box);
     return g;
   };
-  const health = sec("Health", "what is broken, thin or drifting", true);
   const structure = sec("Structure", "how the vault is shaped, and how tightly", false);
   const activity = sec("Activity", "what wrote it, and what could be added", false);
   // Cards route by section from here; `grid` stays the name the card builders
@@ -2319,27 +3880,51 @@ function renderMetrics(d) {
   ));
   grid.appendChild(ec);
 
-  // --- areas -----------------------------------------------------------------
-  const CL_ROWS = 14;
-  const cl = mCard("Areas by size", "Louvain communities · cohesion = intra-links / possible");
-  if (d.clusters?.length) {
-    const shown = d.clusters.slice(0, CL_ROWS);
-    const rest = d.clusters.slice(CL_ROWS);
-    const rows = shown.map((c) => ({
-      label: c.hub || "#" + c.id, value: c.size, path: c.path,
-      note: c.cohesion ? c.cohesion.toFixed(2) : "—",
-      title: `${c.size} notes · cohesion ${c.cohesion}`,
-    }));
-    cl.appendChild(barChart(rows));
-    cl.appendChild(mkEl("p", "mnote", "right column: cohesion"));
-    // The tail is a count, not a fourteenth area: as a bar row its total
-    // outgrew every real area and crushed them all into stubs. An aggregate
-    // never shares a magnitude scale with the things it aggregates.
-    if (rest.length) {
-      cl.appendChild(mkEl("p", "mnote",
-        `${nfmt(rest.length)} smaller areas hold the other `
-        + `${nfmt(rest.reduce((s, c) => s + c.size, 0))} notes`));
-    }
+  // --- areas, and the field every signal is read against ---------------------
+  // This was a ranked bar list of the top fourteen with the rest stated in a
+  // sentence: "94 smaller areas hold the other 210 notes". That sentence is the
+  // one part of the distribution a reader cannot see, and the tail could not
+  // become a fifteenth bar because an aggregate never shares a magnitude scale
+  // with the things it aggregates. As area, every area is drawn and the small
+  // ones being small IS the reading.
+  //
+  // It is also the view's one field. Selecting a worklist row recolours it by
+  // that signal's share of each area, which is what turns nine measurements
+  // into nine readings of one vault rather than nine charts.
+  // `label`, because that is what areaTreemap and the coupling matrix both read
+  // and what `/shape` already ships. `/metrics` names the same field `hub`, and
+  // an unmapped tile does not fail loudly -- it renders with an empty name.
+  const areaField = (d.clusters || []).filter((c) => c.size > 1)
+    .map((c) => ({ ...c, label: c.hub || "#" + c.id }));
+  const cl = mCard("Areas", `${nfmt(areaField.length)} multi-note areas · sized by notes`);
+  if (areaField.length) {
+    const holder = mkEl("div", "tmap-holder");
+    const legend = mkEl("p", "mnote");
+    cl.append(holder, legend);
+    // Why a signal has no per-area tally, stated where the fill falls back
+    // rather than left as a colour that silently stops meaning anything.
+    const unplaceable = {
+      dangling: "a missing target has no note, so it belongs to no area.",
+      gaps: "a gap is already a fact about a PAIR of areas.",
+    };
+    relens = (key) => {
+      const lens = (d.signal_areas || {})[key] || null;
+      const meta = signals.find(([k]) => k === key);
+      const noun = meta ? meta[2] : "selected";
+      holder.textContent = "";
+      holder.appendChild(areaTreemap(areaField, { lens, lensLabel: noun }));
+      legend.textContent = (lens
+        ? `fill = share of each area's notes that are ${noun}, so a small area `
+          + "carrying three reads louder than a large one carrying five"
+        : (unplaceable[key] ? unplaceable[key] + " Fill is cohesion: "
+            : "fill = cohesion, ")
+          + "the share of possible links inside an area that exist")
+        // Said because the ramp is relative: the darkest tile is the loudest
+        // here, not a full score, and a reader comparing two runs by eye would
+        // otherwise read a rescale as a change in the vault.
+        + " · shaded against the loudest area, not an absolute scale";
+    };
+    relens(metricsSignal);
   } else mEmpty(cl, "No communities yet. Link some notes.");
   grid.appendChild(cl);
 
@@ -2359,44 +3944,40 @@ function renderMetrics(d) {
   }
 
   // --- hubs ------------------------------------------------------------------
-  // In/out degree are dropped: degree is their sum, and six columns in a card
-  // this narrow is a scrollbar, not a table. Both still ride the row tooltip.
-  const hb = mCard("Hubs", "degree · betweenness = how much traffic routes through");
-  if (d.hubs?.length) {
-    hb.appendChild(mTable(
-      [{ key: "label", label: "Note" }, { key: "area", label: "Area" },
-       { key: "degree", label: "Links", num: true },
-       { key: "betweenness", label: "Btw", num: true }],
-      d.hubs.map((h) => ({ ...h, _path: h.path, _title: `${h.in} in · ${h.out} out` })),
-    ));
+  // Two measurements that a table can only list one under the other, sorted by
+  // one of them. They do not agree, and where they disagree is the reading: a
+  // note with forty links and no betweenness is a hub of its own area that
+  // nothing routes THROUGH, which the table's degree order puts at the top and
+  // gives no way to notice. In/out degree stay on the tooltip, as before:
+  // degree is their sum, and the split is a detail of one note, not a shape.
+  const hb = mCard("Hubs", "links against traffic · the top 20 by degree");
+  if (d.hubs?.length > 1) {
+    hb.appendChild(scatter(d.hubs, {
+      x: (h) => h.degree || 0,
+      y: (h) => h.betweenness || 0,
+      xLabel: "resolved links", yLabel: "betweenness",
+      label: (h) => `${h.label} · ${h.area} · ${h.degree} links `
+        + `(${h.in} in, ${h.out} out) · betweenness ${h.betweenness}`,
+      quadrants: [
+        { at: "rt", label: "central both ways" },
+        { at: "rb", label: "linked, off the paths", tint: true },
+        { at: "lt", label: "on the paths, lightly linked" },
+      ],
+      height: 230,
+      onPick: (h) => showNode({ path: h.path }),
+    }));
+    hb.appendChild(mkEl("p", "mnote",
+      "split at the medians of these twenty, not at a fixed threshold: neither "
+      + "axis has a value that means the same thing on another vault"));
+  } else if (d.hubs?.length) {
+    // One point has no median to split on and no shape to read. The row it
+    // would have plotted is the whole answer.
+    hb.appendChild(mkEl("p", "mnote",
+      `${d.hubs[0].label} is the only connected note: ${d.hubs[0].degree} links.`));
   } else mEmpty(hb, "No connected notes yet.");
   grid.appendChild(hb);
 
-  grid = health;
-
-  // --- maintenance -----------------------------------------------------------
-  // Heterogeneous counts in different units — a bar chart would imply they are
-  // comparable. A table is the honest form. The four loudest rows of this table
-  // are the worklist at the top of the view; this is the whole of it, including
-  // the zeroes, which is the part the worklist cannot say.
-  const mt = mCard("Maintenance", "every signal the report measures, zeroes included");
-  mt.appendChild(mTable(
-    [{ key: "what", label: "Signal" }, { key: "n", label: "Count", num: true },
-     { key: "means", label: "Means" }],
-    [
-      ["Orphans", T.orphans, "nothing links to them"],
-      ["Unresolved links", T.dangling_links, "wikilinks with no target"],
-      ["Contested", T.contested, "frontmatter flags a conflict"],
-      ["Source drift", T.source_drift, "source moved on without the note"],
-      // "—" not "0" when the leg that measures it never ran: a printed zero
-      // reads as "measured, came out flat".
-      ["Integration deficits", full ? T.integration_deficits : null, "concept-rich, weakly linked"],
-      ["Attention", attnCount, "idle + missed in recall"],
-      ["Lean notes", T.lean_notes, "too thin to carry their topic"],
-      ["Structural gaps", T.structural_gaps, "areas that should connect, don't"],
-    ].map(([what, n, means]) => ({ what, n: n === null ? "—" : nfmt(n || 0), means })),
-  ));
-  grid.appendChild(mt);
+  grid = activity;
 
   // --- reliability tiers -----------------------------------------------------
   if (d.temporal) {
@@ -2407,18 +3988,24 @@ function renderMetrics(d) {
       { tone: "ord-1", label: "distilled", value: bt["1"] || 0 },
     ];
     const tc = mCard("Reliability", `${nfmt(tp.notes_scanned)} notes scanned`);
-    tc.appendChild(mLegend(tiers.map((t) => ({ tone: t.tone, label: t.label }))));
+    const scanned = tp.notes_scanned || 0;
+    tc.appendChild(mLegend(tiers.map((t) => ({
+      tone: t.tone, label: t.label,
+      note: `${nfmt(t.value)}${scanned ? " · " + Math.round((t.value / scanned) * 100) + "%" : ""}`,
+    }))));
     tc.appendChild(stackedBar(tiers));
-    tc.appendChild(mTable(
-      [{ key: "k", label: "Signal" }, { key: "v", label: "Notes", num: true }],
-      [
-        ...tiers.map((t) => ({ k: "Tier · " + t.label, v: nfmt(t.value) })),
-        { k: "Carrying a claim stamp", v: `${nfmt(tp.stamped)} / ${nfmt(tp.notes_scanned)}` },
-        { k: "With a Superseded section", v: nfmt(tp.superseded_sections) },
-        { k: "Merged away", v: nfmt(tp.superseded_notes) },
-        ...(tp.oldest_valid_from ? [{ k: "Earliest valid_from", v: tp.oldest_valid_from }] : []),
-      ],
-    ));
+    // A ratio against its limit is a meter, and it was a table row printing
+    // "412 / 686" for a reader to divide.
+    tc.appendChild(meter(tp.stamped, scanned,
+      `${nfmt(tp.stamped)} of ${nfmt(scanned)} carry a claim stamp`));
+    // What is left is three facts, and three facts are a sentence. A two-column
+    // table around them is a grid drawn to hold nothing.
+    const facts = [
+      `${nfmt(tp.superseded_sections)} notes carry a Superseded section`,
+      `${nfmt(tp.superseded_notes)} were merged away`,
+    ];
+    if (tp.oldest_valid_from) facts.push(`earliest claim ${tp.oldest_valid_from}`);
+    tc.appendChild(mkEl("p", "mnote", facts.join(" · ")));
     grid.appendChild(tc);
   }
 
@@ -2464,97 +4051,41 @@ function renderMetrics(d) {
     grid.appendChild(card);
   }
 
+  // --- what the recent writing is about (V6) ---------------------------------
+  // A card in Activity and NOT a worklist row: a burst is not something to fix,
+  // it is what the last fortnight of writing turned out to be about. The window
+  // is the last 14 days of WRITING, not of wall-clock time, so a vault written
+  // two months ago still has a most-recent fortnight and this card still says
+  // something. z is a one-proportion score against the concept's own baseline
+  // share, which is why a concept that is everywhere never bursts.
+  if (full && d.bursting?.length) {
+    const bc = mCard("Bursting concepts", "over-represented in the last 14 days of writing");
+    bc.appendChild(mTable(
+      [{ key: "concept", label: "Concept" }, { key: "recent", label: "Recent", num: true },
+       { key: "total", label: "All", num: true }, { key: "z", label: "z", num: true }],
+      d.bursting.slice(0, 12),
+    ));
+    grid.appendChild(bc);
+  }
+
   grid = structure;
 
-  // --- structural gaps + bridges ---------------------------------------------
-  // The gap list used to sit in the graph's HUD, next to the colour keys, where
-  // a worklist reads as a legend entry. A gap is a fact about the vault, so it
-  // belongs on the surface that measures the vault — and here it can carry the
-  // ranking (size × size ÷ links) the HUD had no room for.
-  const gp = mCard("Structural gaps", "well-formed areas with few links between them");
-  if (d.gaps?.length) {
-    // Sizes, not the absent-link fraction: that fraction reads 99.7-100% on
-    // every row of a real vault, so it cannot explain why row 1 outranks row
-    // 20. Size × size ÷ (1 + links) is the actual ranking, and with both
-    // sizes on the row the order is readable instead of asserted.
-    gp.appendChild(mTable(
-      [{ key: "pair", label: "Area hubs" }, { key: "sizes", label: "Notes", num: true },
-       { key: "inter_edges", label: "Links", num: true },
-       { label: "", el: (r) => mBridgeBtn(r._a, r._b) }],
-      d.gaps.map((g) => ({
-        pair: g.a + " ↮ " + g.b, sizes: `${g.size_a} × ${g.size_b}`,
-        inter_edges: g.inter_edges, _path: g.a_path, _a: g.a, _b: g.b,
-      })),
-    ));
-  } else mEmpty(gp, "No gaps measured.");
-  grid.appendChild(gp);
-
+  // --- bridges ----------------------------------------------------------------
+  // Gaps moved into the worklist's evidence pane, beside the row that counts
+  // them. Bridges stay a card: they are not a signal to act on, they are a
+  // reading about how the areas actually touch.
   const br = mCard("Surprising bridges", "cross-area links between otherwise distant notes");
   if (d.bridges?.length) {
-    br.appendChild(mTable(
-      [{ key: "pair", label: "Pair" }, { key: "weight", label: "Surprise", num: true }],
-      d.bridges.map((b) => ({ pair: b.source + " ↔ " + b.target, weight: b.weight, _path: b.source_path })),
-    ));
+    // One ranked measure over named things, which is what a magnitude chart is
+    // for. As a two-column table the order was asserted by row position and the
+    // distances between the weights -- whether the top bridge is twice the
+    // second or a hair above it -- were left for the reader to subtract.
+    br.appendChild(barChart(d.bridges.map((b) => ({
+      label: b.source + " ↔ " + b.target, value: b.weight, path: b.source_path,
+      title: `${b.source} ↔ ${b.target}: surprise ${b.weight}`,
+    }))));
   } else mEmpty(br, "No cross-area links yet.");
   grid.appendChild(br);
-
-  grid = health;
-
-  // --- lists that point at a note -------------------------------------------
-  const orph = mCard("Orphans", "nothing links to these");
-  if (d.orphans?.length) {
-    orph.appendChild(mTable([{ key: "label", label: "Note" }],
-      d.orphans.map((o) => ({ ...o, _path: o.path }))));
-    const more = mMore(d.orphans.length, T.orphans || 0, "orphans");
-    if (more) orph.appendChild(more);
-  } else mEmpty(orph, "None. Every note is reachable.");
-  grid.appendChild(orph);
-
-  const dg = mCard("Unresolved links", "wikilink targets that don't exist yet");
-  if (d.dangling?.length) {
-    dg.appendChild(mTable(
-      [{ key: "target", label: "Target" }, { key: "refs", label: "Refs", num: true }],
-      d.dangling,
-    ));
-    const more = mMore(d.dangling.length, T.dangling_links || 0, "targets");
-    if (more) dg.appendChild(more);
-  } else mEmpty(dg, "None. Every wikilink resolves.");
-  grid.appendChild(dg);
-
-  const at = mCard("Attention", "idle × missed in recall ÷ how well linked");
-  if (attnRows.length && attnMeasured) {
-    at.appendChild(mTable(
-      [{ key: "label", label: "Note" }, { key: "days_idle", label: "Idle (d)", num: true },
-       { key: "misses", label: "Missed", num: true }, { key: "score", label: "Score", num: true }],
-      attnRows.map((a) => ({ ...a, _path: a.path })),
-    ));
-  } else if (attnRows.length) {
-    mEmpty(at, "No signal yet. Every candidate was touched today and none has "
-      + "been quizzed, so idle days and recall misses are both zero and there "
-      + "is nothing to rank.");
-  } else mEmpty(at, "Nothing overdue.");
-  grid.appendChild(at);
-
-  if (full) {
-    const df = mCard("Integration deficits", "concept-rich text, few wikilinks");
-    if (d.deficits?.length) {
-      df.appendChild(mTable(
-        [{ key: "label", label: "Note" }, { key: "concepts", label: "Concepts", num: true },
-         { key: "degree", label: "Links", num: true }, { key: "score", label: "Score", num: true }],
-        d.deficits.map((x) => ({ ...x, _path: x.path })),
-      ));
-    } else mEmpty(df, "None measured.");
-    grid.appendChild(df);
-  }
-
-  if (d.contested?.length) {
-    const ct = mCard("Contested", "frontmatter marks these as in conflict");
-    ct.appendChild(mTable(
-      [{ key: "label", label: "Note" }, { key: "refs", label: "Conflicts with" }],
-      d.contested.map((c) => ({ label: c.label, refs: (c.refs || []).join(", "), _path: c.path })),
-    ));
-    grid.appendChild(ct);
-  }
 
   grid = activity;
 
@@ -2635,6 +4166,171 @@ $("#map-picker-list").addEventListener("click", (e) => {
   if (row) rootMap(row.dataset.path);
 });
 
+// --- path: the reading order around one note (V2, RefD) ----------------------
+// The sixth surface, and the only directed one. Rungs are LONGEST-path depth,
+// not hop count: on a ladder a shortcut edge would otherwise put a note on the
+// same rung as its own prerequisite, and the rung is the whole reading.
+//
+// Wires are drawn after layout from the chips' own boxes rather than laid out
+// in SVG: the chips are text of unpredictable width, and measuring what the
+// browser already placed is the only way the two can agree. They are redrawn on
+// resize for the same reason.
+let pathRootedPath = null;
+let pathWireObserver = null;
+let pathEdges = [];
+
+function rootPath(path) {
+  pathRootedPath = path;
+  if (graphMode !== "path") setGraphMode("path");
+  else drawPath();
+  closeNodeResults();
+}
+
+async function drawPath() {
+  const pane = $("#shape-pane");
+  pane.innerHTML = "";
+  $("#shape-loading").hidden = false;
+  let d;
+  try {
+    d = await (await fetch("/path?note=" + encodeURIComponent(pathRootedPath || ""))).json();
+  } catch {
+    d = { error: "couldn't read the reading order" };
+  }
+  $("#shape-loading").hidden = true;
+  if (graphMode !== "path") return; // the reader switched surface mid-flight
+  pane.innerHTML = "";
+  pane.appendChild(renderPath(d));
+  drawPathWires();
+}
+
+function pathRungLabel(depth) {
+  if (depth === 0) return "this note";
+  if (depth === -1) return "read first";
+  if (depth === 1) return "unlocks";
+  return depth < 0 ? (-depth) + " steps before" : depth + " steps after";
+}
+
+function renderPath(d) {
+  const wrap = mkEl("div", "pl-wrap");
+  if (d.error) {
+    wrap.appendChild(mkEl("p", "pl-empty", d.error));
+    return wrap;
+  }
+  // The landing. Same job as the map picker and a different ranking: a note
+  // roots a ladder by what reads around it, which the file tree cannot say.
+  if (d.picks) {
+    wrap.appendChild(mkEl("div", "pl-h", "Pick a note to place in its reading order"));
+    if (d.hint) wrap.appendChild(mkEl("p", "pl-empty", d.hint));
+    if (!d.picks.length && !d.hint) {
+      wrap.appendChild(mkEl("p", "pl-empty",
+        "no note has a prerequisite yet. RefD only speaks where the co-occurrence "
+        + "index has enough related notes to compare."));
+    }
+    const list = mkEl("div", "pl-picks");
+    for (const pk of d.picks) {
+      const row = mkEl("button", "pl-pick");
+      row.type = "button";
+      row.dataset.root = pk.path;
+      row.appendChild(mkEl("span", "pl-pick-n", pk.name));
+      row.appendChild(mkEl("span", "pl-pick-d",
+        pk.before + " before · " + pk.after + " after"));
+      list.appendChild(row);
+    }
+    wrap.appendChild(list);
+    return wrap;
+  }
+
+  const head = mkEl("div", "pl-h");
+  head.appendChild(mkEl("span", "pl-h-t", (d.root && d.root.name) || "reading order"));
+  wrap.appendChild(head);
+  if (d.hint) {
+    wrap.appendChild(mkEl("p", "pl-empty", d.hint));
+    return wrap;
+  }
+
+  const lad = mkEl("div", "pl");
+  const wires = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  wires.setAttribute("class", "pl-wires");
+  wires.setAttribute("aria-hidden", "true");
+  lad.appendChild(wires);
+  for (const lv of d.levels) {
+    const rung = mkEl("div", "pl-rung" + (lv.depth === 0 ? " here" : ""));
+    rung.appendChild(mkEl("div", "pl-lbl", pathRungLabel(lv.depth)));
+    const notes = mkEl("div", "pl-notes");
+    for (const n of lv.notes) {
+      const chip = mkEl("div", "pl-n" + (n.root ? " root" : "") + (n.cyclic ? " cyc" : ""));
+      chip.dataset.path = n.path;
+      chip.dataset.plId = n.path;
+      chip.appendChild(mkEl("span", "pl-n-t", n.name));
+      if (!n.root) {
+        const re = mkEl("button", "pl-re", "⤴");
+        re.type = "button";
+        re.dataset.root = n.path;
+        re.title = "place this note in its own reading order";
+        notes.appendChild(chip);
+        chip.appendChild(re);
+      } else {
+        notes.appendChild(chip);
+      }
+    }
+    rung.appendChild(notes);
+    lad.appendChild(rung);
+  }
+  wrap.appendChild(lad);
+
+  const foot = [];
+  if (d.truncated) foot.push("cut at 60 notes: the ladder continues past this");
+  // A cycle is a disagreement the vault really contains, not corrupt data, so
+  // it is reported rather than hidden. The edges that close it are dropped from
+  // the layout, which is why the count is worth stating at all.
+  if (d.cycles) {
+    foot.push(d.cycles + (d.cycles === 1 ? " note is" : " notes are")
+      + " in a prerequisite cycle: their edges are not drawn");
+  }
+  if (foot.length) wrap.appendChild(mkEl("p", "pl-foot", foot.join(" · ")));
+  pathEdges = d.edges || [];
+  return wrap;
+}
+
+function drawPathWires() {
+  const lad = $("#shape-pane").querySelector(".pl");
+  const svg = lad && lad.querySelector(".pl-wires");
+  if (!svg) return;
+  const box = lad.getBoundingClientRect();
+  svg.setAttribute("viewBox", "0 0 " + Math.round(box.width) + " " + Math.round(box.height));
+  svg.setAttribute("width", Math.round(box.width));
+  svg.setAttribute("height", Math.round(box.height));
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const at = (path) => {
+    const el = lad.querySelector('[data-pl-id="' + CSS.escape(path) + '"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.left - box.left + r.width / 2, top: r.top - box.top, bot: r.bottom - box.top };
+  };
+  for (const e of pathEdges) {
+    const a = at(e.from), b = at(e.to);
+    if (!a || !b) continue;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const y1 = a.bot, y2 = b.top;
+    const mid = (y1 + y2) / 2;
+    path.setAttribute("d", "M" + a.x + " " + y1 + " C" + a.x + " " + mid
+      + " " + b.x + " " + mid + " " + b.x + " " + y2);
+    path.setAttribute("class", "pl-wire");
+    svg.appendChild(path);
+  }
+  if (!pathWireObserver && window.ResizeObserver) {
+    pathWireObserver = new ResizeObserver(() => {
+      if (graphMode === "path") drawPathWires();
+    });
+    pathWireObserver.observe($("#shape-pane"));
+  }
+}
+
+$("#shape-pane").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-root]");
+  if (b) rootPath(b.dataset.root);
+});
+
 // --- explore note search (network: fly the camera · map: root the map) --------
 // A fuzzy ranked picker over the vault's notes, indexed from the sidebar tree —
 // same title→prefix→substring→path ranking the graph viewer's own search uses.
@@ -2695,6 +4391,8 @@ function moveNodeSel(d) {
 function pickNote(path) {
   if (graphMode === "map") {
     rootMap(path);
+  } else if (graphMode === "path") {
+    rootPath(path);
   } else { // network: locate the note and fly the graph camera to it
     const f = $("#graph-frame");
     if (f.contentWindow) f.contentWindow.postMessage({ type: "silica-goto-path", path }, "*");
@@ -2948,37 +4646,34 @@ function restoreYieldedSidebar() {
   sidebarYielded = false;
 }
 
-// The drawer has two readings of the same note. `note` is the reader, exactly as
-// before. `context` is what the vault knows about it — concepts, how it IS
-// connected, how it SHOULD be — all deterministic, one blocking /context call.
+// The drawer is the NOTE: `note` is the reader and `diff` is the same file
+// against how it stood before this session touched it. It carried a third mode,
+// `context`, which drew the /context payload the work panel's node scope also
+// draws - two panels at the same edge, the same sections, neither header saying
+// which of them you were reading. They had already drifted apart by the time it
+// was noticed, each dropping a section the other kept. The panel took the
+// payload; this drawer kept the prose, and each fact now has one home.
 //
-// The click contract: naming a note means "I want to read it", so a wikilink and
-// the file tree always land in the reader, even when the drawer is already in
-// context. Pointing at a node means "what is this", so the graph, the map and
-// the metrics rows land in context.
+// The click contract, unchanged in principle and now stated once: NAMING a note
+// means "I want to read it", so a wikilink, the file tree and a search hit land
+// here. POINTING at one means "what is this", so a graph node, a map card and a
+// metrics row fill the work panel instead. A second click on a node is "read
+// it" said with the gesture, and lands back here.
 let drawerMode = "note";
-let ghostName = null; // set while the drawer holds an unresolved link, which has no reader
 
 function syncDrawerMode() {
   const path = lastNotePath || lastViewedPath;
   document.querySelectorAll("#note-mode button").forEach((b) => {
     setActive(b, b.dataset.mode === drawerMode);
-    // A ghost has no file to read; the reader half stops being an offer.
-    if (b.dataset.mode === "note") b.disabled = !!ghostName;
-    // Same rule for diff: a note this session never touched has no diff, and an
-    // enabled tab onto an empty pane is a promise the drawer cannot keep.
+    // A note this session never touched has no diff, and an enabled tab onto an
+    // empty pane is a promise the drawer cannot keep.
     if (b.dataset.mode === "diff") {
-      b.disabled = !!ghostName || !changedPaths.has(path);
+      b.disabled = !changedPaths.has(path);
       b.title = b.disabled ? "this session has not changed this note"
                            : "what this session changed in this note";
     }
   });
-  // The five actions act on the SELECTED NOTE, so they survive the mode switch
-  // — but a ghost has no note to act on, and an enabled button that does
-  // nothing is the same silent no-op this drawer exists to fix.
-  document.querySelectorAll("#note-actions .na").forEach((b) => { b.disabled = !!ghostName; });
   $("#note-body").hidden = drawerMode !== "note";
-  $("#note-context").hidden = drawerMode !== "context";
   $("#note-diff").hidden = drawerMode !== "diff";
 }
 
@@ -2992,13 +4687,13 @@ function showDrawer(title) {
   syncDrawerToViews();
   fitPanes(); // owns the sidebar decision AND the drawer width, in that order
   $("#note-last").querySelector("span").textContent = title || "";
+  syncPinButton(); // the toggle states THIS note, so it is re-read per open
 }
 
 async function openNote(path) {
   if (!path) return;
   lastNotePath = path;
   lastViewedPath = path;
-  ghostName = null;
   drawerMode = "note";
   syncDrawerMode();
   focusGraphNode(path);
@@ -3012,43 +4707,50 @@ async function openNote(path) {
   } catch { notify("couldn't open that note"); }
 }
 
-// `target` is {path} for a real note, or {name, ghost:true} for an unresolved
-// wikilink — which has no body, no reader, and one action: write it.
-async function openContext(target) {
+// --- the Node panel: what you pointed at, in the third column ----------------
+// Pointing at a node fills the third column instead of opening a drawer over
+// the surface you are reading. The click contract itself does not move: naming
+// a note still means "read it" and still lands in the drawer; pointing at one
+// still means "what is this". What moved is the ANSWER, which used to be drawn
+// twice - here for explore and in the drawer's context mode for every other
+// view - off the one /context call. One reader now, so a node answers the same
+// on the graph, the map, a metrics row and a shape row.
+//
+// The head facts (degree, state, area) ride in on the frame's message rather
+// than being asked for again: the frame computed all three to draw the node you
+// clicked, and a second source for them is a second answer that can disagree
+// with the picture in front of you.
+const announceNode = (node, context) =>
+  document.dispatchEvent(new CustomEvent("silica:node",
+    { detail: node ? { node: node, context: context } : null }));
+
+let nodeSeq = 0; // two fast clicks: only the last one's context may land
+
+async function showNode(target) {
   const path = target.path || "";
   const ghost = !!target.ghost || !path;
   if (!path && !target.name) return;
-  ghostName = ghost ? (target.name || path) : null;
   if (!ghost) { lastNotePath = path; lastViewedPath = path; }
-  drawerMode = "context";
-  syncDrawerMode();
   focusGraphNode(ghost ? null : path);
-  const box = $("#note-context");
-  box.textContent = "reading the vault…";
-  box.className = "cx-wait";
-  showDrawer(ghost ? (target.name || "") : (path.split("/").pop().replace(/\.md$/, "")));
+  const seq = ++nodeSeq;
+  announceNode(target, null);   // the head paints now; the sections follow
   try {
     const q = ghost
       ? "ghost=1&name=" + encodeURIComponent(target.name || "")
       : "path=" + encodeURIComponent(path);
     const data = await (await fetch("/context?" + q)).json();
-    box.className = "";
-    renderContext(data);
-    box.scrollTop = 0;
-    showDrawer(data.title || target.name || path);
+    if (seq === nodeSeq) announceNode(target, data);
   } catch {
-    box.className = "cx-wait";
-    box.textContent = "couldn't read that note's context";
+    if (seq === nodeSeq) announceNode(target, { error: "couldn't read that note's context" });
   }
 }
+window.showNode = showNode;
 
 $("#note-mode").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-mode]");
   if (!b || b.disabled || b.dataset.mode === drawerMode) return;
   const path = lastNotePath || lastViewedPath;
-  if (b.dataset.mode === "note") openNote(path);
-  else if (b.dataset.mode === "diff") openDiff(path);
-  else openContext({ path });
+  if (b.dataset.mode === "diff") openDiff(path); else openNote(path);
 });
 
 // --- diff mode ---------------------------------------------------------------
@@ -3060,7 +4762,6 @@ async function openDiff(path) {
   if (!path) return;
   lastNotePath = path;
   lastViewedPath = path;
-  ghostName = null;
   drawerMode = "diff";
   syncDrawerMode();
   focusGraphNode(path);
@@ -3114,86 +4815,48 @@ function closeNote() {
   syncDrawerToViews();
   restoreYieldedSidebar();
   lastNotePath = null; // lastViewedPath survives — the header button can reopen
-  ghostName = null;
   focusGraphNode(null);
 }
 $("#note-last").addEventListener("click", () => {
   if (lastViewedPath) openNote(lastViewedPath);
 });
 
-// --- context mode rendering --------------------------------------------------
-// Built from DOM nodes, never innerHTML: every string here is vault data.
-function cxSection(title, sub) {
-  const sec = mkEl("div", "cx-sec");
-  sec.appendChild(mkEl("div", "cx-label", title));
-  if (sub) sec.appendChild(mkEl("div", "cx-sub", sub));
-  return sec;
+// The two turns a suggestion drafts. They live here and not in work.js, which
+// is the only surface that offers them, because a prompt written twice is two
+// turns that drift the first time one of them is reworded - the same rule the
+// metrics view's bulk prompts already follow.
+function writeGhostPrompt(name, from) {
+  return 'Write the note "' + name + '", which "' + from + '" already links to.';
 }
 
-// A note row. The name opens that note's CONTEXT — which is what makes the
-// drawer navigable, and the graph mirrors each hop. The small icon opens the
-// READER, for when you meant "let me actually read this one".
-function cxRow(r, why) {
-  const row = mkEl("div", "cx-row");
-  const name = mkEl("button", "cx-name", r.name || r.path);
-  name.type = "button";
-  if (r.path) name.addEventListener("click", () => openContext({ path: r.path }));
-  else { name.disabled = true; name.title = "not a note in this vault"; }
-  row.appendChild(name);
-  if (why) row.appendChild(mkEl("span", "cx-why", why));
-  if (r.path) {
-    const open = mkEl("button", "cx-open", "↗");
-    open.type = "button";
-    open.title = "read this note";
-    open.setAttribute("aria-label", "read " + (r.name || r.path));
-    open.addEventListener("click", () => openNote(r.path));
-    row.appendChild(open);
-  }
-  return row;
+function linkNotesPrompt(a, b) {
+  return 'Check whether "' + a + '" and "' + b + '" belong linked, and if they do, '
+       + "add the wikilink in whichever direction reads right.";
 }
 
-// Row lists get a floor of five and a native <details> for the tail. Five rows
-// are enough to see what kind of neighbourhood a note sits in; the rest is one
-// click away when the question is "all of them". <details> because the browser
-// already owns this toggle — no open/closed state to keep in JS, and it
-// survives a re-render by simply not existing across one.
-const CX_VISIBLE = 5;
-function cxList(sec, items, make) {
-  items.slice(0, CX_VISIBLE).forEach((it) => sec.appendChild(make(it)));
-  const rest = items.slice(CX_VISIBLE);
-  if (!rest.length) return;
-  const more = mkEl("details", "cx-more");
-  more.appendChild(mkEl("summary", null, rest.length + " more"));
-  rest.forEach((it) => more.appendChild(make(it)));
-  sec.appendChild(more);
+// The unresolved link as a subject of its own: it has no body, and the notes
+// that already point at it are the only material there is to write it from.
+// Three callers hand it three shapes of the same list (backlink rows, ghost
+// source names, a metrics row's `from`), so it takes either and quotes both:
+// an unquoted list of names ending in a comma is a sentence the model has to
+// guess the boundaries of.
+function ghostWritePrompt(title, sources) {
+  const from = (sources || []).map((s) => '"' + noExt(s.name || s) + '"').join(", ");
+  return 'Write the note "' + title + '".'
+       + (from ? " It is already linked from " + from
+                 + ", so ground it in what those notes already say." : "");
 }
-
-// Weight drives font size — but the RAMP is scaled by how far the weights
-// actually spread. A plain min-max map puts weight 1 at the floor and weight 2
-// at the ceiling, so a trivial 2:1 difference reads as loud as a 20:1 one. The
-// full 12→20px ramp is spent only at a 4x spread or more; a flat cloud stays
-// flat rather than pretending to a hierarchy the data does not have.
-function cxCloud(concepts) {
-  const box = mkEl("div", "cx-cloud");
-  const ws = concepts.map((c) => c.weight || 1);
-  const max = Math.max(...ws), min = Math.min(...ws);
-  const span = max > min ? Math.min(1, Math.log2(max / min) / 2) : 0;
-  for (const c of concepts) {
-    const b = mkEl("button", "cx-concept", c.concept);
-    b.type = "button";
-    const t = max > min ? ((c.weight || 1) - min) / (max - min) : 0;
-    b.style.fontSize = (12 + Math.round(t * span * 8)) + "px";
-    b.title = "weight " + (c.weight || 1) + ": light its notes in the graph";
-    b.addEventListener("click", () => lightConcept(c.concept, b));
-    box.appendChild(b);
-  }
-  return box;
-}
+window.writeGhostPrompt = writeGhostPrompt;
+window.linkNotesPrompt = linkNotesPrompt;
+window.ghostWritePrompt = ghostWritePrompt;
 
 // A concept is a set of notes, so it focuses a set. Clicked from chat it also
 // switches to explore first — there is nothing to see otherwise.
+// Exported: the explore panel's concept pills light the same notes through this
+// one function, rather than growing a second copy of "resolve the term, then
+// focus whatever carries it".
 async function lightConcept(term, btn) {
-  document.querySelectorAll(".cx-concept.lit").forEach((e) => e.classList.remove("lit"));
+  document.querySelectorAll(".wk-pill.lit").forEach((e) => e.classList.remove("lit"));
   btn.classList.add("lit");
   if (activeTab !== "graph") showTab("graph");
   try {
@@ -3202,6 +4865,7 @@ async function lightConcept(term, btn) {
     focusGraphNodes(d.notes);
   } catch { notify("couldn't resolve that concept"); }
 }
+window.lightConcept = lightConcept;
 
 // Suggested rows never write. They prefill a chat turn and hand it back to you,
 // so the write still goes through the agent's gate — validate, checkpoint, undo
@@ -3212,105 +4876,6 @@ function prefillChat(text) {
   box.value = text;
   box.focus();
   box.dispatchEvent(new Event("input")); // let the autosize/palette hooks see it
-}
-
-// Two notes can share a name (A/Cell and B/Cell). Two rows both reading "Cell"
-// are not a list, they are a coin flip — so any name that repeats in this
-// drawer carries its path instead.
-function disambiguator(groups) {
-  // Distinct PATHS per name, not occurrences: a mutual link puts the same note
-  // under both "links to" and "linked from", and that is one note, not two.
-  const paths = {};
-  for (const g of groups) for (const r of g || []) (paths[r.name] ||= new Set()).add(r.path || r.name);
-  return (r) => (paths[r.name] && paths[r.name].size > 1 && r.path
-    ? { ...r, name: r.path.replace(/\.md$/, "") }
-    : r);
-}
-
-function renderContext(data) {
-  const box = $("#note-context");
-  box.textContent = "";
-  if (data.error) {
-    box.className = "cx-wait";
-    box.textContent = data.error;
-    return;
-  }
-  const rel = data.related || {};
-  const has = (a) => a && a.length;
-  const label = disambiguator([rel.frontmatter, rel.outgoing, rel.backlinks, data.suggested]);
-
-  if (data.ghost) {
-    const s = cxSection("unresolved link",
-      "no file carries this name yet, and these notes already point at it");
-    box.appendChild(s);
-  }
-  if (data.hint) box.appendChild(mkEl("div", "cx-hint", data.hint));
-
-  if (has(data.snippets)) {
-    const s = cxSection("key snippets");
-    for (const sn of data.snippets) {
-      const row = mkEl("div", "cx-snip");
-      if (sn.heading) row.appendChild(mkEl("span", "cx-snip-h", sn.heading));
-      row.appendChild(mkEl("span", "cx-snip-t", sn.text));
-      s.appendChild(row);
-    }
-    box.appendChild(s);
-  }
-
-  if (has(data.concepts)) {
-    const s = cxSection("concepts", "click one to light its notes in the graph");
-    s.appendChild(cxCloud(data.concepts));
-    box.appendChild(s);
-  }
-
-  const relRows = [
-    ["related:", rel.frontmatter], ["links to", rel.outgoing], ["linked from", rel.backlinks],
-  ].filter(([, v]) => has(v));
-  if (relRows.length) {
-    const s = cxSection("connected", "how this note IS connected today");
-    for (const [groupLabel, rows] of relRows) {
-      s.appendChild(mkEl("div", "cx-group", groupLabel));
-      cxList(s, rows, (r) => cxRow(label(r)));
-    }
-    box.appendChild(s);
-  }
-
-  if (data.ghost) {
-    const s = cxSection("missing");
-    const b = mkEl("button", "cx-write", "write this note");
-    b.type = "button";
-    b.addEventListener("click", () => prefillChat(
-      'Write the note "' + data.title + '". It is already linked from ' +
-      (rel.backlinks || []).map((r) => '"' + r.name + '"').join(", ") +
-      ", so ground it in what those notes already say."));
-    s.appendChild(b);
-    box.appendChild(s);
-  } else if (has(data.suggested)) {
-    // The subtitle says the METHOD, not the effect. Two machines feed this list
-    // and neither is a model: ghost rows come from wikilinks you already wrote,
-    // note rows from embedding + co-occurrence distance (each row's `why` says
-    // which). Naming the machine is what lets you weigh a suggestion instead of
-    // reading it as a recommendation.
-    const s = cxSection("suggested next",
-      "no LLM: links you wrote + embedding/co-occurrence; a click drafts the turn");
-    cxList(s, data.suggested, (sg) => {
-      const row = cxRow(label(sg), sg.why);
-      const act = mkEl("button", "cx-do", sg.kind === "ghost" ? "write" : "link");
-      act.type = "button";
-      act.addEventListener("click", () => prefillChat(sg.kind === "ghost"
-        ? 'Write the note "' + sg.name + '", which "' + data.title + '" already links to.'
-        : 'Check whether "' + data.title + '" and "' + sg.name + '" belong linked, and if ' +
-          "they do, add the wikilink in whichever direction reads right."));
-      row.appendChild(act);
-      return row;
-    });
-    box.appendChild(s);
-  }
-
-  if (!box.childElementCount) {
-    box.className = "cx-wait";
-    box.textContent = "nothing indexed for this note yet. Run /report or /embed to build the graph";
-  }
 }
 
 // "map" button in the drawer header — jump to explore's map mode, rooted here.
@@ -3433,7 +4998,7 @@ new ResizeObserver(syncHeaderH).observe(headerEl);
 // the wrong gap and the drawer covers #stop / #dock-send again. fitPanes() is the
 // one that re-negotiates against the prose floor; syncNoteW is the fallback for a
 // resize with the drawer closed.
-window.addEventListener("resize", () => { fitPanes(); syncNoteW(); });
+window.addEventListener("resize", () => { syncNarrow(); fitPanes(); syncNoteW(); });
 let resizingNote = false; // guards the outside-click-closes handler below: a drag
                            // that ends outside #note-panel fires a "click" there too
 $("#note-resize").addEventListener("mousedown", (e) => {
@@ -3497,18 +5062,26 @@ $("#note-close").addEventListener("click", closeNote);
 window.addEventListener("message", (e) => {
   if (!e.data) return;
   if (e.data.type === "silica-open-note") openNote(e.data.path);
-  // Graph nodes and map cards point rather than name, so they open context.
-  // A ghost node arrives with no path at all — context is the only mode that
-  // can say anything about an unresolved link.
-  if (e.data.type === "silica-open-context") openContext(e.data);
+  // Graph nodes and map cards POINT rather than name, so they fill the work
+  // panel - on every view, not only explore. A ghost node arrives with no path
+  // at all, and the panel is the only surface that can say anything about an
+  // unresolved link. The second click on the same node arrives separately, as
+  // silica-open-note above.
+  if (e.data.type === "silica-open-context") showNode(e.data);
+  // Clicking the background is a deselection, and a panel still showing the
+  // node you just dropped is the app disagreeing with the view.
+  if (e.data.type === "silica-clear-node") announceNode(null, null);
+  // The frame answers with the renderer it actually built.
+  if (e.data.type === "silica-renderer") syncRenderer(e.data.mode);
 });
 
 // --- session bootstrap (re-render server-side history; never resets on load) -
 async function loadVault() {
   try {
     const r = await fetch("/messages");
-    $("#vault").textContent = r.headers.get("X-Silica-Vault") || "";
-    setCtxTokens(r.headers.get("X-Silica-Context-Tokens"), r.headers.get("X-Silica-Max-Context-Tokens"));
+    setVaultPath(r.headers.get("X-Silica-Vault") || "");
+    setCtxTokens(r.headers.get("X-Silica-Context-Tokens"), r.headers.get("X-Silica-Max-Context-Tokens"),
+                 jsonHeader(r, "X-Silica-Context-Parts"), r.headers.get("X-Silica-Compact-At"));
     const msgs = await r.json();
     log.innerHTML = "";
     // One reply is ONE bubble. The model's text arrives split around its own
@@ -3543,24 +5116,30 @@ async function loadVault() {
         const g = document.createElement("div");
         g.className = "tools";
         for (const t of m.tools) {
+          if (!t.summary) {
+            // Same row object as a live turn, so a reloaded chat keeps the shape
+            // it had while streaming. It opens onto nothing: a stored assistant
+            // message holds the call it made, not what came back, and a card
+            // that says "no output" for a read that returned a whole note would
+            // be inventing an absence.
+            const row = makeToolRow(toolLabel(t));
+            row.finish(t.error ? "error" : "done");
+            g.appendChild(row.el);
+            continue;
+          }
+          // The run's outcome, restated from the stored tool result. Without it
+          // a reloaded chat could only say the injector had run — not what it
+          // wrote, or which chunks died.
           const d = document.createElement("div");
-          if (t.summary) {
-            // The run's outcome, restated from the stored tool result. Without
-            // it a reloaded chat could only say the injector had run — not what
-            // it wrote, or which chunks died.
-            d.className = "tool tool-pipeline collapsed " + t.summary.kind;
-            d.innerHTML = `<div class="pipe-head"><span class="pipe-title"></span></div>`;
-            d.querySelector(".pipe-title").textContent = injectorSummaryLine(t.target || "?", t.summary);
-            if (t.summary.failed_chunks.length) {
-              const f = document.createElement("div");
-              f.className = "pipe-failed";
-              f.textContent = t.summary.failed_chunks.map((x) => `✗ ${x.chunk}${x.phase ? " " + x.phase : ""}`).join(" · ");
-              d.appendChild(f);
-              d.classList.remove("collapsed");
-            }
-          } else {
-            d.className = "tool " + (t.error ? "error" : "done");
-            d.textContent = (t.error ? "✗ " : "✓ ") + toolLabel(t);
+          d.className = "tool tool-pipeline collapsed " + t.summary.kind;
+          d.innerHTML = `<div class="pipe-head"><span class="pipe-title"></span></div>`;
+          d.querySelector(".pipe-title").textContent = injectorSummaryLine(t.target || "?", t.summary);
+          if (t.summary.failed_chunks.length) {
+            const f = document.createElement("div");
+            f.className = "pipe-failed";
+            f.textContent = t.summary.failed_chunks.map((x) => `✗ ${x.chunk}${x.phase ? " " + x.phase : ""}`).join(" · ");
+            d.appendChild(f);
+            d.classList.remove("collapsed");
           }
           g.appendChild(d);
         }
@@ -3663,6 +5242,18 @@ helpBtn.addEventListener("click", (e) => {
 document.addEventListener("click", (e) => {
   if (!helpPanel.hidden && !e.target.closest("#help-panel") && !e.target.closest("#help-btn"))
     closeHelpPanel();
+  if (!e.target.closest("#ctx-panel") && !e.target.closest("#ctx-ring")) closeCtxPanel();
+  if (!noticesPanel.hidden && !e.target.closest("#notices-panel") && !e.target.closest("#notices-btn"))
+    closeNotices();
+});
+
+$("#ctx-ring").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const panel = $("#ctx-panel");
+  const opening = panel.hidden;
+  if (opening) renderCtxPanel();
+  panel.hidden = !opening;
+  $("#ctx-ring").setAttribute("aria-expanded", opening ? "true" : "false");
 });
 // --- dictation: microphone → 16 kHz mono WAV → /stt --------------------------
 // Whisper transcribes a clip in one pass, so there is no live partial text to
@@ -4336,6 +5927,8 @@ document.addEventListener("keydown", (e) => {
   if (!stModal.hidden) { closeSettings(); return; }
   if (!sttPanel.hidden) { sttPanel.hidden = true; return; }
   if (!helpPanel.hidden) { closeHelpPanel(); return; }
+  if (!noticesPanel.hidden) { closeNotices(); return; }
+  if (!$("#ctx-panel").hidden) { closeCtxPanel(); return; }
   closeNote();
 });
 
@@ -4348,6 +5941,29 @@ document.addEventListener("keydown", (e) => {
 // blob — so the app's resting state was a debug message. They live in the
 // sidebar now, where they stay legible and dismissible for as long as they are
 // true, and the toast strip goes back to meaning "something just happened".
+const noticesBtn = $("#notices-btn");
+const noticesPanel = $("#notices-panel");
+
+function closeNotices() {
+  noticesPanel.hidden = true;
+  noticesBtn.setAttribute("aria-expanded", "false");
+}
+
+// The chip IS the count: with nothing to report it is not a chip that says
+// zero, it is absent, and the strip goes back to being about the vault.
+function setNoticeCount(n) {
+  noticesBtn.hidden = !n;
+  noticesBtn.textContent = n + (n === 1 ? " notice" : " notices");
+  if (!n) closeNotices();
+}
+
+noticesBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const opening = noticesPanel.hidden;
+  noticesPanel.hidden = !opening;
+  noticesBtn.setAttribute("aria-expanded", opening ? "true" : "false");
+});
+
 async function loadHealth() {
   const box = $("#boot-notices");
   try {
@@ -4379,12 +5995,12 @@ async function loadHealth() {
       x.className = "notice-x";
       x.setAttribute("aria-label", "dismiss this notice");
       x.textContent = "✕";
-      x.addEventListener("click", () => { n.remove(); box.hidden = !box.childElementCount; });
+      x.addEventListener("click", () => { n.remove(); setNoticeCount(box.childElementCount); });
       n.appendChild(x);
       box.appendChild(n);
       announce(r.name + ": " + r.detail);
     }
-    box.hidden = !rows.length;
+    setNoticeCount(rows.length);
   } catch { /* the page works without the report; don't toast about the toast */ }
 }
 
@@ -4409,6 +6025,7 @@ let calAnchor = new Date();   // any date inside the visible month/week
 let calSelected = null;       // "YYYY-MM-DD" the agenda panel focuses on, or null
 let calDays = {};             // date -> DayRow of the visible window
 let calUpcoming = null;       // DayRows of today+7, for the default agenda panel
+let calBursting = [];         // V6: what the last fortnight of WRITING was about
 
 const CAL_LANE_CAP = 3;       // month mode: visible multi-day lanes per week
 const CAL_CHIP_CAP = 2;       // month mode: visible timed chips per day
@@ -4445,6 +6062,7 @@ async function loadCalendar() {
     calDays = {};
     for (const row of grid.days) calDays[row.date] = row;
     calUpcoming = up.error ? null : up.days;
+    calBursting = up.bursting || [];
     renderCalendar();
     renderCalAgenda();
   } catch { notify("couldn't load the calendar"); }
@@ -4746,9 +6364,35 @@ function calAgendaDay(row) {
   return sec;
 }
 
+// The one reading in this app whose axis is time and not space, so it rides the
+// only tab whose axis is time. Above the days rather than beside them: it frames
+// what follows ("this fortnight has been about X"), and a frame printed after
+// the thing it frames is a footnote.
+//
+// Concepts, not notes, so the pills do not open anything: clicking one lights
+// its notes in the graph, the same verb the note drawer's concept cloud has.
+function calBurstStrip() {
+  if (!calBursting.length) return null;
+  const box = mkEl("div", "cal-burst");
+  box.appendChild(mkEl("div", "cal-ag-head", "this fortnight of writing"));
+  const pills = mkEl("div", "cal-burst-p");
+  for (const b of calBursting) {
+    const pill = mkEl("button", "wk-pill", b.concept);
+    pill.type = "button";
+    pill.title = `${b.recent} of the ${b.total} notes carrying it were written in the `
+      + `window (z ${b.z}): light its notes in the graph`;
+    pill.addEventListener("click", () => lightConcept(b.concept, pill));
+    pills.appendChild(pill);
+  }
+  box.appendChild(pills);
+  return box;
+}
+
 function renderCalAgenda() {
   const panel = $("#cal-agenda");
   panel.replaceChildren();
+  const burst = calBurstStrip();
+  if (burst) panel.appendChild(burst);
   const head = document.createElement("div");
   head.className = "cal-ag-head";
   if (calSelected && calDays[calSelected]) {
@@ -4785,6 +6429,58 @@ $("#cal-mode").addEventListener("click", (e) => {
   loadCalendar();
 });
 
+// --- vault freshness ---------------------------------------------------------
+// The explore surfaces are built once and cached, and until now the only thing
+// that invalidated them was a chat turn in THIS tab — so an Obsidian edit, or a
+// `silica nucleate` in a terminal, left them drawing a vault that no longer
+// existed. /vault_version is a digest of the note roster plus the derived
+// indexes; when it moves, so did the vault.
+//
+// A poll and not the BUS the turn stream already runs on: that bus is
+// in-process, so it carries this browser's own agent and nothing else, and the
+// writes this exists for are precisely the ones from outside it.
+let vaultVersion = null;
+
+// Cheap surfaces redraw; the expensive one offers. Rebuilding the graph
+// document costs the camera, the zoom and the focused node — the reader's place
+// in it — so out-of-band changes never take that away, they put a button up.
+function markVaultChanged() {
+  graphStale = true;
+  metricsStale = true;
+  // The one place shape is dropped: the other two `graphStale` sites are a
+  // theme flip and a render setting, and neither moves a note. folders/areas/
+  // read take their colours from tokens, so they survive both untouched.
+  shapeData = null;
+  if (activeTab !== "graph") return; // rebuilt on the way back into the tab
+  if (graphMode in SHAPE_VIEWS) drawShape();
+  else if (graphMode === "map" && mapRootedPath) rootMap(mapRootedPath);
+  syncRefreshCue();
+}
+
+// Derived state, never a flag someone has to remember to clear: the offer shows
+// exactly when the graph is the surface on screen AND it is out of date. On map
+// or folders/areas/read it must not, because those redrew themselves — an offer
+// there would point at a staleness the reader cannot see, on a view that has
+// none.
+function syncRefreshCue() {
+  $("#graph-refresh").hidden = !(graphMode === "graph" && graphStale);
+}
+
+async function pollVaultVersion() {
+  if (document.visibilityState !== "visible") return; // no view to keep fresh
+  try {
+    const { version } = await (await fetch("/vault_version")).json();
+    if (!version) return;            // unreadable vault answers "": nothing to say
+    if (vaultVersion === null) vaultVersion = version; // first read is the baseline
+    else if (version !== vaultVersion) { vaultVersion = version; markVaultChanged(); }
+  } catch { /* a stale view is not worth a toast; the next tick retries */ }
+}
+setInterval(pollVaultVersion, 15000);
+// Coming back from Obsidian is the whole scenario, and it is a tab switch —
+// waiting out the interval would show the stale graph for the worst 15 seconds.
+document.addEventListener("visibilitychange", pollVaultVersion);
+pollVaultVersion();
+
 // The poll is the tick: the endpoint computes due, advances the sidecar marks,
 // and returns what to show. At-most-once shared with the REPL daemon.
 setInterval(async () => {
@@ -4795,6 +6491,8 @@ setInterval(async () => {
     }
   } catch { /* a reminder is a courtesy; the next tick retries */ }
 }, 30000);
+
+buildLayoutRail();
 
 // Land on chat — it's the primary surface — unless the URL names another view
 // (#explore, #calendar, #metrics): a pasted deep link must win over the default.

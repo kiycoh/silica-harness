@@ -44,8 +44,9 @@ current_cancel: threading.Event | None = None  # cancel token of the in-flight t
 current_task: asyncio.Task | None = None  # in-flight worker; owns the busy-gate release
 _collapsed: set[int] = set()  # message indices elided by compaction, across turns
 _busy = False  # one turn at a time; a second /chat is refused with 409
-current_session_id: str | None = None  # file backing the live conversation, if saved
-SESSIONS_DIR = Path.home() / ".silica" / "web_sessions"  # persisted chat transcripts
+current_session_id: str | None = None  # narration sid of the live conversation
+# The store moved to ~/.silica/narration (docs/specs/narration/spec.md §5);
+# legacy web_sessions/*.json are read forever through silica.agent.narration.
 
 
 # Fresh-session seed, precomputed so /reset ("new chat") is instant instead of
@@ -82,6 +83,8 @@ def _prewarm_seed() -> None:
 
 def _reset_session() -> None:
     global current_cancel, current_task, _busy, current_session_id
+    from silica.agent import narration as _narr
+    _narr.NARRATOR.close()   # release the flock; next turn opens a fresh sid
     seed_msgs, seed_tokens = _seed if _seed is not None else _build_seed()
     messages[:] = [dict(m) for m in seed_msgs]  # per-message copy; contents are never mutated
     CONFIG.context_tokens = seed_tokens
@@ -90,6 +93,29 @@ def _reset_session() -> None:
     current_task = None
     _busy = False
     current_session_id = None  # next turn opens a new file
+
+
+def _ctx_meter() -> dict:
+    """What the composer's context ring reads, in one shape.
+
+    The parts are counted, not apportioned: `_context_breakdown` charges the
+    chat envelope once so they sum to the total beside them, and a meter that
+    invites you to add up its own segments has to survive that. Three sites emit
+    this (the two `done` yields and the transcript headers) and they must not
+    drift, since the ring is the one place the user is told how much room is
+    left before the history starts being collapsed.
+    """
+    from silica.agent.compaction import COMPACT_FRACTION
+    from silica.cli import _context_breakdown
+
+    return {"context_tokens": CONFIG.context_tokens,
+            "max_context_tokens": CONFIG.max_context_tokens,
+            "context_parts": _context_breakdown(messages),
+            # The one fill level that means anything: past it the loop starts
+            # collapsing old read results. Sent rather than mirrored in the
+            # client, so the ring cannot go on reassuring at 0.6 after someone
+            # moves the threshold in compaction.py.
+            "compact_at": COMPACT_FRACTION}
 
 
 def _capture_own_session() -> None:
@@ -107,6 +133,19 @@ def _capture_own_session() -> None:
                     driver="gui")
 
 
+def _narrate_user_turn(msg: dict) -> None:
+    """Session born at the first user turn (spec §5), then the turn beat.
+    Runs on the worker thread; ensure_session is idempotent per turn."""
+    global current_session_id
+    from silica.agent import narration as _narr
+    try:
+        current_session_id = _narr.NARRATOR.ensure_session(
+            driver="gui", sid=current_session_id)
+        _narr.NARRATOR.turn(msg)
+    except _narr.SessionBusy as e:   # another process owns it: keep chatting unsaved
+        logger.warning("narration unavailable for this turn: %s", e)
+
+
 def _session_title(msgs: list[dict]) -> str:
     for m in msgs:
         if m.get("role") == "user" and m.get("content"):
@@ -115,49 +154,12 @@ def _session_title(msgs: list[dict]) -> str:
     return "untitled"
 
 
-def _save_session() -> None:
-    """Persist the live conversation to SESSIONS_DIR/<id>.json (per vault).
-
-    No-op until there's a user turn to name it. Called after every turn so a
-    refresh/close never loses history; overwrites the same file in place.
-    """
-    global current_session_id
-    if not any(m.get("role") == "user" and m.get("content") for m in messages):
-        return
-    if current_session_id is None:
-        current_session_id = uuid.uuid4().hex
-    SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    record = {
-        "id": current_session_id,
-        "title": _session_title(messages),
-        "vault": CONFIG.vault_path or "",
-        "updated": time.time(),
-        "messages": messages,
-    }
-    # default=str: any non-JSON tool payload degrades to text rather than crash.
-    (SESSIONS_DIR / f"{current_session_id}.json").write_text(
-        json.dumps(record, default=str), encoding="utf-8"
-    )
-
-
 def _list_sessions() -> list[dict]:
-    """Saved conversations for the current vault, newest first."""
-    if not SESSIONS_DIR.exists():
-        return []
-    out = []
-    for f in SESSIONS_DIR.glob("*.json"):
-        try:
-            rec = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue  # skip corrupt/half-written files
-        if rec.get("vault", "") != (CONFIG.vault_path or ""):
-            continue
-        out.append(
-            {"id": rec.get("id"), "title": rec.get("title", "untitled"),
-             "updated": rec.get("updated", 0)}
-        )
-    out.sort(key=lambda r: r["updated"], reverse=True)
-    return out
+    """Saved conversations for the current vault, newest first, both stores.
+    _save_session is gone with the snapshot model: appending turn beats IS
+    the save (spec §5), so a refresh/close can no longer lose history."""
+    from silica.agent import narration as _narr
+    return _narr.list_sessions(CONFIG.vault_path or "")
 
 
 import html as _html
@@ -900,17 +902,19 @@ async def run_turn(text: str) -> AsyncIterator[dict]:
                 # Appended only once the verdict is in: a False falls through to
                 # the agent below, which appends the expanded turn itself.
                 messages.append({"role": "user", "content": text, "origin": "cli"})
+                _narrate_user_turn(messages[-1])
                 out = captured_out.strip()
                 answer = f"```text\n{out}\n```" if out else "```text\n(done)\n```"
                 messages.append({"role": "assistant", "content": answer})
+                from silica.agent import narration as _narr
+                _narr.NARRATOR.turn(messages[-1])
 
                 # Yield a fake agent turn with the direct result
                 yield {
                     "type": "done",
                     "answer": answer,
                     "html": _linkify(answer, note_resolver()),
-                    "context_tokens": CONFIG.context_tokens,
-                    "max_context_tokens": CONFIG.max_context_tokens,
+                    **_ctx_meter(),
                 }
                 return
 
@@ -923,6 +927,7 @@ async def run_turn(text: str) -> AsyncIterator[dict]:
         if text.startswith("/"):
             msg["origin"] = "cli"
         messages.append(msg)
+        _narrate_user_turn(msg)
 
         # Both wrappers forward every event to `cb` untouched: WebTurn records the
         # trace the citations are built from, RecallWatch counts recall misses for
@@ -966,6 +971,10 @@ async def run_turn(text: str) -> AsyncIterator[dict]:
             from silica.sources.web_research import relay_sources
 
             answer = relay_sources(answer, messages)
+        # Final-assistant turn beat, post-attribution (see loop.py).
+        if messages and messages[-1].get("role") == "assistant":
+            from silica.agent import narration as _narr
+            _narr.NARRATOR.turn(messages[-1])
         _update_context_tokens(messages)
         _collapsed = _compact_context(messages, _collapsed)
         # note_resolver reads the DRIVER graph — with the ws backend installed
@@ -976,8 +985,7 @@ async def run_turn(text: str) -> AsyncIterator[dict]:
             "type": "done",
             "answer": answer,
             "html": html,
-            "context_tokens": CONFIG.context_tokens,
-            "max_context_tokens": CONFIG.max_context_tokens,
+            **_ctx_meter(),
         }
         if isinstance(watch, RecallWatch) and watch.thin:
             done["hint"] = THIN_COVERAGE_HINT  # muted line under the answer
@@ -987,7 +995,6 @@ async def run_turn(text: str) -> AsyncIterator[dict]:
         yield {"type": "error", "error": str(exc)}
     finally:
         BUS.unsubscribe("work/phase", on_phase)
-        _save_session()  # persist even on error so the user's turn isn't lost
         _prewarm_seed()  # the turn may have written notes — refresh the new-chat seed
         if task is not None and not task.done():
             current_cancel.set()  # abandonment: stop the zombie...
@@ -1239,6 +1246,135 @@ def _degree_histogram(degree_map: dict[str, int]) -> list[dict]:
     return out
 
 
+# How many stored readings the trend band draws. The series gains a line only
+# when a count actually moves, so 60 is years of daily use on a vault that keeps
+# changing -- and past that a sparkline 80px wide is drawing more points than it
+# has pixels, which is a smear, not a trend.
+_HISTORY_POINTS = 60
+
+
+def _metrics_history(vault: str | None) -> list[dict]:
+    """The stored readings the trend band draws, oldest last.
+
+    Best-effort like the delta beside it: a vault that is read-only or unbound
+    still gets its metrics, and losing the trend costs a band, not the view.
+    """
+    if not vault:
+        return []
+    try:
+        from silica.kernel.report.history import read_history
+
+        return read_history(vault)[-_HISTORY_POINTS:]
+    except Exception as exc:
+        logger.debug("metrics: history unreadable (%s)", exc)
+        return []
+
+
+def _area_of(report) -> dict[str, int]:
+    """Note id -> area id, indexed under both keyspaces the callers arrive in.
+
+    `clusters[].members` are graph ids, which carry `.md`; the store keyspace
+    drops it, and the V7 rows (sprawling) are computed there -- `/metrics`
+    already re-adds the suffix on its way out for exactly this reason. Indexing
+    both spellings once is cheaper than making every caller remember which one
+    it holds, and a lookup that silently missed would not raise, it would report
+    an area as clean.
+    """
+    out: dict[str, int] = {}
+    for c in report.clusters:
+        if c.size <= 1:
+            continue  # a singleton is its own area; see inter_cluster's cut
+        for m in c.members:
+            out[m] = c.cluster_id
+            if m.endswith(".md"):
+                out[m[:-3]] = c.cluster_id
+            else:
+                out[m + ".md"] = c.cluster_id
+    return out
+
+
+def _signal_areas(report) -> dict[str, dict[str, int]]:
+    """How many notes each worklist signal puts in each area.
+
+    Counted over the report's FULL lists, never the twelve rows `/metrics` ships:
+    a lens coloured from the slice would paint the top-12's areas hot and every
+    other area clean, which is a confident statement about the wrong population.
+    That is the same trap `dangling_hist` exists to avoid for the tail reading.
+
+    `dangling` and `gaps` are absent by construction and not by omission: a
+    dangling target has no note to place, and a gap is already a fact about a
+    PAIR of areas, so tallying either into one area would invent a location.
+    """
+    area = _area_of(report)
+    lists = {
+        "lean": report.lean_notes,
+        "orphans": report.orphans,
+        "attention": [a.path for a in report.attention_candidates],
+        "deficits": [d.path for d in report.integration_deficits],
+        "contested": [c.path for c in report.contested],
+        "drift": [d.note for d in report.source_drift],
+        "sprawling": [x.path for x in report.sprawling],
+    }
+    out: dict[str, dict[str, int]] = {}
+    for key, paths in lists.items():
+        tally: dict[str, int] = {}
+        for p in paths:
+            cid = area.get(p)
+            if cid is None:
+                continue  # a note outside every multi-note area has no column
+            tally[str(cid)] = tally.get(str(cid), 0) + 1
+        if tally:
+            out[key] = tally
+    return out
+
+
+def _lean_limit() -> int:
+    """The character count under which a note is called lean.
+
+    Read from the linter rather than restated here: the pane prints it beside
+    every row, and a copy would keep saying 600 for a year after the limit moved.
+    """
+    try:
+        from silica.kernel.link.ofm import LIMITS
+
+        return int(LIMITS["lean_chars"])
+    except Exception as exc:
+        logger.debug("metrics: lean limit unreadable (%s)", exc)
+        return 0  # the pane drops the comparison rather than inventing a bound
+
+
+def _area_matrix(report) -> dict | None:
+    """The area x area coupling grid, in the shape `/shape` already ships.
+
+    Same payload shape on purpose: one client renderer draws both, so the two
+    surfaces cannot drift into disagreeing about what a coupling is. The
+    diagonal carries intra-area linked pairs, which is cohesion's numerator, and
+    the renderer prints cohesion there instead.
+
+    None rather than an empty grid below two areas: a 1x1 matrix is a cell
+    saying nothing, and None is what lets the card say so in words.
+    """
+    if not report.inter_cluster:
+        return None  # analytics did not run; see VaultReport.inter_cluster
+    areas = [c for c in report.clusters if c.size > 1]
+    if len(areas) < 2:
+        return None
+    areas.sort(key=lambda c: (-c.size, c.cluster_id))
+    ids = [c.cluster_id for c in areas]
+    short = lambda nid: (nid or "").rsplit("/", 1)[-1]  # noqa: E731
+    cell = report.inter_cluster
+    at = lambda a, b: cell.get(f"{min(a, b)}|{max(a, b)}", 0)  # noqa: E731
+    return {
+        "areas": [
+            {"id": c.cluster_id, "label": short(c.hub) or f"#{c.cluster_id}",
+             "path": c.hub or "", "size": c.size, "cohesion": c.cohesion,
+             "intra": at(c.cluster_id, c.cluster_id)}
+            for c in areas
+        ],
+        "matrix": [[at(a, b) for b in ids] for a in ids],
+    }
+
+
 def _shape_reading(adj: dict, deg: dict, areas: list[dict], label_of: dict, stops: int = 24) -> dict[str, Any]:
     """A reading order over the vault, derived rather than authored.
 
@@ -1278,6 +1414,21 @@ def _shape_reading(adj: dict, deg: dict, areas: list[dict], label_of: dict, stop
             out.append({"path": n, "label": label_of.get(n, n), "area": a["label"],
                         "why": f"linked from the hub, {deg.get(n, 0)} links of its own"})
     return {"stops": out, "areas_covered": covered, "areas_total": len(areas)}
+
+
+@app.get("/vault_version")
+def vault_version():
+    """A digest the explore surfaces poll to learn the vault moved under them.
+
+    Deliberately NOT the BUS/SSE the turn stream uses: that bus is in-process,
+    so it carries this browser's own agent and nothing else — and the writes
+    this exists for are the ones from OUTSIDE it (Obsidian, `silica nucleate`
+    in a terminal, a second window). A poll is the only signal that sees them
+    without a resident watcher, which the charter rules out anyway.
+    """
+    from silica.kernel.recall.sync import vault_version as _version
+
+    return {"version": _version()}
 
 
 @app.get("/shape")
@@ -1463,10 +1614,27 @@ def _write_sessions(report) -> dict | None:
 @app.get("/calendar")
 def calendar(start: str = "", days: int = 7):
     """The 4-axis agenda days for the calendar tab — one endpoint, one build
-    (the /shape pattern). Same payload the chat tool returns."""
+    (the /shape pattern), plus the one reading only a calendar can carry.
+
+    `bursting` (V6) is what the last fortnight of WRITING turned out to be
+    about. It is here and not on explore because it is the only one of the
+    seven variables with no position in the graph at all: its axis is time,
+    which is this tab's axis. Read from the cheap pass (~0.3 s) rather than
+    from the report's co-occurrence depth (9 s cold) — both call the same
+    `signals.burst` over the same inputs, and tests/test_graph_variables.py
+    holds them equal.
+    """
+    from silica.kernel.report.structure import bursting
     from silica.tools.events import silica_agenda
 
-    return silica_agenda(start=start or "today", days=max(1, min(90, days)))
+    out = silica_agenda(start=start or "today", days=max(1, min(90, days)))
+    try:
+        out["bursting"] = bursting()
+    except Exception:
+        # A reading, never the tab: an index that cannot answer costs the strip
+        # and leaves every scheduled day exactly where it was.
+        logger.debug("calendar: burst unavailable", exc_info=True)
+    return out
 
 
 @app.post("/reminders", dependencies=_SAME_ORIGIN)
@@ -1497,6 +1665,60 @@ def reminders_poll():
                     for r in due]}
 
 
+def _report_head(report, payload: dict, elapsed_s: float, started) -> dict:
+    """The run head of the Report panel, plus the reading it can only get from a store.
+
+    Everything else the metrics view shows is derived from THIS report. The one
+    thing it cannot derive is what moved, so this is where the report is filed
+    and the last different one is handed back.
+
+    Best-effort by construction: a vault that is read-only, unbound or on a full
+    disk still gets its metrics. Losing the delta costs a section of one panel;
+    failing the call costs the whole view.
+    """
+    import datetime as _dt
+
+    from silica.kernel.report.history import record_report, signals_of
+
+    areas = len([c for c in report.clusters if c.size > 1])
+    # compute_report memoises per vault epoch, so a second open of the tab costs
+    # microseconds and "0.0s" in the run head would read as "the audit is free"
+    # rather than "you are looking at the one from two minutes ago". The duration
+    # is stated only when this call actually computed it; when it did not, the
+    # head's own timestamp is the honest answer and the panel drops the figure.
+    #
+    # Compared against the instant before the call rather than against a
+    # tolerance: `generated_at` is stamped inside compute_report, so a fresh
+    # report's is strictly after `started` and a memo hit's is strictly before.
+    # No threshold to tune and no wrong answer on a fast vault.
+    fresh = True
+    try:
+        made = _dt.datetime.fromisoformat(report.generated_at)
+        fresh = made >= started
+    except (TypeError, ValueError):
+        pass  # an unparseable stamp is not a reason to drop the duration
+    head = {
+        "at": report.generated_at,
+        "elapsed_s": round(elapsed_s, 2) if fresh else None,
+        "notes": (report.totals or {}).get("notes", 0),
+        "depth": payload["depth"],
+        "signals": {},
+        "previous": None,
+        "since": None,
+    }
+    try:
+        signals = signals_of(report.totals or {}, areas)
+        head["signals"] = signals
+        if CONFIG.vault_path:
+            prev = record_report(CONFIG.vault_path, signals)
+            if prev:
+                head["previous"] = prev.get("signals")
+                head["since"] = prev.get("at")
+    except Exception as exc:
+        logger.debug("metrics: report history skipped (%s)", exc)
+    return head
+
+
 @app.get("/metrics")
 def metrics(proposals: bool = False):
     """Everything the L1 graph report measures, as JSON for the metrics tab.
@@ -1516,9 +1738,13 @@ def metrics(proposals: bool = False):
     zero without the co-occurrence leg, and on a real vault that term dominates.
     The client labels the number rather than letting two different E's look alike.
     """
+    import datetime as _datetime
+    from collections import Counter
+
     from silica.kernel.report.graph_report import compute_report
     from silica.kernel.report.vault_energy import vault_energy
 
+    t0, started = time.perf_counter(), _datetime.datetime.now(_datetime.timezone.utc)
     try:
         report = compute_report(
             analytics=True, with_embeddings=True, with_cooccurrence=proposals, top_k=20,
@@ -1526,6 +1752,7 @@ def metrics(proposals: bool = False):
     except Exception as exc:
         logger.warning("metrics: report failed (%s)", exc)
         return {"error": str(exc)}
+    elapsed_s = time.perf_counter() - t0
 
     e = vault_energy(report)
     short = lambda nid: (nid or "").rsplit("/", 1)[-1]  # noqa: E731
@@ -1534,7 +1761,7 @@ def metrics(proposals: bool = False):
     label = {c.cluster_id: (short(c.hub) or f"#{c.cluster_id}") for c in report.clusters}
     size = {c.cluster_id: c.size for c in report.clusters}
 
-    return {
+    payload = {
         "path": CONFIG.vault_path or "",
         "generated_at": report.generated_at,
         "depth": "full" if proposals else "structural",
@@ -1584,7 +1811,25 @@ def metrics(proposals: bool = False):
             for g in report.structural_gaps
         ],
         "orphans": [{"label": short(p), "path": p} for p in report.orphans[:_METRICS_ROWS]],
-        "dangling": report.dangling[:_METRICS_ROWS],
+        # A target is a row you act on, so it carries what it needs to be judged:
+        # who asks for it. Three names and a count, because at 372px of evidence
+        # pane the fourth name is what starts wrapping.
+        "dangling": [
+            {"target": d["target"], "refs": d["refs"],
+             "from": [short(src) for src in d.get("sources", [])[:3]],
+             "from_more": max(0, len(d.get("sources", [])) - 3)}
+            for d in report.dangling[:_METRICS_ROWS]
+        ],
+        # The tail, over EVERY target and not the twelve above. The shape IS the
+        # reading -- a handful of targets carry most of the references and the
+        # rest are asked for once each, which is the difference between "write
+        # twenty notes" and "stub four hundred" -- and it cannot be seen from a
+        # top-12 slice, so it is summarised here rather than shipped as rows.
+        "dangling_hist": [
+            {"refs": refs, "targets": n}
+            for refs, n in sorted(Counter(d["refs"] for d in report.dangling).items())
+        ],
+        "dangling_top_refs": sum(d["refs"] for d in report.dangling[:20]),
         "contested": [
             {"label": short(c.path), "path": c.path, "refs": c.refs} for c in report.contested
         ],
@@ -1633,7 +1878,28 @@ def metrics(proposals: bool = False):
             {"concept": h.concept, "centrality": round(h.centrality, 3)}
             for h in report.missing_hubs
         ],
-        "lean_notes": [{"label": short(p), "path": p} for p in report.lean_notes[:_METRICS_ROWS]],
+        # `chars` and the limit it is under, together: a bare "412" is a number
+        # the reader has to be told the meaning of, and the pane cannot say
+        # "under 600" for a row without knowing what 600 is.
+        "lean_notes": [
+            {"label": short(p), "path": p, "chars": report.lean_chars.get(p, 0)}
+            for p in report.lean_notes[:_METRICS_ROWS]
+        ],
+        "lean_limit": _lean_limit(),
+        # V7 and V6 (spec 2026-08-22). Both ride the co-occurrence depth, so
+        # both are absent at structural depth rather than shipped empty: an
+        # empty list would read as "measured, found nothing".
+        "sprawling": [
+            # `path` is the store keyspace; the row needs a graph id to open a
+            # note, and every sprawling note is in the graph by construction.
+            {"label": short(x.path), "path": x.path + ".md", "concepts": x.concepts,
+             "entropy": round(x.entropy, 2), "flatness": round(x.flatness, 3)}
+            for x in report.sprawling
+        ],
+        "bursting": [
+            {"concept": b.concept, "z": round(b.z, 2), "recent": b.recent, "total": b.total}
+            for b in report.bursting_concepts
+        ],
         "temporal": (
             {
                 "notes_scanned": report.temporal.notes_scanned,
@@ -1647,6 +1913,12 @@ def metrics(proposals: bool = False):
             else None
         ),
         "sessions": _write_sessions(report),
+        # The three readings the charts need that no single report can hold.
+        # history is the only one that outlives a run: it is what turns four
+        # tiles from a state into a direction.
+        "history": _metrics_history(CONFIG.vault_path),
+        "area_matrix": _area_matrix(report),
+        "signal_areas": _signal_areas(report),
         "code_coverage": (
             {
                 "documented": report.code_coverage.documented,
@@ -1660,6 +1932,8 @@ def metrics(proposals: bool = False):
             else None
         ),
     }
+    payload["report"] = _report_head(report, payload, elapsed_s, started)
+    return payload
 
 
 @app.get("/graph")
@@ -1752,6 +2026,94 @@ def mindmap(note: str = ""):
         return HTMLResponse(
             f"<p style='font-family:monospace'>map unavailable: {_html.escape(str(exc))}</p>"
         )
+
+
+@app.get("/path")
+def prereq_path(note: str = ""):
+    """The prerequisite ladder around one note (V2, RefD): read-order space.
+
+    The fifth explore surface exists because the other four cannot show
+    DIRECTION. graph and map lay notes out by how they connect, folders by
+    where they are filed, areas by how two groups couple: all four are
+    undirected, and "what do I read before this" has no answer in any of them.
+
+    Empty `note` returns the landing instead of an error, like /map: the notes
+    that root the biggest ladders, which is the one list that cannot be got
+    from the file tree.
+    """
+    from silica.kernel.recall.mindmap import note_resolver
+    from silica.kernel.report.structure import ladder, structure_map
+
+    try:
+        m = structure_map()
+    except Exception as exc:
+        logger.warning("path: structure map failed (%s)", exc)
+        return {"error": str(exc)}
+    if not m.prereq:
+        return {
+            "picks": [],
+            # The one thing that makes this surface empty, said as the surface
+            # itself rather than as a blank pane: RefD needs the co-occurrence
+            # index, and a vault that never built one has no reading order to
+            # show, not a reading order of length zero.
+            "hint": "no reading order yet: the prerequisite direction is derived from the "
+                    "co-occurrence index. Run /report to build it.",
+        }
+
+    if not note.strip():
+        # Ranked by how much of a ladder each note actually roots. Computing the
+        # real ladder for every candidate would be O(V) walks, so the rank is
+        # the cheap proxy (own prerequisites + own dependents) and the top slice
+        # is then measured for real, which is what the count on the row says.
+        rough = sorted(
+            m.prereq.keys() | m.unlocks.keys(),
+            key=lambda k: (-(len(m.prereq.get(k, ())) + len(m.unlocks.get(k, ()))), k),
+        )[:40]
+        picks = []
+        for k in rough:
+            l = ladder(k + ".md")
+            if len(l["nodes"]) < 2:
+                continue
+            picks.append({
+                "name": _clean_name(k), "path": k + ".md",
+                "notes": len(l["nodes"]),
+                "before": sum(1 for n in l["nodes"] if n["depth"] < 0),
+                "after": sum(1 for n in l["nodes"] if n["depth"] > 0),
+            })
+        # A note with notes on BOTH sides is the instructive root: it is the one
+        # whose ladder shows an order rather than a fan. Ranking by size alone
+        # put the vault's biggest hub first every time, and its ladder is one
+        # rung of 59 dependents, which is a list with a title.
+        picks.sort(key=lambda r: (-min(r["before"], r["after"]), -r["notes"], r["name"]))
+        return {"picks": picks[:12], "hint": ""}
+
+    # `ladder` resolves its own root and hands the graph id back, so the two
+    # keyspaces (graph ids carry `.md`, RefD works without it) are bridged once,
+    # inside the kernel, and never here.
+    resolve = note_resolver()
+    l = ladder(resolve(note) or note)
+    canon = l["root"]
+    if not canon:
+        return {"error": f"'{note}' not found in vault."}
+    if not l["nodes"]:
+        return {
+            "root": _row(canon), "levels": [], "edges": [], "cycles": 0, "truncated": False,
+            "hint": "nothing reads before or after this note: RefD found no direction "
+                    "between it and its neighbours.",
+        }
+    by_depth: dict[int, list[dict]] = {}
+    for n in l["nodes"]:
+        by_depth.setdefault(n["depth"], []).append(
+            {**_row(n["path"]), "cyclic": n["cyclic"], "root": n["path"] == canon}
+        )
+    levels = [
+        {"depth": d, "notes": sorted(by_depth[d], key=lambda r: r["name"])}
+        for d in sorted(by_depth)
+    ]
+    return {
+        "root": _row(canon), "levels": levels, "edges": l["edges"],
+        "cycles": l["cycles"], "truncated": l["truncated"], "hint": "",
+    }
 
 
 @app.get("/find")
@@ -1896,6 +2258,56 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])(?:\s|$)")
 _SUGGEST_MIN_DIST = 3
 
 
+# A wikilink SPLIT INTO ITS PARTS, which is what the two readers below need and
+# what `_WIKILINK` (line 173, the linkifier's) deliberately does not do: that one
+# keeps `Target|alias` whole because it re-emits the link, while these two have
+# to resolve the target and display the alias separately. Naming them apart is
+# not style — the first version of this reused `_WIKILINK` and shadowed the
+# linkifier, and every note in the app rendered without its links.
+# `[[Target#anchor|alias]]`, and either half can be absent.
+_WIKI_REF = re.compile(r"!?\[\[([^\]|#]*)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]")
+_MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+# Only the PAIRED marks, and only the unambiguous ones. A lone `*` or `_` is
+# left alone on purpose: stripping those turns snake_case into snakecase and a
+# multiplication sign into nothing, which is a worse read than the emphasis
+# marker it would have removed.
+_MD_PAIR = re.compile(r"(\*\*|__|==|~~|`)(.+?)\1", re.S)
+
+
+def _plain(text: str) -> str:
+    """Inline markup out, the words it wrapped left in.
+
+    The extract is prose, not source. This ran nowhere while the snippets lived
+    in the note drawer, one scroll under the reader that showed the same
+    sentence properly rendered; they are the first thing the work panel says
+    about a note now, and `==Un **Database** o Base di dati` at the top of a
+    panel reads as a broken row rather than as emphasis. Block-level markup
+    needs no handling here: _NOT_PROSE already refuses those lines.
+    """
+    out = _WIKI_REF.sub(lambda m: (m.group(2) or m.group(1) or "").strip(), text)
+    out = _MD_LINK.sub(lambda m: m.group(1).strip(), out)
+    # Pairs NEST (`==A **b** c==`) and sub() does not rescan what it inserted,
+    # so one pass leaves the inner marks standing. Three passes, because three
+    # is one more than the deepest nesting anyone writes by hand: highlight
+    # around bold around code.
+    for _ in range(3):
+        stripped = _MD_PAIR.sub(lambda m: m.group(2), out)
+        if stripped == out:
+            break
+        out = stripped
+    return out
+
+
+def _fm_ref(value: str) -> tuple[str, str]:
+    """A frontmatter `related:` entry as (what to resolve, what to show)."""
+    v = str(value).strip()
+    m = _WIKI_REF.fullmatch(v)
+    if not m:
+        return v, _clean_name(v)
+    target = (m.group(1) or "").strip()
+    return target, (m.group(2) or "").strip() or _clean_name(target)
+
+
 def _lead_prose(chunk: str) -> str:
     """The first run of plain prose in a chunk, as one line."""
     run: list[str] = []
@@ -1935,9 +2347,12 @@ def _key_snippets(body: str) -> list[dict]:
 
     out: list[dict] = []
     for heading, chunk in parts:
-        text = _first_sentence(_lead_prose(chunk))
+        # _plain BEFORE _first_sentence, not after: the cut lands mid-sentence
+        # by design, so a `==highlight==` whose closing mark falls past the
+        # limit would otherwise keep its opening one and nothing to close it.
+        text = _first_sentence(_plain(_lead_prose(chunk)))
         if text:
-            out.append({"heading": heading, "text": text})
+            out.append({"heading": _plain(heading), "text": text})
         if len(out) == 3:
             break
     return out
@@ -2012,7 +2427,7 @@ def _suggested(canon: str, related: list[dict], linked: set[str], resolve) -> li
     Structural GAPs stay out on purpose: they are hub-to-hub by construction, so
     the section would be empty on every note that is not a hub.
     """
-    out = [
+    out: list[dict] = [
         {"name": _clean_name(link.target), "path": "", "kind": "ghost",
          "why": "linked from here, never written"}
         for link in _unresolved_links()
@@ -2030,10 +2445,50 @@ def _suggested(canon: str, related: list[dict], linked: set[str], resolve) -> li
             "name": r.get("name") or _clean_name(rpath), "path": rpath, "kind": "note",
             "why": ("unreachable" if dist is None else f"{dist} hops away")
                    + f" · score {r.get('score', 0):.2f}",
+            # The same score the sentence above states in words. The explore
+            # panel draws it as a meter, and parsing it back out of `why` is how
+            # a display string becomes an accidental API: reword the sentence
+            # and the bar goes blank.
+            "score": float(r.get("score", 0) or 0),
         })
         if len(out) >= 8:
             break
     return out
+
+
+def _note_structure(canon: str) -> dict:
+    """The seven variables for one note, named for a reader rather than a paper.
+
+    Rows, not scalars: the panel prints what each number MEANS, so the naming
+    happens here where the thresholds can be justified, not in JS where they
+    would be three magic numbers in a template. A note the graph has never seen
+    (written this second, index not rebuilt) returns {} and the panel omits the
+    section rather than printing six zeroes.
+    """
+    from silica.kernel.report.structure import note_structure
+
+    try:
+        st = note_structure(canon)
+    except Exception:
+        logger.debug("context: structure failed for %s", canon, exc_info=True)
+        return {}
+    if not st or not st.get("in_graph"):
+        return {}
+    name = lambda p: {"name": _clean_name(p), "path": p}  # noqa: E731
+    return {
+        "coreness": st["coreness"],
+        "articulation": st["articulation"],
+        "strands": st["strands"],
+        # Rounded to whole percent HERE: the raw pct-rank difference carries
+        # four decimals of sampling noise from a betweenness taken at 400
+        # pivots, and printing them would claim a precision the estimate has not
+        # got.
+        "surprise": round(st["surprise"] * 100),
+        "dissonance": (None if st["dissonance"] is None
+                       else round(st["dissonance"] * 100)),
+        "prerequisites": [name(p) for p in st["prerequisites"]],
+        "unlocks": [name(p) for p in st["unlocks"]],
+    }
 
 
 @app.get("/context")
@@ -2080,13 +2535,19 @@ def context(path: str = "", name: str = "", ghost: bool = False):
 
     # frontmatter `related:` is a hand-written claim, so it is shown as written
     # and resolved only for the click target; an unresolvable entry still lists.
+    # The hand writing it is usually Obsidian's, which writes `- "[[B]]"` — and
+    # neither resolve() nor _clean_name() sees through the brackets, so every
+    # such entry used to come back named "[[B]]" with an empty path: a dead row
+    # under a heading that promises a connection. _fm_ref splits the two jobs.
     fm_raw = (props or {}).get("related") or []
     if not isinstance(fm_raw, (list, tuple)):
         fm_raw = [fm_raw]
-    frontmatter = [
-        {"name": _clean_name(str(v)), "path": resolve(str(v)) or ""}
-        for v in fm_raw if v
-    ]
+    frontmatter = []
+    for v in fm_raw:
+        if not v:
+            continue
+        target, display = _fm_ref(str(v))
+        frontmatter.append({"name": display, "path": resolve(target) or ""})
 
     try:
         rel_out = silica_related(note=canon, k=12)
@@ -2112,6 +2573,7 @@ def context(path: str = "", name: str = "", ghost: bool = False):
         "concepts": _note_concepts(canon),
         "related": {"frontmatter": frontmatter, "outgoing": outgoing, "backlinks": backlinks},
         "suggested": _suggested(canon, rel, linked, resolve),
+        "structure": _note_structure(canon),
         # Without embeddings `related` ranks on co-occurrence alone, and the
         # section looks thin for a reason the reader cannot see from here.
         # silica_related's own hint wins when it has one — it knows more about
@@ -2197,7 +2659,10 @@ def vault_info():
         # k-NN edges this endpoint has no reason to build.
         "clusters": len(communities),
         "unresolved": sum(1 for n in nodes if n.get("type") == "ghost"),
-        "tree": render_tree(nodes),
+        # actions=True: the rail's tree carries a pin per note. The graph
+        # frame renders the same tree without one, because a pin there would
+        # point at a rail that document does not have.
+        "tree": render_tree(nodes, actions=True),
         "hubs": _top_hubs(nodes, edges),
         # What the vault is ABOUT, as opposed to how big it is. The chat's
         # landing states this in one line, and it must be a fact rather than a
@@ -2365,11 +2830,92 @@ def get_messages():
                      "thinking": thinking,
                      "html": _linkify(content, resolve) if content else ""})
     # Vault label + context usage ride headers so the body stays a plain list.
+    # The breakdown goes as JSON in one header rather than three: it is one
+    # reading of one number, and splitting it invites a client to read two of
+    # the three and draw a ring that does not close.
+    meter = _ctx_meter()
     return JSONResponse(data, headers={
         "X-Silica-Vault": CONFIG.vault_path or "",
-        "X-Silica-Context-Tokens": str(CONFIG.context_tokens),
-        "X-Silica-Max-Context-Tokens": str(CONFIG.max_context_tokens),
+        "X-Silica-Context-Tokens": str(meter["context_tokens"]),
+        "X-Silica-Max-Context-Tokens": str(meter["max_context_tokens"]),
+        "X-Silica-Context-Parts": json.dumps(meter["context_parts"]),
+        "X-Silica-Compact-At": str(meter["compact_at"]),
     })
+
+
+@app.get("/narration")
+def narration_replay(from_seq: int = 0, sid: str = ""):
+    """Replay from a cursor — record zero by default: a joining client that
+    replays everything cannot see a span whose opening it missed (ticket 08)."""
+    from silica.agent import narration as _narr
+    target = sid or current_session_id
+    if not target or not str(target).isalnum():
+        return JSONResponse({"sid": None, "beats": []})
+    path = _narr.narration_dir() / f"{target}.jsonl"
+    return JSONResponse({"sid": target,
+                         "beats": list(_narr.read_beats(path, from_seq=from_seq))})
+
+
+# The GUI's own uvicorn server, so an endless response can ask whether the
+# process is leaving. None under TestClient and in the suite, where nothing is
+# shutting down and every stream is read to its end by its caller.
+_SERVER = None
+_SSE_POLL_S = 0.25   # four wakeups a second per open tab, against a 1s deadline
+
+
+def _stopping() -> bool:
+    return _SERVER is not None and bool(_SERVER.should_exit)
+
+
+@app.get("/narration/sse")
+async def narration_sse(request: Request, from_seq: int = 0):
+    """Live beats. The SSE `id:` field is the seq, so the browser's own
+    Last-Event-ID header is the reconnect cursor — no custom client state."""
+    from silica.agent import narration as _narr
+    from silica.agent.bus import BUS
+
+    last = request.headers.get("last-event-id")
+    cursor = int(last) if last and last.isdigit() else from_seq
+    loop = asyncio.get_running_loop()
+    q: asyncio.Queue = asyncio.Queue()
+
+    def on_beat(rec: dict) -> None:
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, rec)
+        except RuntimeError:
+            pass   # loop closed: the client is gone, the beat is moot
+
+    BUS.subscribe(_narr.BEAT_TOPIC, on_beat)
+
+    async def gen():
+        try:
+            sid = current_session_id
+            if sid:
+                path = _narr.narration_dir() / f"{sid}.jsonl"
+                for rec in _narr.read_beats(path, from_seq=cursor):
+                    yield (f"event: beats\nid: {rec['seq']}\n"
+                           f"data: {json.dumps({'sid': sid, 'beats': [rec]}, default=str)}\n\n")
+            while True:
+                # Not a plain `await q.get()`: this body never returns on its
+                # own, and uvicorn's shutdown waits for every open response, so
+                # one live tab held Ctrl+C forever (measured 2026-08-23: 0.5s to
+                # exit with no stream, never with one). The poll lets the stream
+                # end itself while the server is still waiting politely, which
+                # is what keeps the exit free of the 40-line ASGI traceback that
+                # a cancelled connection task prints.
+                try:
+                    rec = await asyncio.wait_for(q.get(), _SSE_POLL_S)
+                except asyncio.TimeoutError:
+                    if _stopping():
+                        return
+                    continue
+                yield (f"event: beats\nid: {rec.get('seq')}\n"
+                       f"data: {json.dumps({'sid': rec.get('sid'), 'beats': [rec]}, default=str)}\n\n")
+        finally:
+            BUS.unsubscribe(_narr.BEAT_TOPIC, on_beat)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/sessions")
@@ -2384,17 +2930,29 @@ def load_session(payload: dict):
     if _busy:
         raise HTTPException(status_code=409, detail="a turn is already in progress")
     from silica.cli import _update_context_tokens
+    from silica.agent import narration as _narr
 
     sid = str(payload.get("id", ""))
-    if not sid.isalnum():  # ids are uuid4 hex — blocks path traversal
+    if not sid.isalnum():  # ids are hex — blocks path traversal
         raise HTTPException(status_code=404, detail="no such session")
-    path = SESSIONS_DIR / f"{sid}.json"
-    if not path.exists():
+    replayed = _narr.load_session_messages(sid, CONFIG.vault_path or "")
+    if replayed is None:
         raise HTTPException(status_code=404, detail="no such session")
-    rec = json.loads(path.read_text(encoding="utf-8"))
-    messages[:] = rec.get("messages", [])
+    if (_narr.narration_dir() / f"{sid}.jsonl").exists():
+        try:
+            _narr.NARRATOR.resume(sid)   # continue appending to the same account
+        except _narr.SessionBusy as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
+        current_session_id = sid
+    else:
+        # Legacy snapshot: continue as a NEW narration session seeded with its
+        # turns — emit new, recognise legacy (ticket 05).
+        _narr.NARRATOR.close()
+        current_session_id = _narr.NARRATOR.ensure_session(driver="gui")
+        for m in replayed:
+            _narr.NARRATOR.turn(m)
+    messages[:] = replayed
     _collapsed = set()
-    current_session_id = sid
     _update_context_tokens(messages)
     return {"ok": True}
 
@@ -2410,6 +2968,8 @@ def reset():
 def stop():
     if current_cancel is not None:
         current_cancel.set()
+        from silica.agent import narration as _narr
+        _narr.NARRATOR.cancel(driver="gui", target=None, scope="turn")
     return {"ok": True}
 
 
@@ -2543,7 +3103,7 @@ def get_settings():
         "sections": st.read_sections(),
         "version": __version__,
         "behind": behind_count(),
-        "issues_url": "https://github.com/kiycoh/silica-agent/issues",
+        "issues_url": "https://github.com/kiycoh/silica-harness/issues",
     }
 
 
@@ -2706,7 +3266,23 @@ def serve(port: int = 8765) -> None:
     print_banner()
     CONSOLE.print(f"  [dim]GUI live at[/] [cyan]http://127.0.0.1:{port}[/]\n")
 
+    global _SERVER
+    # Built here rather than through uvicorn.run(), which keeps the Server to
+    # itself: /narration/sse polls should_exit to end itself on the way out.
+    # timeout_graceful_shutdown is the backstop under it, for the one stream
+    # that does not poll - an in-flight /chat turn, which carries its own cancel
+    # path and would otherwise hold Ctrl+C for the length of the turn.
+    _SERVER = uvicorn.Server(uvicorn.Config(
+        app, host="127.0.0.1", port=port, timeout_graceful_shutdown=1))
     try:
-        uvicorn.run(app, host="127.0.0.1", port=port)
+        try:
+            _SERVER.run()
+        except KeyboardInterrupt:
+            # uvicorn re-raises the signal it captured, AFTER it has shut down
+            # cleanly, and `silica` is installed as cli:main - so the module's
+            # own __main__ guard never runs and nothing above here catches it.
+            # Without this a tidy Ctrl+C ends in a traceback that reads as a
+            # crash. The shutdown already happened; there is nothing to salvage.
+            pass
     finally:
         _capture_own_session()  # last chance: this conversation ends with the server

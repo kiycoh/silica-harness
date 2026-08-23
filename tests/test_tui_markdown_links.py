@@ -17,7 +17,7 @@ OSC8 = "\x1b]8;"  # the hyperlink escape rich emits around a link token
 
 
 def _render(markup: str) -> str:
-    console = Console(force_terminal=True, width=120)
+    console = Console(force_terminal=True, width=120, _environ={"TERM_PROGRAM": "iTerm.app"})
     with console.capture() as cap:
         console.print(FlatMarkdown(markup))
     return cap.get()

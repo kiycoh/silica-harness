@@ -39,7 +39,8 @@ def client(tmp_vault, tmp_path, monkeypatch):
     """Fresh module-level session per test, backed by a tmp fs vault."""
     from silica.ui.web import server
 
-    monkeypatch.setattr(server, "SESSIONS_DIR", tmp_path / "web_sessions")
+    # SESSIONS_DIR is gone with the snapshot store: sessions live in the
+    # narration under _SILICA_HOME, already tmp-isolated by conftest.
     server._reset_session()
     return TestClient(server.app), server
 
@@ -68,6 +69,7 @@ def test_event_to_json_maps_the_render_event_seam():
         "target": "",  # unknown tool: no table entry, so no named target
         "effect": "read",
         "notes": ["a/b.md"],
+        "input": {"text": '{"path": "a/b.md"}', "cut": 0},
     }
     # a write names the file it touched, and the footer can group it apart from reads
     assert event_to_json(ToolStartEvent("silica_write_note", {"path": "a/b.md"}, "c3", 0)) == {
@@ -77,6 +79,7 @@ def test_event_to_json_maps_the_render_event_seam():
         "target": "a/b.md",
         "effect": "written",
         "notes": ["a/b.md"],
+        "input": {"text": '{"path": "a/b.md"}', "cut": 0},
     }
     # a move leaves the note at `to`: that is the ref the chip can open
     assert event_to_json(ToolStartEvent("silica_move", {"ref": "a.md", "to": "b.md"}, "c4", 0)) == {
@@ -86,11 +89,14 @@ def test_event_to_json_maps_the_render_event_seam():
         "target": "a.md → b.md",
         "effect": "moved",
         "notes": ["b.md"],
+        "input": {"text": '{"ref": "a.md", "to": "b.md"}', "cut": 0},
     }
     assert event_to_json(ToolCompleteEvent("t", {}, "c1", "ok", 0.1, 0)) == {
         "type": "tool_done",
         "name": "t",
         "id": "c1",
+        "ms": 100,
+        "output": {"text": "ok", "cut": 0},
     }
     assert event_to_json(ToolErrorEvent("t", "c1", "boom", 0)) == {
         "type": "tool_error",
@@ -105,6 +111,25 @@ def test_event_to_json_maps_the_render_event_seam():
     }
     # v1 ignores reasoning/thinking events (no JSON emitted).
     assert event_to_json(ReasoningEvent("thinking", 0)) is None
+
+
+def test_tool_card_payloads_are_capped_and_say_how_much_was_cut():
+    """The expandable tool row reads `input`/`output` off the wire, so the cap has
+    to be reported rather than elided: a result that genuinely ends in an
+    ellipsis and one that was truncated are indistinguishable once you print
+    "…" and say nothing. An argument-less call carries no card at all, or the
+    disclosure costs a click to show "{}"."""
+    from silica.agent.events import ToolCompleteEvent, ToolStartEvent
+    from silica.ui.web.callback import _CARD_CHARS, event_to_json
+
+    long = "x" * (_CARD_CHARS + 37)
+    done = event_to_json(ToolCompleteEvent("t", {}, "c1", long, 0.25, 0))
+    assert done["output"] == {"text": "x" * _CARD_CHARS, "cut": 37}
+    assert done["ms"] == 250
+
+    assert "input" not in event_to_json(ToolStartEvent("t", {}, "c1", 0))
+    # …and a whitespace-only result is an absence, not an empty card.
+    assert "output" not in event_to_json(ToolCompleteEvent("t", {}, "c1", "  \n ", 0.0, 0))
 
 
 def test_injector_start_carries_the_file_and_the_tracks():
@@ -1443,11 +1468,18 @@ class TestOwnSessionCapture:
         _, server = client
         monkeypatch.setattr(server, "_reset_session", lambda: None)  # keep the history
         import uvicorn
-        monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: None)
+        # Server.run, not uvicorn.run: serve() builds the Server itself so the
+        # beat stream can read should_exit. Patching the call serve() no longer
+        # makes does not fail here, it BINDS A PORT and hangs the suite - so the
+        # fake records that it was the thing called.
+        ran: list[bool] = []
+        monkeypatch.setattr(uvicorn.Server, "run",
+                            lambda self, sockets=None: ran.append(True))
         monkeypatch.setattr(server, "print_banner", lambda: None, raising=False)
 
         server.serve(port=0)
 
+        assert ran == [True], "serve() no longer blocks on Server.run"
         assert len(self._envelopes()) == 1
 
 
@@ -1900,11 +1932,9 @@ def test_the_2d_resolution_governor_cannot_be_held_soft_by_the_idle_tick():
     backing-store resolution, inverting the block's own premise."""
     from silica.ui.web import graph_view
 
-    src = graph_view.__file__
-    with open(src, encoding="utf-8") as fh:
-        text = fh.read()
+    text = graph_view._asset("graph-frame.js")
     body = text[text.index("function drsOnPaint()"):]
-    body = body[:body.index("\n}}\n")]
+    body = body[:body.index("\n}\n")]
     assert "if (streaming) drsTimer" in body, "the restore timer re-arms on any paint"
     assert "else if (dprScale !== 1)" in body, "a parked paint never restores"
 
@@ -1922,3 +1952,132 @@ def test_the_injector_tool_keeps_sources_like_nucleate_does():
     assert RunInjectorArgs.model_fields["keep_sources"].default is True
     fn = getattr(silica_run_injector, "__wrapped__", silica_run_injector)
     assert inspect.signature(fn).parameters["keep_sources"].default is True
+
+
+def test_the_vault_changed_offer_is_derived_state():
+    """The explore toolbar's ⟳ offer belongs to ONE surface, and hand-clearing it
+    at each call site is how it survives onto the others.
+
+    It says "the graph you are looking at is older than the vault". Switch to
+    map or folders/areas/read and that sentence is false — those redraw
+    themselves when /vault_version moves, so an offer there points at a
+    staleness the reader cannot see, on a view that has none. It regressed
+    exactly that way once (shown while the map was on screen), because the
+    button was being set true in one place and false in another. One
+    derivation from (mode, staleness) is what makes that unrepresentable.
+    """
+    from silica.ui.web.server import STATIC_DIR
+
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'graphMode === "graph" && graphStale' in js, \
+        "the offer no longer derives from the mode AND the staleness"
+    # Exactly one writer of the button's visibility: the derivation itself.
+    assert js.count('$("#graph-refresh").hidden =') == 1, \
+        "a second site sets the offer's visibility — derive it instead"
+
+
+def test_the_vault_poll_never_rebuilds_the_graph_on_screen():
+    """The whole point of the offer: an out-of-band write must not throw away
+    the camera, the zoom and the focused node of a graph someone is reading."""
+    from silica.ui.web.server import STATIC_DIR
+
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    body = js[js.index("function markVaultChanged"):]
+    body = body[:body.index("\n}\n") + 3]
+    assert "#graph-frame" not in body, \
+        "markVaultChanged touches the graph iframe — it may only offer"
+    assert "drawShape()" in body and "rootMap(" in body, \
+        "the cheap surfaces stopped redrawing themselves"
+
+
+def test_the_vault_poll_skips_a_hidden_tab():
+    """A background tab has no view to keep fresh, and the poll is a whole-vault
+    stat sweep on the server — every open tab would pay it forever."""
+    from silica.ui.web.server import STATIC_DIR
+
+    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    body = js[js.index("async function pollVaultVersion"):]
+    body = body[:body.index("\n}\n") + 3]
+    assert 'document.visibilityState !== "visible"' in body, \
+        "the poll runs in hidden tabs again"
+    assert 'addEventListener("visibilitychange", pollVaultVersion)' in js, \
+        "coming back from Obsidian must check at once, not wait out the interval"
+
+
+def test_the_beat_stream_ends_when_the_server_is_leaving(client, monkeypatch):
+    """One open GUI tab used to hold Ctrl+C forever.
+
+    uvicorn's graceful shutdown waits for every open response to finish, and an
+    SSE body has no end of its own, so the wait never finished and the process
+    had to be killed (measured 2026-08-23: 0.5s to exit with no stream open,
+    never with one). The body polls the server it runs under, so it can leave
+    while the wait is still polite — and no cancelled connection task prints
+    the 40-line ASGI traceback that reads as a crash under a Ctrl+C.
+    """
+    import threading
+    from types import SimpleNamespace
+
+    c, server = client
+    monkeypatch.setattr(server, "_SERVER", SimpleNamespace(should_exit=True))
+    monkeypatch.setattr(server, "_SSE_POLL_S", 0.01)
+    # Read in a thread with a join deadline: a regression here is a HANG, and a
+    # hung suite says less than a red test does.
+    done: list[int] = []
+    t = threading.Thread(
+        target=lambda: done.append(c.get("/narration/sse").status_code), daemon=True)
+    t.start()
+    t.join(15)
+    assert not t.is_alive(), "the beat stream never returned"
+    assert done == [200]
+
+
+def test_serve_keeps_a_handle_on_the_server_it_runs(monkeypatch):
+    """_stopping() can only read a Server this module holds, and uvicorn.run()
+    keeps that object to itself: building it in serve() is the mechanism, not a
+    style choice. The graceful timeout under it is the backstop for the one
+    stream that cannot poll — an in-flight /chat turn."""
+    import uvicorn
+
+    from silica.ui.web import server
+
+    monkeypatch.setattr(server, "_SERVER", None)
+    ran: list[bool] = []
+    monkeypatch.setattr(uvicorn.Server, "run",
+                        lambda self, sockets=None: ran.append(True))
+    monkeypatch.setattr(server, "_reset_session", lambda: None)
+    monkeypatch.setattr(server, "_capture_own_session", lambda: None)
+    monkeypatch.setattr("silica.ui.banner.print_banner", lambda *a, **k: None)
+
+    server.serve(port=8799)
+    assert ran == [True], "the fake never ran: this test would bind a real port"
+    assert server._SERVER is not None, "nothing can ask this server to stop"
+    assert server._SERVER.config.timeout_graceful_shutdown == 1
+
+
+def test_serve_exits_quietly_on_the_signal_uvicorn_re_raises(monkeypatch, tmp_path):
+    """uvicorn re-raises the SIGINT it captured once it HAS shut down cleanly.
+
+    `silica` is installed as `cli:main`, so the module's own __main__ guard
+    never runs and nothing above serve() catches it: a tidy Ctrl+C would end in
+    a traceback that reads as a crash. The flush in the finally still has to
+    happen — the interrupt is how the GUI normally ends.
+    """
+    import uvicorn
+
+    from silica.ui.web import server
+
+    def interrupted(self, sockets=None):
+        raise KeyboardInterrupt
+
+    flushed: list[bool] = []
+    monkeypatch.setattr(server, "_SERVER", None)
+    monkeypatch.setattr(uvicorn.Server, "run", interrupted)
+    monkeypatch.setattr(server, "_reset_session", lambda: None)
+    monkeypatch.setattr(server, "_capture_own_session", lambda: flushed.append(True))
+    monkeypatch.setattr("silica.ui.banner.print_banner", lambda *a, **k: None)
+
+    server.serve(port=8799)   # must not raise
+    assert flushed == [True], "the interrupt skipped the conversation flush"

@@ -102,6 +102,11 @@
      opted into by name and nothing rounds by accident. */
   --r: 14px;
   --r-sm: 8px;
+  /* The xs step. It existed as a literal 4px at six sites and was the reason the
+     calendar could drift to 5, 6 and 9 without anything catching it: a scale
+     with a gap in it is a scale you round off by eye. Named, the rule above
+     holds again, since every corner in the file is now opted in BY NAME. */
+  --r-xs: 4px;
 
   /* The reading measure. Transcript and composer share it so a turn and the box
      you answer it in line up on the same two edges; changing it here moves both. */
@@ -347,6 +352,73 @@ body {
   flex-direction: column;
 }
 
+/* --- scrollbars: the one piece of chrome the app was letting the OS draw -----
+   Every scrolling region rendered the UA bar, which knows nothing about this
+   palette: a light native track over crystal, and a second one inside the note
+   drawer. The chat's answer was to hide its bar entirely, which costs the only
+   cue a reader has for how far into a long answer they are.
+
+   One thumb colour, rebindable. A raised surface (the drawer, a menu, the
+   settings panel) sets --sb on itself and both rendering paths below read the
+   indirection, so one line moves whichever path the engine took. The gate is
+   load-bearing, not defensive: a non-auto `scrollbar-width` makes Chromium and
+   Safari drop every ::-webkit-scrollbar rule for that element, hover included,
+   so declaring both unconditionally leaves the hover state with nothing to
+   render on the engines that implement it. `not selector(::-webkit-scrollbar)`
+   is true only where the pseudo-element is unimplemented, which is Firefox. */
+:root {
+  --sb: var(--line-2);
+  --sb-hover: var(--ash-dim);
+}
+
+/* raised planes: the thumb steps with the surface it rides on */
+#note-panel,
+#st-modal,
+#ctx-panel,
+.commands,
+#help-panel {
+  --sb: var(--ash-dim);
+  --sb-hover: var(--ash);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+
+  /* Re-declared per element rather than inherited: inheritance would pass down
+     the COLOUR already substituted at :root, so a descendant's rebind could not
+     take. `scrollbar-width` is not an inherited property in any case. */
+  body,
+  body * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb) transparent;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* Transparent, so the thumb reads against whatever is scrolling under it and a
+   two-axis region does not draw a cross of tracks through the content. */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* the 2px inset clips the thumb inward so it floats off a rounded edge
+     instead of hugging it — every capped box in this file has one */
+  border: 2px solid transparent;
+  background: var(--sb);
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-hover);
+  background-clip: padding-box;
+}
+
 /* --- header: one dense strip, zones split by hairlines ---------------------- */
 header {
   display: flex;
@@ -361,6 +433,11 @@ header {
   /* anchor for the session-config dropdown */
   border-bottom: 1px solid var(--line-2);
   background: var(--chrome-glass);
+  /* One height for the strip, and the strip alone: the five vertical rules that
+     used to divide it (brand, tabs, zones, the two edge buttons) are gone, so
+     what separates a compartment now is the space around it, and space needs a
+     bar tall enough to have any. 46px is the deck's row. */
+  min-height: 46px;
   /* Animating padding is a layout animation, and here that is the point: the
      padding IS what keeps the header's right edge glued to the drawer's leading
      edge while it slides. Snapping it (which is what #view-chat does, one row
@@ -369,6 +446,7 @@ header {
      runs the same property with nothing else happening and costs 12 layouts /
      1.0ms. The 129 layouts on open are the note rendering into the drawer, not
      this line. */
+  /* impeccable-disable-next-line layout-transition -- measured: 12 layouts / 1.0ms, and the snap alternative exposes 630px of chrome for the length of the slide */
   transition: padding-right var(--dur) var(--ease);
   /* match drawer animation */
 }
@@ -389,7 +467,6 @@ header>* {
   font-size: 14px;
   padding: 0 1.1rem;
   border: none;
-  border-right: 1px solid var(--line);
   cursor: pointer;
   background: transparent;
   color: var(--frost);
@@ -430,18 +507,139 @@ header>* {
   }
 }
 
-.ctx-tokens {
-  color: var(--ash-dim);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  padding: 0 0.9rem;
-  border-left: 1px solid var(--line);
-  font-variant-numeric: tabular-nums;
-}
-
 .spacer {
   flex: 1;
 }
+
+/* --- the top strip's zones ---------------------------------------------------
+   Identity and counts, the run, the notices: three separated facts at status-bar
+   density, divided by rules rather than gaps. A compartment, so radius 0. */
+.tz {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* No rule between zones any more, so the padding IS the divider: 1.1rem a
+     side puts 2.2rem between two facts, which is what keeps "91 areas" from
+     reading as part of the word beside it. */
+  padding: 0 1.1rem;
+  min-width: 0;
+}
+
+.tz .vname {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16ch;
+}
+
+/* Tabular figures, because these numbers are re-rendered after every turn and
+   proportional ones would make the strip twitch on each repaint. */
+.tz .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.tz .num.dim {
+  color: var(--ash-dim);
+}
+
+/* The one number in the strip you can act on: it opens the view that lists what
+   it counts. Amber is caution, not a link, so the affordance is the underline
+   on hover rather than a second vivid. */
+#top-broken {
+  color: var(--warn);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+#top-broken:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+#top-broken:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#notices-btn {
+  display: inline-flex;
+  align-items: center;
+  /* the header is align-items: stretch, and a definite height under stretch
+     behaves as flex-start: without this the chip hangs off the top edge of a
+     46px bar instead of sitting on its centre line */
+  align-self: center;
+  height: 21px;
+  margin: 0 0.6rem;
+  padding: 0 0.5rem;
+  background: var(--slate-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--warn);
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+#notices-btn:hover {
+  border-color: var(--line-2);
+}
+
+#notices-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Same popover as #help-panel, same corner, same rule: a panel you opened wins
+   over the toast strip. */
+#notices-panel {
+  display: block;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 130;
+  width: min(390px, 92vw);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-top: none;
+  border-radius: 0 0 var(--r) var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+}
+
+/* The strip is the first thing to lose room, and what survives is the number
+   that needs acting on and the word that says whether the agent is busy: the
+   vault's size can wait for a wider window or for the metrics view, which
+   states it anyway.
+
+   Two triggers, one rule. Below the 1120 floor the row cannot hold it; with the
+   drawer open the row is 630px shorter whatever the window measures, and a
+   wrapped header puts the notices chip under the wordmark. Keyed on the drawer
+   rather than on the remaining width because that width is not a media query:
+   if this ever needs to be exact, it is a container query on the header. */
+@media (max-width: 1120px) {
+
+  .tz .vname,
+  #top-counts {
+    display: none;
+  }
+}
+
+body.note-open .tz .vname,
+body.note-open #top-counts {
+  display: none;
+}
+
 
 .tabs {
   display: flex;
@@ -465,8 +663,18 @@ header>* {
   transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
 }
 
+/* Full height, not centred in it: the active tab's accent rule is an inset
+   shadow on the button, so a button floating in a taller strip would draw that
+   rule mid-air with a gap under it. Stretching puts it back on the strip's own
+   bottom edge, which is where the deck draws it. */
+.tabs {
+  align-items: stretch;
+}
+
 .tab {
-  border-right: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 1.05rem;
 }
 
 .tab.active {
@@ -516,7 +724,6 @@ header>* {
 }
 
 #sidebar-toggle {
-  border-right: 1px solid var(--line);
   font-size: 13px;
 }
 
@@ -526,7 +733,6 @@ header>* {
   display: flex;
   /* text-overflow + SVG needs flex */
   align-items: center;
-  border-left: 1px solid var(--line);
   text-transform: none;
   letter-spacing: 0.02em;
 }
@@ -647,6 +853,23 @@ body.sidebar-collapsed #sidebar {
   user-select: none;
 }
 
+/* The compartment's mark, the same glyph #railmini uses for it. 12px and not
+   the rail's 15px: there it IS the label, here it sits beside one, and a mark
+   as tall as the cap height it precedes competes with the word. Dimmer than
+   the word too — the icon is how you FIND the compartment when scanning the
+   column, the word is what you read once you have. */
+.side-title .si {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin-right: 0.45rem;
+  opacity: 0.62;
+}
+
+details.side-section:hover>summary.side-title .si {
+  opacity: 1;
+}
+
 
 .side-body {
   display: flex;
@@ -684,33 +907,9 @@ details.side-section:hover>summary.side-title {
   color: var(--ash);
 }
 
-.vault {
-  color: var(--ash);
-  font-size: 11px;
-  /* anywhere, not break-all: this is the one string in the panel that names the
-     folder the user opened, and break-all split it mid-word into
-     "/home/…/Obsidian/joe-fel" + "z-library", which reads as a different vault.
-     overflow-wrap breaks at the slashes first and only splits a path segment
-     when a segment alone cannot fit. */
-  overflow-wrap: anywhere;
-  margin-bottom: 0.6rem;
-}
-
-/* One row, not a 2x2 board. These four numbers are ambient vault state, and at
-   26px over two rows they took ~140px off the top of the column — more vertical
-   space than the file tree they sit above, for the information in the sidebar
-   that is read least. Razor-thin dividing lines: 1px gap over a line-colored
-   backdrop. */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-
+/* The four tiles the metrics standing panel builds. They were the sidebar's 2x2
+   board too, until the top strip took identity and counts: one statement of the
+   vault's size, in the one place that is true on every view. */
 .stat {
   background: var(--slate-2);
   padding: 0.4rem 0.25rem;
@@ -731,10 +930,8 @@ details.side-section:hover>summary.side-title {
 }
 
 .stat .lbl {
-  /* 10px, the chrome meta step, not 8px. These four label the numbers the
-     sidebar is most looked at for, and they were the smallest type in the
-     application: below every step the type scale actually defines, and two
-     steps under the tab strip beside them. */
+  /* 10px, the chrome meta step: the label of a figure is chrome and sits one
+     step under the tab strip, never below every step the scale defines. */
   font-size: 10px;
   color: var(--ash-dim);
   margin-top: 1px;
@@ -745,15 +942,181 @@ details.side-section:hover>summary.side-title {
   text-overflow: ellipsis;
 }
 
-/* --- boot notices: configuration, parked where it stays readable ------------ */
+/* --- the rail's own compartments -------------------------------------------
+   What is left in the rail after identity and counts moved to the strip: the
+   notes you named, what this session wrote, the vault's own grouping. Each is
+   something only the rail can hold, and none of them is stated anywhere else. */
+
+.pin-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 26px;
+  padding: 0 0.35rem;
+  border-radius: var(--r-xs);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.pin-row:hover {
+  background: var(--slate-2);
+}
+
+/* A bar, not a dot: at 3x13 it reads as the note's edge in the list and costs
+   no colour of its own beyond the one vivid this app allows. */
+.pin-row .sw {
+  width: 3px;
+  height: 13px;
+  flex: none;
+  background: var(--accent);
+}
+
+.pin-row .t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Unpin appears on hover and on focus. It is the destructive half of a row
+   whose main action is "read this", so it must not be the first thing the eye
+   lands on, and it must still be reachable from the keyboard. */
+.pin-x {
+  margin-left: auto;
+  flex: none;
+  background: none;
+  border: none;
+  padding: 0 0.2rem;
+  color: var(--ash-dim);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.pin-row:hover .pin-x,
+.pin-x:focus-visible {
+  opacity: 1;
+}
+
+.pin-x:hover {
+  color: var(--del);
+}
+
+.area {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 0.5rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: var(--r-xs);
+}
+
+.area .an {
+  font-size: 11.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.area .ac {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 3px, proportional to the largest area. It is the shape of the distribution,
+   which is the thing a list of five numbers cannot say. */
+.abar {
+  grid-column: 1 / -1;
+  height: 3px;
+  background: var(--line);
+}
+
+.abar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+/* --- the rail's Layout compartment (explore only) ---------------------------
+   The active surface is marked by a 3px swatch and not by a filled row: the
+   toolbar's active button is already a solid accent block, and two accent
+   fills on one screen for the same fact read as two different states. */
+#layout-modes {
+  display: flex;
+  flex-direction: column;
+}
+
+.lay {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 1.65rem;
+  padding: 0 0.35rem;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.lay:hover {
+  background: var(--slate-2);
+}
+
+.lay .sw {
+  width: 3px;
+  height: 13px;
+  flex: none;
+  background: transparent;
+}
+
+.lay.active {
+  color: var(--frost);
+}
+
+.lay.active .sw {
+  background: var(--accent);
+}
+
+/* --- the rail's floor: which folder this is ---------------------------------
+   Sticky and not merely last: the rail scrolls with the tree open, and the one
+   line that says which vault you are reading is the one line that must not
+   scroll away. Solid background for the same reason - the chrome glass is
+   translucent, and a translucent footer over a moving tree is unreadable. */
+#railfoot {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 0.55rem 0.8rem;
+  border-top: 1px solid var(--line);
+  background: var(--slate);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- boot notices: configuration, behind the chip that counts it ------------ */
 #boot-notices {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  margin-top: 0.6rem;
+  padding: 0.6rem 0.7rem 0.7rem;
   /* Five warn cards were half the sidebar, pushing FILES below the fold on
-     first load. The stack scrolls; every notice stays reachable. */
-  max-height: 34vh;
+     first load. In the popover the stack scrolls; every notice stays reachable. */
+  max-height: 60vh;
   overflow-y: auto;
 }
 
@@ -808,7 +1171,7 @@ details.side-section:hover>summary.side-title {
   line-height: 1;
   padding: 0.2rem 0.25rem;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
 }
 
 .notice-x:hover {
@@ -823,6 +1186,9 @@ details.side-section:hover>summary.side-title {
 
 #side-search {
   width: 100%;
+  /* it sits above #tree inside the Files body now, and a filter flush against
+     the first row it filters reads as the first row */
+  margin-bottom: 0.5rem;
   font-family: var(--sans);
   font-size: 12px;
   background: var(--slate-2);
@@ -936,6 +1302,51 @@ details.side-section:hover>summary.side-title {
    a 2px accent bar on every hovered row was the loudest thing in the column.
    The row is a <button> (see render_tree): reachable, announced as a button,
    and reset here back to the shape of a row. */
+/* --- a note in the tree, with the one action the rail can take on it --------
+   The pin appears on hover (and on keyboard focus, which is the half a hover
+   rule always forgets) and stays lit once made, because pinned is a state of
+   the note and not of the pointer. */
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.tree-row .tree-note {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tree-pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: none;
+  color: var(--ash-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.tree-row:hover .tree-pin,
+.tree-pin:focus-visible,
+.tree-pin.on {
+  opacity: 1;
+}
+
+.tree-pin:hover {
+  color: var(--frost);
+}
+
+.tree-pin.on {
+  color: var(--accent);
+}
+
 .tree-note {
   display: block;
   text-align: left;
@@ -964,7 +1375,9 @@ details.side-section:hover>summary.side-title {
    and a +/− tally, so a glance answers how big the change was without opening it. */
 /* the count is a flex item in the summary, so a leading space in its text is
    collapsed away and it welds itself to the label. Margin, not whitespace. */
-#changes-count {
+#changes-count,
+#pinned-count,
+#areas-count {
   margin-left: 0.6em;
   letter-spacing: 0;
   color: var(--ash-dim);
@@ -1117,11 +1530,6 @@ details.side-section:hover>summary.side-title {
   padding: 0;
   display: flex;
   flex-direction: column;
-  scrollbar-width: none;
-}
-
-#log::-webkit-scrollbar {
-  display: none;
 }
 
 .msg {
@@ -1639,7 +2047,7 @@ details.side-section:hover>summary.side-title {
   /* code keeps the grid font */
   color: var(--frost);
   background: var(--slate-2);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 0.1em 0.32em;
 }
 
@@ -1850,19 +2258,192 @@ details.side-section:hover>summary.side-title {
   /* tool lines now carry a vault path as their target */
 }
 
-.tool.done {
+.tool[data-state="done"] {
   color: var(--ash);
 }
 
-.tool.error {
+.tool[data-state="error"] {
   color: var(--warn);
 }
 
-/* in-flight (no done/error class yet) breathes so it never looks hung */
-.tool:not(.done):not(.error):not(.tool-pipeline) {
-  animation: pulse 1.4s ease-in-out infinite;
-  /* the pipeline block is excluded: it says what it is doing phase by phase, so
-     pulsing the whole block would animate text that is already legible */
+/* The row itself: a button when it has a card under it, the same geometry when
+   it hasn't. Unstyled to a button reset rather than given button chrome — this
+   is a line in a transcript that happens to open, and a group of tools drawn as
+   a stack of buttons would put five chrome affordances where there is one fact
+   per line. */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+  position: relative;   /* the sweep's anchor */
+  overflow: hidden;     /* …which travels off both ends */
+}
+
+.tool[data-open] .tool-row {
+  cursor: pointer;
+}
+
+/* `disabled` here means "not a control", not "a control you cannot use": the
+   row still carries the step it names and must read exactly as it did before
+   there was anything to open. */
+.tool-row:disabled {
+  color: inherit;
+  opacity: 1;
+}
+
+.tool-mark {
+  flex: none;
+  width: 0.8em;
+}
+
+.tool-label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* What the step cost, server-measured. Tabular so a group of tools reads as a
+   column of durations rather than as five ragged numbers, and dim because it is
+   the answer to a question nobody asked until something felt slow. */
+.tool-ms {
+  flex: none;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The disclosure marker, on the rows that have one. It reserves its cell
+   always, so revealing it on hover cannot shift the duration beside it, and it
+   is the ONE thing on the row that turns cyan: the row is only clickable where
+   there is something under it to click for. */
+.tool-chev {
+  flex: none;
+  width: 0.7em;
+  color: var(--ash-dim);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.tool[data-open="open"] .tool-chev,
+.tool[data-open] .tool-row:hover .tool-chev,
+.tool[data-open] .tool-row:focus-visible .tool-chev {
+  opacity: 1;
+}
+
+.tool[data-open="open"] .tool-chev {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.tool-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A glare band crossing the row, not a pulse of the whole line. The file already
+   argued this once, at the pipeline block: pulsing a legible line animates the
+   text you are trying to read. --frost is the brightest ink on crystal and the
+   darkest on paper, so one band travels the right direction in both themes
+   without a second token. The 10% end hold gives each pass a beat, or the sweep
+   reads as a loading bar rather than as work in progress. */
+.tool[data-state="running"] .tool-row::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 220px;
+  background: linear-gradient(90deg, transparent,
+              color-mix(in srgb, var(--frost) 9%, transparent) 55%, transparent);
+  animation: tool-sweep 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes tool-sweep {
+  from { transform: translateX(-220px); }
+  90%, to { transform: translateX(min(100vw, 1200px)); }
+}
+
+/* A curated stop, not the file's blanket one. The backstop collapses durations
+   to 0.01ms and pins iteration-count to 1, which for a travelling band means it
+   plays once instantly and then reverts to its UNANIMATED position — a static
+   gradient parked over the left of the row, forever. The band has to not exist.
+   The row keeps its running colour and the » mark, which is what carried the
+   state before there was a sweep. */
+@media (prefers-reduced-motion: reduce) {
+
+  .tool[data-state="running"] .tool-row::after {
+    content: none;
+  }
+}
+
+/* What the call asked and what came back, in the two compartments the answer
+   already reads by. A well, not a raised card: this is source material under a
+   line of prose, and the palette puts source material on the floor. */
+.tool-card {
+  margin: 0.3rem 0 0.5rem 1.25rem;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.tc-sec {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 0.8rem;
+  align-items: baseline;
+  padding: 0.5rem 0.7rem;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+/* Sticky against the section's OWN scroll: a gutter label that leaves with its
+   payload stops labelling it two lines in, which is exactly when a reader
+   scrolling a long result needs to know which half they are in. */
+.tc-k {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  color: var(--ash-dim);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tc-text {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool[data-state="error"] .tc-text {
+  color: var(--warn);
+}
+
+/* Spans the whole card, so it sits between the padded sections rather than
+   inside one of their grids. */
+.tc-div {
+  height: 1px;
+  background: var(--line);
+}
+
+/* Stated as a count, never as a trailing "…": a result that genuinely ends in
+   an ellipsis and one that was cut look identical otherwise. */
+.tc-cut {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ash-dim);
+  font-family: var(--sans);
+  font-size: 10px;
 }
 
 /* --- injector pipeline block ------------------------------------------------
@@ -1943,6 +2524,18 @@ details.side-section:hover>summary.side-title {
   overflow-wrap: anywhere;
 }
 
+/* Opaque, and the blur it used to carry is gone. .composer-shell has a
+   backdrop-filter of its own, which makes it a BACKDROP ROOT: a descendant's
+   backdrop-filter can only sample within that root, so this one was compositing
+   a layer to blur nothing, and the .78 alpha left the transcript legible
+   straight through the palette. Measured 2026-08-22: the text behind rendered
+   sharp. Anything anchored inside the shell is in the same position, hence the
+   shared surface below. */
+.commands,
+#ctx-panel {
+  background: var(--sheet);
+}
+
 .commands {
   position: absolute;
   bottom: 100%;
@@ -1950,8 +2543,6 @@ details.side-section:hover>summary.side-title {
   width: 100%;
   max-height: 250px;
   overflow-y: auto;
-  background: var(--glass);
-  backdrop-filter: var(--glass-blur);
   border: 1px solid var(--line-2);
   border-radius: var(--r);
   box-shadow: var(--lift), var(--glass-edge);
@@ -2148,6 +2739,221 @@ details.side-section:hover>summary.side-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* --- the context ring: how full the window is, and what filled it -----------
+   It used to be `CTX 12.4k/250.0k` in the header, and a toolbar is where you put
+   things that are true of the app. How much room is left is true of THIS
+   conversation, which is the same argument that put the model line under this
+   box, so it reads here. */
+#ctx-ring {
+  flex: none;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
+}
+
+#ctx-ring:hover {
+  background: var(--slate-2);
+}
+
+#ctx-ring:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#ctx-ring svg {
+  width: 22px;
+  height: 22px;
+  /* 12 o'clock, clockwise: a meter that starts at 3 o'clock is read as a
+     fraction of a half by everyone who has ever seen a dial. */
+  transform: rotate(-90deg);
+}
+
+.ctx-track {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 2;
+}
+
+/* Neutral, not cyan: --accent means clickable in this file and the ring's FILL
+   is a reading, not a control (the button around it is the control, and it says
+   so by lighting its own background on hover). Amber is caution and arms only
+   where the caution starts — see [data-level="high"]. */
+.ctx-fill {
+  fill: none;
+  stroke: var(--ash);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--dur) var(--ease), stroke var(--dur) var(--ease);
+}
+
+#ctx-ring[data-level="high"] .ctx-fill {
+  stroke: var(--warn);
+}
+
+#ctx-panel {
+  position: absolute;
+  right: 0.3rem;
+  bottom: calc(100% + 0.5rem);
+  z-index: 40;
+  width: 17rem;
+  padding: 0.75rem 0.85rem 0.8rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+  font-size: 12px;
+  cursor: default;
+}
+
+.ctxp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.ctxp-title {
+  color: var(--ash-dim);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ctxp-fig {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctxp-pct {
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 8px, not the metrics stack's 14: three adjacent steps of a one-hue ramp need
+   enough height to read as three, and below 8 the 2px gaps were doing all the
+   separating while the steps themselves read as one bar. */
+#ctx-panel .stack {
+  height: 8px;
+  margin-bottom: 0.65rem;
+}
+
+.ctxp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.12rem 0;
+  color: var(--text);
+}
+
+/* Free carries no swatch: it is not in the bar above, and a fourth dot in the
+   legend's colour family would claim it is. The rule and the tone say what it
+   is instead. */
+.ctxp-row.free {
+  margin-top: 0.2rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  color: var(--ash);
+}
+
+.ctxp-k {
+  flex: 1;
+  min-width: 0;
+}
+
+.ctxp-v {
+  flex: none;
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctxp-row.free .ctxp-v {
+  color: var(--ash);
+}
+
+/* Shown only while it is true, which is the whole point of it. */
+.ctxp-note {
+  margin: 0.6rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --- the composer mirror ----------------------------------------------------
+   A layer the exact size of the field, behind it. It draws BACKGROUND BANDS and
+   the greyed rest of a half-typed command; the textarea above keeps its own
+   opaque glyphs, caret and selection. The usual trick is the other way round —
+   transparent textarea, glyphs in the backdrop — and its failure mode is showing
+   the WRONG characters for a frame on IME input or a composited wheel scroll.
+   This one's worst case is a band a pixel off its word.
+
+   Every metric below has to match #input exactly or the bands drift a character
+   further with every line: font, size, line-height, padding, wrapping. */
+.grow {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.grow #input {
+  display: block;
+  width: 100%;
+  position: relative;
+  background: transparent;
+}
+
+.hl {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0.45rem 0.35rem;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Tinted, not coloured: the band sits UNDER the real glyphs, so its job is to
+   say "the box parsed this", and a fill dark enough to read through is a fill
+   that changes the contrast of text it does not own. */
+.hl-cmd {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.hl-link {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--violet) 42%, transparent);
+}
+
+/* Weakest of the three on purpose, and still readable: a path is the commonest
+   token in a sentence about this vault, and at the cyan band's weight a normal
+   message would be more band than text. The first pass had these at 20% over
+   --glass and they were invisible at 1440px. */
+.hl-path {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--ash) 34%, transparent);
+}
+
+/* The one place the mirror draws a glyph, and it can: this text does not exist
+   in the textarea, so there is nothing above it to disagree with. */
+.hl-ghost {
+  color: var(--ash-dim);
 }
 
 #attachments {
@@ -2481,6 +3287,32 @@ details.side-section:hover>summary.side-title {
   border-color: var(--accent);
   color: var(--on-vivid);
   font-weight: 700;
+}
+
+/* Offer, not alarm: the graph on screen is not wrong, only older than the
+   vault. Accent outline rather than an accent fill, so it reads as available
+   next to the filled ACTIVE mode button and never competes with it. */
+#graph-refresh {
+  background: var(--slate-2);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+#graph-refresh:hover {
+  background: var(--accent);
+  color: var(--on-vivid);
+}
+
+#graph-refresh:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* per-mode control cluster (note search), pushed to the right */
@@ -2880,6 +3712,13 @@ body.dragging #drop-hint {
   background: transparent;
 }
 
+.np-ico {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--ash-dim);
+}
+
 #note-title {
   flex: 1;
   min-width: 0;
@@ -2944,6 +3783,17 @@ body.dragging #drop-hint {
   color: var(--frost);
   border-color: var(--ash-dim);
   background: var(--slate-2);
+}
+
+/* The one action in this row that is a STATE rather than an errand: it stays
+   lit while the note is in the rail, which is what tells you the pin took. */
+.na.on,
+.na.on svg {
+  color: var(--accent);
+}
+
+.na.on {
+  border-color: var(--accent);
 }
 
 .na:hover svg {
@@ -3119,25 +3969,6 @@ details.fm summary:hover {
   outline-offset: -2px;
 }
 
-#note-context {
-  padding: 1.1rem 1.3rem 2rem;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.4rem;
-}
-
-#note-context[hidden] {
-  display: none;
-}
-
-/* waiting / empty / error: one muted line, never a skeleton flash */
-#note-context.cx-wait {
-  display: block;
-  color: var(--ash-dim);
-  font-size: 13px;
-}
-
 /* --- diff mode --------------------------------------------------------------
    A code well, not a document: monospace, no wrapping, one scroller. The tint on
    a changed line does the reading and the leading +/− carries it for anyone the
@@ -3235,176 +4066,18 @@ details.fm summary:hover {
   font-size: 12px;
 }
 
-.cx-sec {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.cx-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--ash-dim);
-}
-
-.cx-sub {
-  font-size: 11px;
-  color: var(--ash-dim);
-  margin-top: -0.2rem;
-}
-
-.cx-hint {
-  font-size: 12px;
-  color: var(--warn);
-  background: var(--slate-2);
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--warn);
-  padding: 0.5rem 0.7rem;
-}
-
-/* a snippet is a probe into the note, so it is typeset as prose, not as chrome */
-.cx-snip {
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text);
-  padding: 0.35rem 0 0.35rem 0.7rem;
-  border-left: 1px solid var(--line-2);
-}
-
-.cx-snip-h {
-  display: block;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ash-dim);
-  margin-bottom: 0.15rem;
-}
-
-.cx-cloud {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.55rem;
-}
-
-.cx-concept {
-  font-family: var(--sans);
-  line-height: 1.3;
-  color: var(--text);
-  background: none;
-  border: none;
-  border-bottom: 1px solid transparent;
-  padding: 0.1rem 0;
-  cursor: pointer;
-  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
-}
-
-.cx-concept:hover {
-  color: var(--frost);
-  border-bottom-color: var(--accent);
-}
-
-.cx-concept.lit {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.cx-concept:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.cx-group {
-  font-size: 11px;
-  color: var(--ash-dim);
-  margin-top: 0.4rem;
-}
-
-.cx-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.28rem 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.cx-row:last-child {
-  border-bottom: none;
-}
-
-/* the tail of a long list — same native <details> collapse idiom as .fm */
-.cx-more summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 0.35rem 0;
-  font-size: 11px;
-  color: var(--ash-dim);
-  transition: color var(--dur) var(--ease);
-}
-
-.cx-more summary::-webkit-details-marker {
-  display: none;
-}
-
-.cx-more:not([open]) summary::before {
-  content: "▸ ";
-}
-
-.cx-more[open] summary::before {
-  content: "▾ ";
-}
-
-.cx-more summary:hover {
-  color: var(--frost);
-}
-
-.cx-more summary:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.cx-name {
-  flex: 0 1 auto;
-  min-width: 0;
-  font-family: var(--sans);
-  font-size: 13px;
-  text-align: left;
-  color: var(--text);
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--dur) var(--ease);
-}
-
-.cx-name:hover:not(:disabled) {
-  color: var(--accent);
-}
-
-.cx-name:disabled {
-  color: var(--ash-dim);
-  cursor: default;
-}
-
-.cx-why {
-  flex: 1 1 auto;
-  font-size: 11px;
-  color: var(--ash-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cx-open,
-.cx-do,
-.cx-write {
+/* The one action a metrics row carries. It used to be `.cx-do`, borrowed from
+   the note drawer's context mode; that mode is gone (the work panel is the one
+   place a note's concepts and neighbours are stated now) and this button is
+   not, so it owns its rule rather than outliving the block it borrowed from. */
+.m-do {
   flex-shrink: 0;
   margin-left: auto;
   font-family: var(--sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.22rem 0.6rem;
   color: var(--ash-dim);
   background: transparent;
   border: 1px solid var(--line-2);
@@ -3413,35 +4086,13 @@ details.fm summary:hover {
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
 }
 
-.cx-open {
-  font-size: 11px;
-  line-height: 1;
-  padding: 0.22rem 0.42rem;
-}
-
-.cx-do {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 0.22rem 0.6rem;
-}
-
-.cx-write {
-  align-self: flex-start;
-  margin-left: 0;
-  font-size: 12px;
-  padding: 0.4rem 0.9rem;
-}
-
-.cx-open:hover,
-.cx-do:hover,
-.cx-write:hover {
+.m-do:hover {
   color: var(--frost);
   border-color: var(--accent);
   background: var(--slate-2);
 }
 
-:is(.cx-open, .cx-do, .cx-write):focus-visible {
+.m-do:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
@@ -3716,7 +4367,7 @@ body.note-open #toasts {
   color: var(--frost);
   background: var(--slate-2);
   border: 1px solid var(--line-2);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 0.1rem 0.35rem;
 }
 
@@ -3773,6 +4424,7 @@ body.note-open #toasts {
      transform and opacity cannot do. It fires once per session, when the first
      message lands, and measures 12 layouts / 1.5ms. grid-template-rows would
      buy an inner wrapper and the same layout pass. */
+  /* impeccable-disable-next-line layout-transition -- measured: 12 layouts / 1.5ms once per session, and only a layout property can give the space back to the transcript */
   transition: max-height var(--dur) var(--ease), opacity var(--dur) var(--ease), padding var(--dur) var(--ease);
 }
 
@@ -3828,6 +4480,7 @@ body.note-open #toasts {
      out-of-flow childless element, so nothing else re-lays out: measured at
      13-14 layouts per move, the same band as the two other deliberate layout
      animations in this file, and that count includes the composer's autoGrow. */
+  /* impeccable-disable-next-line layout-transition -- measured: 13-14 layouts per move on one childless out-of-flow element, and scaleX would stretch the shared radius into ovals */
   transition: transform var(--dur) var(--ease), width var(--dur) var(--ease);
 }
 
@@ -4024,9 +4677,17 @@ body.note-open #toasts {
   margin-top: 1rem;
 }
 
-.mstand {
+/* --- worklist and evidence ---------------------------------------------------
+   The worklist is the navigation and the pane beside it is that row's evidence.
+   This view used to be three walls of tables: 532 unresolved targets printed as
+   rows, in a card you had to go find, with nothing to do about them from the
+   view that found them.
+
+   340px of worklist, because the longest row is "structural gaps / areas that
+   should connect and do not" and the meaning line must not wrap. */
+.mv {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: 340px minmax(0, 1fr);
   border: 1px solid var(--line);
   border-radius: var(--r);
   background: var(--page);
@@ -4034,78 +4695,256 @@ body.note-open #toasts {
   flex-shrink: 0;
 }
 
-.mstand-work {
-  padding: 1rem 1.1rem 1.1rem;
-  min-width: 0;
-}
-
-.mstand-h {
-  margin: 0 0 0.75rem;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--frost);
-}
-
-/* A row is a count, then what it is, then what that means. Three fields on one
-   line: the count is what you compare, the name is what you recognise, and the
-   meaning is what stops the name from needing a glossary. */
-.mstand-row {
+.mv-l {
   display: flex;
-  align-items: baseline;
-  gap: 0.7rem;
-  padding: 0.32rem 0.5rem;
-  margin: 0 -0.5rem;
-  border-radius: var(--r-sm);
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.mv-lh {
+  padding: 0.85rem 1rem 0.5rem;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.mv-r {
+  padding: 1rem 1.2rem 1.3rem;
   min-width: 0;
 }
 
-/* a row that reveals a card is a <button>; these put it back to a row */
-.mstand-row.clickable {
-  cursor: pointer;
-  width: calc(100% + 1rem);
+/* A row is a count, what it is, and what that means, with the bar under the
+   two text lines. Three fields: the count is what you compare, the name is what
+   you recognise, and the meaning is what stops the name needing a glossary. */
+.wl {
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr);
+  gap: 2px 0.8rem;
+  padding: 0.5rem 1rem;
+  width: 100%;
   text-align: left;
   font: inherit;
   color: inherit;
   background: none;
   border: 0;
+  border-left: 2px solid transparent;
 }
 
-.mstand-row.clickable:hover {
+.wl[data-sig] {
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.wl[data-sig]:hover {
   background: var(--slate-2);
 }
 
-.mstand-row.clickable:focus-visible {
+/* The selected row and the pane are one surface: the left border is the join,
+   and it is the one place cyan appears in this list. */
+.wl.on {
+  background: var(--slate-2);
+  border-left-color: var(--accent);
+}
+
+.wl[data-sig]:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
 
-.msr-n {
-  flex: 0 0 4.2rem;
+.wl-q {
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1.15;
   text-align: right;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.2;
   color: var(--frost);
   font-variant-numeric: tabular-nums;
 }
 
-.msr-t {
-  min-width: 0;
+.wl-l {
+  font-size: 12.5px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.msr-t b {
-  font-weight: 500;
-  color: var(--text);
+.wl-d {
+  grid-column: 2;
+  font-size: 10.5px;
+  color: var(--ash-dim);
 }
 
-.msr-t i {
-  font-style: normal;
+/* --- the worklist slot: direction, not a cross-signal ranking --------------
+   This held a magnitude bar whose scale was n over the largest count in the
+   list -- a comparison between unresolved links, lean notes and area pairs,
+   which share no unit. The sort order and the printed figure already said
+   which was biggest. A row whose signal the store has never seen twice keeps
+   the slot and shows nothing, the same rule the histogram's zero bin follows. */
+.wl-b {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: auto;
+  margin-top: 3px;
+  background: none;
+}
+
+/* A zero is an answer, it is just not a destination: no bar, no hover, and the
+   figure steps down so the list still ranks by what is actually there. */
+.wl.zero .wl-q {
+  font-size: 13px;
   color: var(--ash-dim);
-  margin-left: 0.5rem;
+}
+
+.wl.zero .wl-l {
+  color: var(--ash-dim);
+}
+
+/* --- the evidence pane ------------------------------------------------------ */
+.ev-h {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.ev-t {
+  font-size: 16px;
+  color: var(--frost);
+}
+
+.ev-n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reading, not a caption: it says what the numbers mean together, which is
+   the one thing the table under it cannot. 64ch, the prose measure. */
+.ev-s {
   font-size: 12px;
+  line-height: 1.6;
+  color: var(--ash);
+  max-width: 64ch;
+  margin: 0 0 1.1rem;
+}
+
+.ev-act {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.1rem;
+}
+
+.mini {
+  height: 22px;
+  padding: 0 0.6rem;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  color: var(--ash);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.mini:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+/* The one that changes the vault carries the one interactive colour. It drafts
+   the turn into the composer: nothing here writes anything by itself. */
+.mini.go {
+  border-color: rgba(53, 198, 232, 0.4);
+  color: var(--accent);
+}
+
+.mini.go:hover {
+  border-color: var(--accent);
+}
+
+.mini:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- the tail ---------------------------------------------------------------
+   Linear height, and the caption names both ends. The skew IS the reading: a
+   handful of targets carry most of the references and the rest are asked for
+   once each, which is the difference between writing twenty notes and stubbing
+   four hundred. A log axis would need a disclaimer, and a chart arguing with
+   its own caption is worse than no chart. */
+.ev-tail {
+  margin-top: 1.4rem;
+}
+
+.ev-tl,
+.ev-tc {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.ev-tl {
+  margin-bottom: 0.5rem;
+}
+
+.ev-tc {
+  margin-top: 0.45rem;
+  font-family: var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+}
+
+/* Fixed-width bars, left-aligned: stretched across the full pane the first bin
+   reads as a block and the tail as a rule under it. At 22px the same numbers
+   read as the distribution they are. */
+.hist i {
+  flex: 0 0 22px;
+  background: var(--line-2);
+}
+
+.hist i.hot {
+  background: var(--accent);
+}
+
+/* --- one figure, when the column is constant --------------------------------
+   Attention printed fifteen rows of `113 · 0 · 114`: three columns, one value
+   each, fifteen times. A constant column is not data. */
+.ev-fig {
+  padding: 0.4rem 0 0;
+}
+
+.ev-figv {
+  font-family: var(--mono);
+  font-size: 34px;
+  line-height: 1;
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-figc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ash);
+  max-width: 64ch;
+  margin: 0.7rem 0 0;
 }
 
 /* --- sections ----------------------------------------------------------------
@@ -4254,14 +5093,29 @@ body.note-open #toasts {
 
 /* the panel stacks under 1100px, where 340px of rates beside a worklist starts
    truncating the meanings rather than the names */
+/* Under the worklist, not beside it: the rates put the counts above them in
+   proportion, so they read after the list. Not pushed to the foot of the
+   column either -- the evidence pane runs to several screens, and margin-top
+   auto parked them below all of it. */
+.mkpi {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+  margin-top: 0.6rem;
+}
+
+/* Under 1100px the pane cannot hold a table beside a 340px worklist, so the two
+   stack: the worklist keeps its full width and the evidence follows it. */
 @media (max-width: 1100px) {
-  .mstand {
+  .mv {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .mv-l {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
   .mkpi {
-    border-left: 0;
-    border-top: 1px solid var(--line);
     grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   }
 }
@@ -4510,6 +5364,248 @@ body.note-open #toasts {
 .stack-seg.ord-3 { background: var(--c-ord-3); }
 .stack-seg.ord-2 { background: var(--c-ord-2); }
 .stack-seg.ord-1 { background: var(--c-ord-1); }
+
+/* --- the four forms this view had no way to draw ---------------------------
+   Every chart above answers a question about one reading of the vault. These
+   answer questions a single reading cannot hold: which way a count is going,
+   how two measurements sit against each other, and how the mass is spread.
+   All four are inline SVG or CSS boxes, on the same argument `squarify` makes
+   for not pulling in d3-hierarchy: the vendored graph renderers are the only
+   libraries on this page and a layout dependency for a polyline would be the
+   largest of them. */
+
+/* A direction, never a measurement -- the figure beside it is the measurement,
+   which is why every caller prints one. Drawn at its own viewBox size so the
+   stroke stays a stroke and the head stays round; max-width only stops it
+   overflowing a narrow slot, it never stretches it. */
+.spark {
+  display: block;
+  max-width: 100%;
+}
+
+.spark-l {
+  fill: none;
+  stroke: var(--c-accent);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* The head, so "where it ended" reads without counting points from the left. */
+.spark-h {
+  fill: var(--c-accent);
+}
+
+/* The move, and whether the move was the good direction. Neutral by default:
+   more areas is fragmentation or coverage depending on the vault, and a colour
+   there would be the view asserting something it cannot know. */
+.dchip {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  white-space: nowrap;
+}
+
+.dchip.up { color: var(--add); }
+.dchip.down { color: var(--del); }
+
+/* --- scatter: two continuous measurements at once --------------------------
+   Drawn at the wrapper's measured width, so one unit is one CSS pixel and a
+   9px axis label is 9px in a 330px card and in a 650px one. Nothing here sets
+   a width on the svg: the element carries the pixel size its own draw computed,
+   and a rule that stretched it would put the scaling back. */
+.sc-wrap {
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+
+.sc {
+  display: block;
+}
+
+.sc.pick .sc-dot {
+  cursor: pointer;
+}
+
+.sc-dot {
+  fill: var(--c-accent);
+  fill-opacity: 0.62;
+}
+
+/* Drawn over the field rather than by restyling the hovered circle, which
+   would take the whole field's DOM with it on every pointer move. */
+.sc-ring {
+  fill: var(--c-accent);
+  fill-opacity: 0.9;
+  stroke: var(--text);
+  stroke-width: 1.2;
+  pointer-events: none;
+}
+
+.sc-ax {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.sc-med {
+  stroke: var(--ash-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+}
+
+/* One quadrant washed, not four coloured panels: the dots are the content, and
+   a tint behind all four would spend the visual budget re-saying what the two
+   dashed guides already say. */
+.sc-tint {
+  fill: var(--c-amber);
+  fill-opacity: 0.08;
+}
+
+.sc-q,
+.sc-al {
+  fill: var(--ash-dim);
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.sc-q {
+  fill: var(--ash);
+}
+
+/* Positioned above the plot, not at the pointer: at this size a card that
+   follows the cursor covers the dots either side of the one being read. */
+.sc-tip {
+  position: absolute;
+  inset: auto 0 100% 0;
+  padding: 0.3rem 0.45rem;
+  background: var(--bubble);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* --- the trend band: small multiples over the stored readings --------------
+   One frame per signal and NOT one chart with nine lines: these counts do not
+   share a domain, so on one linear axis the four that matter flatten along the
+   bottom. What the panels do share is the x axis, which is the comparison the
+   band exists for -- which signals moved together. */
+.mband {
+  margin: 0.9rem 0 0.2rem;
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem 0.8rem;
+}
+
+.mband-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.mband-t {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.mband-s {
+  font-size: 10.5px;
+  color: var(--ash-dim);
+}
+
+/* auto-fit rather than a fixed count: the band holds nine panels on a wide
+   deck and three per row on a laptop, and a 9-column grid at 1200px would put
+   130px of sparkline in a 90px cell. */
+.mband-g {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 0.7rem 0.9rem;
+}
+
+.mband-ct {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* The placeholder is a paragraph, not a half-line, because what a reader has to
+   learn here is not that the band is empty but what fills it. Held to a reading
+   measure: it sits above a 9-column grid and would otherwise run the full width
+   of the deck as one line. */
+.mband-p {
+  max-width: 68ch;
+  margin: 0 0 0.75rem;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash);
+}
+
+/* A frame with a real figure and no line yet. Dimmed as a whole rather than
+   greying the number: the value is not provisional, only the direction is. */
+.mband-c.waiting .mband-v {
+  color: var(--ash);
+}
+
+/* Where the line will go. Dotted, and exactly the sparkline's own height, so
+   the frame does not resize when the second reading arrives. Nothing in this
+   view draws a VALUE dotted, so it cannot be read as a flat series -- which is
+   what a solid stroke here would say, and the one thing the store cannot claim
+   with a single reading. */
+.mband-wait {
+  height: 26px;
+  border-bottom: 1px dotted var(--line);
+  box-sizing: border-box;
+}
+
+.mband-v {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mband-l {
+  font-size: 10px;
+  color: var(--ash-dim);
+  margin-top: 1px;
+}
+
+/* --- the KPI tiles: a rate, its move, and where it came from --------------- */
+.stat-h {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.mkpi .stat .spark {
+  margin-top: 4px;
+}
+
+/* --- the areas field ------------------------------------------------------
+   .tmap is sized for the full-page shape view; inside a card it has to be a
+   card's worth of height. Fixed rather than aspect-driven: the tiles are laid
+   out in an abstract 100x100 box, so the container alone decides the pixels
+   and a shorter box just makes every tile shorter. */
+.tmap-holder {
+  margin-bottom: 0.5rem;
+}
+
+.tmap.tmap-a {
+  height: 300px;
+}
+
+/* --- the legend carries its own figures ----------------------------------
+   A stacked bar shows shares, and a reader who wanted the count had to find it
+   again in a table underneath. Two renderings of one measurement are two things
+   that can disagree after an edit. */
+.mlegend-n {
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
 
 /* --- explore: folders / areas / read ---------------------------------------
    Three in-page surfaces sharing one pane, where graph and map each own an
@@ -5487,11 +6583,11 @@ body.note-open #toasts {
 #cal-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 #cal-nav { display: flex; gap: 2px; }
 #cal-title { font-size: 15px; font-weight: 600; color: var(--frost); }
-#cal-mode { display: flex; gap: 2px; background: var(--slate-2); border-radius: 8px; padding: 2px; }
-#cal-mode button { border: 0; background: transparent; color: var(--ash); padding: 3px 10px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+#cal-mode { display: flex; gap: 2px; background: var(--slate-2); border-radius: var(--r-sm); padding: 2px; }
+#cal-mode button { border: 0; background: transparent; color: var(--ash); padding: 3px 10px; border-radius: var(--r-xs); cursor: pointer; font: inherit; font-size: 12px; }
 #cal-mode button.active { background: var(--page); color: var(--frost); }
 #cal-main { display: flex; gap: 12px; flex: 1; min-height: 0; align-items: stretch; }
-#cal-grid { flex: 2 1 480px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--page); }
+#cal-grid { flex: 2 1 480px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--page); }
 .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
 .cal-dow div { padding: 5px 8px; font-size: 10px; color: var(--ash-dim); text-transform: uppercase; letter-spacing: 0.07em; text-align: right; }
 .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--line); flex: 1; min-height: 0; }
@@ -5510,13 +6606,16 @@ body.note-open #toasts {
    current month's numbers carry (6.01:1 / 7.26:1). */
 .cal-day.other .cal-num { color: var(--ash-dim); }
 .cal-num { height: 20px; display: flex; align-items: center; justify-content: flex-end; font-size: 11px; color: var(--ash); flex: 0 0 auto; }
-.cal-num span { padding: 0 5px; border-radius: 9px; }
+/* A pill, and 9px was aiming at one and missing: the badge is 20px tall, so
+   any radius under half its height leaves four flat spots on what reads as a
+   round day marker. 999px states the intent instead of approximating it. */
+.cal-num span { padding: 0 5px; border-radius: 999px; }
 .cal-day.today .cal-num span { background: var(--accent); color: var(--void); font-weight: 700; }
 .cal-chips { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
-.cal-chip { font-size: 11px; color: var(--text); background: var(--slate-2); border-radius: 6px; padding: 1px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cal-chip { font-size: 11px; color: var(--text); background: var(--slate-2); border-radius: var(--r-xs); padding: 1px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .cal-chip:hover { background: var(--line); color: var(--frost); }
 .cal-chip .t { color: var(--ash); margin-right: 4px; font-variant-numeric: tabular-nums; }
-.cal-bar { z-index: 1; margin: 1px 3px; border-radius: 5px; background: var(--accent); color: var(--void); font-size: 11px; line-height: 18px; font-weight: 600; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
+.cal-bar { z-index: 1; margin: 1px 3px; border-radius: var(--r-xs); background: var(--accent); color: var(--void); font-size: 11px; line-height: 18px; font-weight: 600; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
 /* The three derived axes: what already happened here, or is waiting. Not
    chips — a filled chip is an appointment, and printing sixty agent writes in
    the same shape as a meeting would make the month unreadable in the other
@@ -5561,7 +6660,7 @@ body.note-open #toasts {
 /* 400, not 330: every row here is a note name with a folder or a set of counts
    after it, and at 330 the ellipsis landed before the name did. The grid loses
    70px it was spending on empty cells. */
-#cal-agenda { flex: 1 1 340px; min-width: 260px; max-width: 400px; border: 1px solid var(--line); border-radius: 14px; background: var(--page); padding: 10px 12px; overflow-y: auto; }
+#cal-agenda { flex: 1 1 340px; min-width: 260px; max-width: 400px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); padding: 10px 12px; overflow-y: auto; }
 .cal-ag-head { font-size: 10px; color: var(--ash-dim); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
 .cal-ag-day { margin-bottom: 12px; }
 .cal-ag-date { font-size: 12px; font-weight: 600; color: var(--frost); margin-bottom: 3px; }
@@ -5655,14 +6754,14 @@ body.note-open #toasts {
 #tree-collapse,
 .notice-x,
 .copy-btn,
-.cx-do {
+.m-do {
   position: relative;
 }
 
 #tree-collapse::after,
 .notice-x::after,
 .copy-btn::after,
-.cx-do::after {
+.m-do::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -5670,4 +6769,1110 @@ body.note-open #toasts {
   width: max(100%, 24px);
   height: max(100%, 24px);
   transform: translate(-50%, -50%);
+}
+
+/* --- the work panel: the third column --------------------------------------
+   What the agent is doing has never had a surface in this app. The account
+   exists — silica/agent/narration.py writes it and /narration/sse serves it
+   live — and the transcript could only ever show its shadow: a tool line while
+   a call is in flight, nothing at all while the model is thinking, and no way
+   to see the token a turn actually cost. This pane renders the stream itself.
+
+   It is a pane and not an overlay, deliberately: it is read WHILE the turn
+   runs, so it cannot sit on top of the answer it is narrating. That costs a
+   column, which is why 372 is negotiated rather than assumed — see work.js. */
+:root {
+  --work-w: 372px;
+}
+
+#work {
+  flex: 0 0 var(--work-w);
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--line-2);
+  background: var(--chrome-glass);
+}
+
+body.work-open #work {
+  display: flex;
+}
+
+/* The drawer is position:fixed against the right edge and the panel is the
+   right edge, so the two cannot both have it. The drawer wins while it is open
+   — it was opened by a click, the panel by a preference — and the panel comes
+   back when it closes, which is the same yield fitPanes() does to the sidebar. */
+body.note-open #work {
+  display: none;
+}
+
+#work>header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.1rem;
+  flex: 0 0 auto;
+  padding: 0 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+#work>header .grow {
+  flex: 1 1 auto;
+}
+
+.wk-ico {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--ash-dim);
+}
+
+.wk-title {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+/* What the column is currently about (report, node), as a chip beside the
+   fixed name rather than replacing it. Boxed, because unboxed it reads as a
+   second word of the title and the header is back to being a name that
+   changes under you. Empty on the run: :empty carries no box. */
+.wk-scope {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash);
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xs);
+}
+
+.wk-scope:empty {
+  display: none;
+}
+
+.wk-state {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.wk-state::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ash-dim);
+}
+
+.wk-state.live {
+  color: var(--frost);
+}
+
+.wk-state.live::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+#work-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  --sb: var(--line);
+}
+
+.wk-empty {
+  padding: 1.4rem 0.9rem;
+}
+
+.wk-empty-t {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 0.4rem;
+}
+
+.wk-empty-d {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ash-dim);
+}
+
+.wk-run {
+  padding: 0.7rem 0.85rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-run-t {
+  font-size: 12px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.4rem;
+}
+
+.wk-run-m {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.wk-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+}
+
+/* The spine. One 1px rule down the beat stream, and while the run is live its
+   top two thirds are accent: the run's own progress bar, at the cost of a
+   border rather than a widget. */
+/* --- what moved, read positionally ----------------------------------------
+   NOT a slope chart, though that is the form this answers to. A slope chart
+   puts every series on one axis, and these counts do not share one: notes runs
+   to the hundreds and gaps to single digits, so a shared axis draws eight of
+   the nine flat along the bottom. Give each its own axis instead and the slope
+   angle stops meaning anything across lines, which is the only thing a slope
+   chart is read for.
+
+   Proportional change is the currency that does compare them, so the bars grow
+   from one centre line: the two directions are two sides of one axis rather
+   than two bar charts side by side, and the beats below keep the counts. */
+.wk-mv {
+  padding: 0.35rem 0.85rem 0.5rem;
+}
+
+.wk-mv-r {
+  display: grid;
+  grid-template-columns: 5.4rem minmax(0, 1fr) 2.6rem;
+  align-items: center;
+  gap: 0.4rem;
+  height: 15px;
+}
+
+.wk-mv-l {
+  font-size: 10px;
+  color: var(--ash-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The zero rule is the track's own centre, drawn as a hairline rather than as
+   a border on the bars: a rule per row would land at a different x on every
+   row the moment one label wraps. */
+.wk-mv-t {
+  position: relative;
+  height: 7px;
+}
+
+.wk-mv-t::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--line);
+}
+
+.wk-mv-b {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  background: var(--ash-dim);
+}
+
+.wk-mv-b.good { background: var(--add); }
+.wk-mv-b.bad { background: var(--del); }
+
+.wk-mv-n {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ash-dim);
+}
+
+.wk-tl {
+  position: relative;
+  padding: 0.45rem 0.85rem 0.65rem;
+}
+
+.wk-tl::before {
+  content: "";
+  position: absolute;
+  left: 1.2rem;
+  top: 0.8rem;
+  bottom: 0.9rem;
+  width: 1px;
+  background: var(--line);
+}
+
+/* --spine is set by work.js from the RUNNING beat's measured centre; the 62%
+   fallback is the fraction the deck drew and is what shows for the one frame
+   before the measurement lands. */
+.wk-tl.live::before {
+  background: linear-gradient(var(--accent) 0 var(--spine, 62%),
+                              var(--line) var(--spine, 62%) 100%);
+}
+
+.wk-beat {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.3rem 0;
+  overflow: hidden;
+}
+
+/* The mark sits ON the spine and has to occlude it, so it carries the pane's
+   own background rather than a transparent one. */
+.wk-mark {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  position: relative;
+  z-index: 1;
+  background: var(--slate);
+}
+
+.wk-mark::before {
+  content: "";
+  display: block;
+}
+
+.wk-think::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--ash-dim);
+}
+
+.wk-tool::before {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+}
+
+.wk-call::before {
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--violet);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+}
+
+.wk-phase::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+}
+
+.wk-beat.failed .wk-tool::before {
+  background: var(--warn);
+}
+
+.wk-v {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.wk-verb {
+  font-size: 11.5px;
+  color: var(--text);
+  flex: 0 0 auto;
+}
+
+.wk-target {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A thought is prose the model wrote, so it clamps rather than ellipsising on
+   one line: two lines is enough to recognise a plan, and the transcript holds
+   the whole of it. */
+.wk-thought {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wk-sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  margin-top: 1px;
+}
+
+.wk-dur {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.wk-beat.running .wk-verb,
+.wk-beat.running .wk-thought {
+  color: var(--frost);
+}
+
+.wk-beat.running .wk-dur {
+  color: var(--accent);
+}
+
+/* Running is a band crossing the row, never a pulse of the whole line: a pulse
+   animates the text you are reading, which is the argument the pipeline block
+   one file over already made for itself. */
+.wk-beat.running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+      transparent 80%);
+  background-size: 220% 100%;
+  animation: wk-glare 1.6s linear infinite;
+}
+
+@keyframes wk-glare {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wk-beat.running::after { animation: none; }
+}
+
+.wk-sec {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.8rem;
+  padding: 0 0.85rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-sec-t {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.wk-sec-n {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+}
+
+/* A write is an object here for the same reason it is one in the transcript:
+   the vault changed, and a chip cannot carry a revert. */
+.wk-write {
+  margin: 0.5rem 0.85rem 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.wk-write.failed {
+  border-style: dashed;
+  border-color: var(--warn);
+}
+
+.wk-write-h {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.wk-op {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.wk-note {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.wk-path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.45rem;
+}
+
+.wk-acts {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.wk-mini {
+  height: 1.35rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--ash);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.wk-mini:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+.wk-mini.go {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.wk-src {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.4rem 0.85rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.wk-src:hover {
+  background: var(--slate-2);
+}
+
+.wk-src-sw {
+  width: 3px;
+  height: 16px;
+  background: var(--accent);
+}
+
+.wk-src-n {
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wk-src-v {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+/* --- the Node panel: same column, the third question ------------------------
+   On explore this column stops narrating the run and states the node you
+   pointed at. It reuses the beat/source rows wholesale for the same reason the
+   Report does: a name, what it is and one number is exactly the shape those
+   rows already have, and a second row layout for the same shape is a second
+   thing to keep in step. Only three things are new here - a pill for a concept,
+   a meter for a score, and a third column on the row that carries an action. */
+.wk-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.5rem 0.85rem 0.65rem;
+}
+
+.wk-pill {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--sheet);
+  color: var(--text);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.wk-pill:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+/* Lit = this concept's notes are the ones glowing in the graph right now. One
+   at a time, and the same class the drawer's cloud uses, because both surfaces
+   drive the same lighting through lightConcept(). */
+.wk-pill.lit {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A meter is drawn only where a real number exists (the relatedness score).
+   A wikilink has no strength to draw, so those rows get no bar rather than a
+   bar at some default width, which would rank rows nobody ranked. */
+.wk-mtr {
+  width: 34px;
+  height: 3px;
+  flex: none;
+  background: var(--line);
+}
+
+.wk-mtr i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.wk-src.has-act {
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+}
+
+.wk-srct {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.wk-src-sw.warn {
+  background: var(--warn);
+}
+
+.wk-run .wk-acts {
+  margin-top: 0.5rem;
+}
+
+/* The one figure on a line of words. Without it "97 links hub statistica ·
+   variabile" is four grey strings that read as one sentence. */
+.wk-num.strong {
+  color: var(--frost);
+}
+
+/* What the note SAYS, which this column took over from the drawer. Two lines
+   per snippet and no more: it is the extract that decides whether to spend the
+   second click, not a second reader. The server already withholds snippets for
+   a note under 700 characters, so a note short enough to read whole never gets
+   an extract of itself here. */
+.wk-snip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-snip-h {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.wk-snip-t {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* The tail of a section past its fifth row. <details> because the browser owns
+   this toggle already: no open/closed state in JS, and it survives a re-render
+   by simply not existing across one. */
+.wk-more summary {
+  padding: 0.35rem 0.85rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.wk-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.wk-more summary:hover {
+  color: var(--frost);
+}
+
+.wk-more summary:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Why a section came back thin, printed under the sections it explains. Muted
+   because it is never the answer, only the reason the answer is short. */
+.wk-hint {
+  padding: 0.55rem 0.85rem;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ash-dim);
+}
+
+#work-toggle[aria-pressed="true"] {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+/* --- the Report panel: same column, different question ---------------------
+   On the metrics view the third column stops narrating the run and states the
+   report. It reuses the beat row wholesale — a signal, its value, what it was
+   and by how much it moved lands in exactly the four slots a beat already has,
+   and a second row layout for the same shape would be a second thing to keep
+   in step. */
+.wk-write-h .wk-num {
+  margin-left: auto;
+}
+
+/* The write card's third state. `write` is amber because it HAS changed the
+   vault; `suggested` is accent because it is an offer, and accent is the one
+   interactive colour. */
+.wk-write.suggested {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+}
+
+.wk-write.suggested .wk-op {
+  color: var(--accent);
+}
+
+/* A delta is only good or bad where the direction means something: notes and
+   areas are in neither class, because a vault that grew has more of both. */
+.wk-dur.good {
+  color: var(--add);
+}
+
+.wk-dur.bad {
+  color: var(--del);
+}
+
+/* --- the 1120 floor: the deck folds, it does not reflow --------------------
+   Below the width that holds rail + reading measure + work panel side by side,
+   the rail becomes five icons and the work panel becomes an overlay over the
+   transcript. Neither is removed: a fold that takes a surface away and leaves
+   nothing where it was is not a fold, it is a deletion the user cannot undo.
+
+   The threshold lives HERE and nowhere else. app.js reads --narrow back out
+   through isNarrow() and work.js asks app.js, so the pixel count exists once:
+   264 (rail) + 560 (the reading measure the prose needs) + 372 (--work-w).
+
+   1195 and not the 1120 the header keys on: this is exactly the width where the
+   old affordable() took the panel away, so the fold replaces the disappearance
+   at the same pixel and nothing else about the app moves. The header's 1120 is
+   a different measurement of a different row (whether the strip can hold the
+   counts), and collapsing the two would change one of them for no reason. */
+@media (max-width: 1195px) {
+  body {
+    --narrow: 1;
+  }
+
+  /* Summoned, not gone. #railmini keeps the five entry points; this is the
+     compartment they open, over the transcript rather than beside it. */
+  #sidebar {
+    position: fixed;
+    top: var(--header-h, 3rem);
+    left: 52px;
+    bottom: 0;
+    width: var(--side-w);
+    z-index: 45;
+    display: none;
+    /* Opaque for the same reason the folded panel is: summoned, it stands over
+       the transcript, and a file tree read through a message is neither. */
+    background: var(--slate, var(--chrome-glass));
+    box-shadow: 18px 0 40px -22px rgba(0, 0, 0, 0.9);
+  }
+
+  body.rail-open #sidebar {
+    display: flex;
+  }
+
+  /* The work panel over the transcript, at the same width it has as a column:
+     what it shows is a 372px-wide reading, and re-flowing it narrower here
+     would make the fold a different panel instead of the same one moved. */
+  body.work-fold #work {
+    position: fixed;
+    top: var(--header-h, 3rem);
+    right: 0;
+    bottom: 0;
+    width: var(--work-w);
+    z-index: 45;
+    /* Opaque, unlike the panel's translucent chrome as a column: a column has
+       the app's own wash behind it, an overlay has the transcript, and reading
+       a beat stream through the message it narrates is reading neither. */
+    background: var(--slate, var(--chrome-glass));
+    box-shadow: -18px 0 40px -22px rgba(0, 0, 0, 0.9);
+  }
+
+  /* The same inset the note drawer takes, for the same reason it had to: an
+     overlay against the right edge hid the tail of every transcript line and
+     #send with it. The deck draws the panel over the transcript; the app has
+     already paid for that once. Below ~930px the reserved measure goes under
+     560 and the fold stops being enough on its own -- that is the width where
+     the deck's own floor says the shell needs a different answer. */
+  body.work-fold #view-chat,
+  body.work-fold #view-metrics {
+    padding-right: var(--work-w);
+  }
+
+  /* The drawer wins over the panel (body.note-open #work is display:none), so
+     when both would claim the edge only the drawer's inset applies. */
+  body.work-fold.note-open #view-chat,
+  body.work-fold.note-open #view-metrics {
+    padding-right: var(--note-w, 630px);
+  }
+
+  body.work-fold #work-close {
+    display: flex;
+  }
+}
+
+#railmini {
+  flex: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--line-2);
+  background: var(--chrome-glass);
+}
+
+#railmini[hidden] {
+  display: none;
+}
+
+.rm {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--ash-dim);
+  cursor: pointer;
+  position: relative;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.rm:hover {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+.rm.on {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+/* This session has no room for its count at 34px, and the count is not the
+   reading anyway: what you need from an icon is that there IS something in it. */
+.rm[data-sec="side-changes"]::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--warn);
+}
+
+/* Closing the panel from inside it is a fold-only affordance: as a column it is
+   closed from the header toggle, which is in view. */
+#work-close {
+  display: none;
+  padding: 0 0.3rem;
+}
+
+/* --- the Structure block: where a note SITS --------------------------------
+   Same 3px swatch grammar as a source row, and deliberately NOT a button: a
+   reading has nowhere to walk to. The second line is the sentence the number
+   means, because "core 3" and "surprise +11" are jargon on their own and this
+   panel is the only surface that states them. */
+.wk-str {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.4rem 0.85rem;
+}
+
+.wk-str-sw {
+  width: 3px;
+  /* Taller than a source row's 16px: this row is two lines, and a swatch that
+     stopped at the first would read as marking only the number. */
+  height: 100%;
+  min-height: 28px;
+  background: var(--ash-dim);
+}
+
+/* Only the cut vertex is a warning. Dissonance failed its judge gate, so it
+   keeps the neutral swatch: an amber bar is an accusation. */
+.wk-str.warn .wk-str-sw {
+  background: var(--warn);
+}
+
+.wk-str-n {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.wk-str.warn .wk-str-n {
+  color: var(--warn);
+}
+
+.wk-str-w {
+  margin-top: 0.15rem;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ash-dim);
+}
+
+/* --- path: the reading order around one note -------------------------------
+   The only directed surface. Rungs stack downward because that is the reading
+   direction, and the wires are drawn from the chips' measured boxes rather
+   than laid out in SVG: chip width is text width, which only the browser
+   knows. Centred on the same 1180px measure as the other pane surfaces. */
+/* Only the surface that keeps the note search reserves room for it. Set from
+   setGraphMode rather than from a :has() on the pane, because what decides it
+   is the MODE and not what happens to be in the DOM. */
+#shape-pane.with-bar {
+  padding-top: 6.4rem;
+}
+
+.pl-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.pl-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.pl-h-t {
+  font-family: var(--sans);
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+
+.pl-empty,
+.pl-foot {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash-dim);
+  max-width: 62ch;
+}
+
+.pl-foot {
+  margin-top: 0.9rem;
+}
+
+.pl-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.4rem;
+}
+
+.pl-pick {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  background: var(--bubble);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.pl-pick:hover {
+  border-color: var(--accent);
+}
+
+.pl-pick-n {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pl-pick-d {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.pl {
+  position: relative;
+}
+
+/* Under the chips, never over them: a wire crossing a name would make the name
+   the thing you cannot read on a surface whose whole content is names. */
+.pl-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pl-wire {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.2;
+}
+
+.pl-rung {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+  padding: 0.85rem 0;
+}
+
+.pl-lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  padding-top: 0.35rem;
+  text-align: right;
+}
+
+.pl-rung.here .pl-lbl {
+  color: var(--accent);
+}
+
+.pl-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pl-n {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  /* Opaque, because the wires pass underneath and a translucent chip would let
+     one through the middle of a word. */
+  background: var(--page);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.pl-n:hover {
+  border-color: var(--accent);
+}
+
+.pl-n.root {
+  border-color: var(--accent);
+  background: var(--slate-2);
+}
+
+/* A note RefD placed in a cycle: its rung is a guess, so it says so rather than
+   sitting on the ladder as if the order were settled. */
+.pl-n.cyc {
+  border-style: dashed;
+}
+
+.pl-re {
+  border: 0;
+  background: transparent;
+  color: var(--ash-dim);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 0.1rem;
+  cursor: pointer;
+}
+
+.pl-re:hover {
+  color: var(--accent);
+}
+
+/* --- the burst strip: what this fortnight of writing was about --------------
+   Above the days, because it frames them. Pills reuse .wk-pill wholesale: the
+   verb is identical to the note drawer's concept cloud (light its notes in the
+   graph), and a second pill that behaved the same and looked different would
+   be a second thing to keep in step. */
+.cal-burst {
+  padding: 0 0 0.7rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.7rem;
+}
+
+.cal-burst-p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0 0.85rem;
 }

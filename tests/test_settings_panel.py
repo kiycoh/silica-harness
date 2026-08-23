@@ -29,7 +29,6 @@ def env_file(tmp_path, monkeypatch):
 def client(tmp_vault, tmp_path, monkeypatch):
     from silica.ui.web import server
 
-    monkeypatch.setattr(server, "SESSIONS_DIR", tmp_path / "web_sessions")
     monkeypatch.setattr(server, "_busy", False)
     return TestClient(server.app), server
 

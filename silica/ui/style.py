@@ -55,7 +55,12 @@ class FlatMarkdown(Markdown):
         from markdown_it import MarkdownIt
 
         super().__init__(markup, **kwargs)
-        parser = MarkdownIt().enable("strikethrough").enable("table").enable("linkify")
+        parser = (
+            MarkdownIt("gfm-like")
+            .enable("strikethrough")
+            .enable("table")
+            .enable("linkify")
+        )
         parser.options["linkify"] = True
         # fuzzy_link off or `nota.md` in prose resolves to the Moldovan ccTLD and
         # renders as a link to http://nota.md; fuzzy_email off keeps the scope at

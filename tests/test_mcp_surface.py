@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from silica.onboarding.setup_client import skill_path
 from silica.ui.mcp import CORE_TOOLS, exposed_tools
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -83,7 +84,7 @@ def test_all_surface_matches_agent_loop_filter():
 def test_skill_references_only_core_tools():
     # The Claude skill teaches the default MCP surface — a tool name in the
     # skill that isn't in CORE_TOOLS is drift (renamed, or never exposed).
-    skill = (ROOT / "skills" / "silica" / "SKILL.md").read_text(encoding="utf-8")
+    skill = skill_path().read_text(encoding="utf-8")
     referenced = set(re.findall(r"silica_\w+", skill))
     unknown = referenced - set(CORE_TOOLS)
     assert not unknown, f"SKILL.md references tools outside the MCP core surface: {unknown}"
@@ -91,12 +92,23 @@ def test_skill_references_only_core_tools():
 
 def test_plugin_manifest_launches_silica_mcp():
     plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    args = plugin["mcpServers"]["silica"]["args"]
-    assert args[-2:] == ["silica", "mcp"]
+    servers = json.loads((ROOT / plugin["mcpServers"]).read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["silica"]["args"][-2:] == ["silica", "mcp"]
     marketplace = json.loads(
         (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
     )
     assert marketplace["plugins"][0]["name"] == plugin["name"]
+
+
+def test_server_instructions_teach_the_loop_to_clients_without_skills():
+    # Codex and DSH read the skill from ~/.agents/skills; a client with no
+    # skill surface at all (opencode) only ever sees what the server says of
+    # itself, and that text must not name a tool the default surface hides.
+    from silica.ui.mcp import make_server
+    text = make_server().instructions or ""
+    for tool in ("silica_recall", "silica_write_note", "silica_patch_note"):
+        assert tool in text
+    assert not set(re.findall(r"silica_\w+", text)) - set(CORE_TOOLS)
 
 
 def test_one_sigint_stops_the_server():

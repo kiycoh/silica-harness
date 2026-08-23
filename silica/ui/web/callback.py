@@ -50,6 +50,35 @@ _TOOL_EFFECT: dict[str, str] = {
 _NOTE_KEYS = ("name", "path", "note", "note_path", "ref")
 
 
+# What the expandable tool card carries. A read of a long note returns the whole
+# note, and the transcript would grow a second copy of the vault; the drawer is
+# one click away and holds the real thing, so the card only has to show enough to
+# recognise WHICH result this was. The number is a character count and not a line
+# count on purpose: one minified JSON line and forty lines of frontmatter cost
+# the reader the same attention and must cost the frame the same bytes.
+_CARD_CHARS = 1200
+
+
+def _card_text(value: Any) -> dict | None:
+    """One side of a tool card: the text, and whether it was cut.
+
+    Cut is reported rather than elided into the string, because "…" at the end of
+    a result is indistinguishable from a result that genuinely ends in an
+    ellipsis, and the card has to be able to say which happened.
+    """
+    if value is None:
+        return None
+    # An argument-less call would otherwise open onto the two characters "{}",
+    # which is a disclosure that costs a click to say nothing.
+    if isinstance(value, (dict, list)) and not value:
+        return None
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    text = text.strip()
+    if not text:
+        return None
+    return {"text": text[:_CARD_CHARS], "cut": max(0, len(text) - _CARD_CHARS)}
+
+
 def _note_refs(args: dict) -> list[str]:
     refs = [args[k].strip() for k in _NOTE_KEYS
             if isinstance(args.get(k), str) and args[k].strip()]
@@ -123,11 +152,24 @@ def event_to_json(ev) -> dict | None:
                "target": _tool_target(ev.name, ev.args),
                "effect": _TOOL_EFFECT.get(ev.name, "read"),
                "notes": notes}
+        # The call's own arguments are the IN half of the expandable card: the
+        # one-word target the row prints answers "which note", never "asking
+        # what of it", and a recall whose query the reader cannot see is a step
+        # they have to take on trust.
+        if (card := _card_text(ev.args)):
+            out["input"] = card
         if ev.name == "silica_run_injector":
             out["pipeline"] = _PHASE_TRACKS
         return out
     if isinstance(ev, ToolCompleteEvent):
         out = {"type": "tool_done", "name": _tool_verb(ev.name), "id": ev.call_id}  # noqa: F841 (same shape)
+        # Measured by the loop around the actual call, not by a client timer
+        # started when the event was painted: an SSE frame can land a frame late
+        # and a browser tab in the background stops scheduling altogether, so a
+        # client clock reports the transport's latency as the tool's cost.
+        out["ms"] = round(ev.duration_s * 1000)
+        if (card := _card_text(ev.result)):
+            out["output"] = card
         if ev.name == "silica_run_injector":
             out["summary"] = _injector_summary(ev.result)
         return out
