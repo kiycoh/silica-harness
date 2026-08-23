@@ -354,6 +354,64 @@ def to_markdown(r: VaultReport, title: str = "Silica Vault Report") -> str:
         else:
             add("")
 
+    # Seven inter-note variables (spec 2026-08-22-graph-variables-design).
+    # Each section appears only when the signal fired, like the proposed
+    # sections above it: an empty heading would read as "measured, clean".
+    if r.load_bearing:
+        add("\n## Load-Bearing Notes _(cut vertices first, then high betweenness at low degree)_")
+        add("| Note | Links | Between | Core | Cut vertex | Surprise |")
+        add("|---|---|---|---|---|---|")
+        for lb in r.load_bearing:
+            add(f"| [[{_short(lb.path)}]] | {lb.degree} | {lb.betweenness} | {lb.coreness} | "
+                f"{'yes' if lb.articulation else ''} | {lb.surprise} |")
+
+    if r.structural_links:
+        add("\n## Predicted Links _(Adamic-Adar over shared neighbours — not authoritative)_")
+        add("| Source | Target | Score | Via | Shared concepts |")
+        add("|---|---|---|---|---|")
+        for sl in r.structural_links:
+            via = ", ".join(_short(c) for c in sl.common[:3])
+            add(f"| [[{_short(sl.source)}]] | [[{_short(sl.target)}]] | {sl.score} | {via} | "
+                f"{', '.join(sl.shared) if sl.shared else '—'} |")
+
+    if r.coupled_pairs:
+        add("\n## Coupled Notes _(share sources or were written together, unlinked — not authoritative)_")
+        add("| Source | Target | Coupling | Shared concepts |")
+        add("|---|---|---|---|")
+        for cp in r.coupled_pairs:
+            add(f"| [[{_short(cp.source)}]] | [[{_short(cp.target)}]] | {cp.score} | "
+                f"{', '.join(cp.shared) if cp.shared else '—'} |")
+
+    if r.prerequisites:
+        add("\n## Prerequisite Chains _(RefD: read the first before the second — not authoritative)_")
+        add("| Read first | Then | RefD |")
+        add("|---|---|---|")
+        for pe in r.prerequisites[:_MEMBERS_CAP]:
+            add(f"| [[{_short(pe.prereq)}]] | [[{_short(pe.dependent)}]] | {pe.refd} |")
+        if len(r.prerequisites) > _MEMBERS_CAP:
+            add(f"_… (+{len(r.prerequisites) - _MEMBERS_CAP} more in GRAPH_REPORT.json)_")
+
+    if r.misfiled:
+        add("\n## Misfiled Notes _(linked into one area, read like another — not authoritative)_")
+        add("| Note | Links | Dissonance |")
+        add("|---|---|---|")
+        for mf in r.misfiled:
+            add(f"| [[{_short(mf.path)}]] | {mf.degree} | {mf.dissonance} |")
+
+    if r.bursting_concepts:
+        add("\n## Bursting Concepts _(over-represented in the latest writing window)_")
+        add("| Concept | z | Recent notes | All notes |")
+        add("|---|---|---|---|")
+        for bc in r.bursting_concepts:
+            add(f"| {bc.concept} | {bc.z} | {bc.recent} | {bc.total} |")
+
+    if r.sprawling:
+        add("\n## Sprawling Notes _(broad and flat concept spread — split candidates)_")
+        add("| Note | Concepts | Entropy (bits) | Flatness |")
+        add("|---|---|---|---|")
+        for sp in r.sprawling:
+            add(f"| [[{_short(sp.path)}]] | {sp.concepts} | {sp.entropy} | {sp.flatness} |")
+
     if r.attention_candidates:
         add("\n## Attention Candidates _(recall misses × idle × weakly-linked, not authoritative)_")
         add("| Note | Idle (days) | Links | Wrong/Asked | Score |")
@@ -445,6 +503,19 @@ def to_digest(report: VaultReport, *, max_items: int = 8) -> str:
         lambda m: f"{_short(m.source)}→{_short(m.target)}(cos={m.cosine},d={m.d_prev})")
     row("DUPS", report.confirmed_duplicate_pairs, pair)
     row("RELATED", report.duplicate_pairs, pair)
+    row("LOAD-BEARING", report.load_bearing,
+        lambda lb: f"{_short(lb.path)}(deg={lb.degree},core={lb.coreness}"
+                   + (",cut" if lb.articulation else "") + ")")
+    row("PREDICTED", report.structural_links,
+        lambda sl: f"{_short(sl.source)}↔{_short(sl.target)}(aa={sl.score})")
+    row("COUPLED", report.coupled_pairs,
+        lambda cp: f"{_short(cp.source)}↔{_short(cp.target)}(w={cp.score})")
+    row("PREREQ", report.prerequisites,
+        lambda pe: f"{_short(pe.prereq)}→{_short(pe.dependent)}({pe.refd})")
+    row("MISFILED", report.misfiled, lambda mf: f"{_short(mf.path)}(d={mf.dissonance})")
+    row("BURSTING", report.bursting_concepts, lambda bc: f"{bc.concept}(z={bc.z})")
+    row("SPRAWLING", report.sprawling,
+        lambda sp: f"{_short(sp.path)}(concepts={sp.concepts},H={sp.entropy})")
 
     return "\n".join(lines)
 

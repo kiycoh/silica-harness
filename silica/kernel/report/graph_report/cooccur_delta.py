@@ -15,6 +15,9 @@ from typing import Any
 
 from silica.kernel.report.graph_report.models import (
     AutolinkCandidate,
+    BurstingConcept,
+    PrerequisiteEdge,
+    SprawlingNote,
     IntegrationDeficit,
     MissingHub,
     StaleLink,
@@ -255,3 +258,87 @@ def _compute_cooccur_delta(
     hubs = hubs[:k]
 
     return autolinks, stale, hubs, deficits
+
+
+# RefD related-set depth: the paper's related concepts are the top neighbours
+# by similarity; 30 is the facade pool size (_POOL_MIN) so a prerequisite
+# reads the same neighbourhood /related shows.
+_REFD_RELATED_K = 30
+_REFD_THETA = 0.1
+# Fewer related notes than this and the note's side abstains; see
+# signals.refd_edges for the measured failure this guards.
+_REFD_MIN_RELATED = 5
+
+
+def _compute_cooccur_variables(
+    report: VaultReport,
+    G_und: Any,
+    G_dir: Any,
+    *,
+    cooccur_store: Any | None = None,
+    created: dict[str, float] | None = None,
+    k: int = 10,
+) -> tuple[list[PrerequisiteEdge], dict[str, list[str]], list[SprawlingNote], list[BurstingConcept]]:
+    """Store-derived variables (V2, V6, V7) and the shared-concept evidence for
+    the structural (V1) and coupled (V3) pairs already on the report.
+
+    Same contract as `_compute_cooccur_delta`: injectable store, empty results
+    when the index is empty, never raises. `created` is {graph id: creation
+    timestamp} from the analytics body scan; None skips the burst.
+    """
+    from silica.kernel.recall.cooccurrence import cooccur_key, get_cooccur_store
+    from silica.kernel.recall.relatedness import _cooccur_ranking
+    from silica.kernel.recall.signals import burst, refd_edges, sprawling
+
+    try:
+        store = cooccur_store if cooccur_store is not None else get_cooccur_store()
+    except Exception as exc:
+        logger.debug("graph_report: co-occurrence index unavailable (%s)", exc)
+        return [], {}, [], []
+    if len(store) == 0:
+        return [], {}, [], []
+
+    scope = report.scope or None
+    gid_by_key = {cooccur_key(n): n for n in G_und.nodes}
+    in_graph = [p for p in store.paths() if p in gid_by_key]
+
+    def _shared(a_gid: str, b_gid: str) -> list[str]:
+        na, nb = store.note_nodes(cooccur_key(a_gid)), store.note_nodes(cooccur_key(b_gid))
+        return sorted(store.node_label(s) for s in (set(na) & set(nb)))[:5]
+
+    for row in list(report.structural_links) + list(report.coupled_pairs):
+        row.shared = _shared(row.source, row.target)
+
+    # --- V2 prerequisites: RefD over (directed wikilinks, cooccur related sets)
+    links: dict[str, set[str]] = {}
+    for u, v in G_dir.edges():
+        links.setdefault(cooccur_key(u), set()).add(cooccur_key(v))
+    related: dict[str, list[tuple[str, float]]] = {}
+    for p in in_graph:
+        ranking = _cooccur_ranking(
+            store, p, k=_REFD_RELATED_K, exclude={p}, scope=scope, expand=False,
+        )
+        if ranking:
+            related[p] = [(q, float(w)) for q, w in ranking if q in gid_by_key]
+    prereqs = [
+        PrerequisiteEdge(prereq=a, dependent=b, refd=round(r, 4))
+        for a, b, r in refd_edges(links, related, theta=_REFD_THETA, min_related=_REFD_MIN_RELATED)
+    ]
+    prereq_map: dict[str, list[str]] = {}
+    for e in prereqs:
+        prereq_map.setdefault(e.dependent, []).append(e.prereq)
+
+    # --- V7 sprawling and V6 bursting, both over the store's note -> stems map
+    stems = {p: dict(store.note_nodes(p)) for p in in_graph}
+    sprawl = [
+        SprawlingNote(path=p, concepts=n, entropy=h, flatness=f)
+        for p, n, h, f in sprawling(stems)
+    ][:k]
+    bursting: list[BurstingConcept] = []
+    if created:
+        created_keys = {cooccur_key(g): ts for g, ts in created.items() if ts is not None}
+        bursting = [
+            BurstingConcept(concept=store.node_label(s), z=z, recent=nr, total=na)
+            for s, z, nr, na in burst(created_keys, stems)
+        ][:k]
+    return prereqs[:max(k, 50)], prereq_map, sprawl, bursting

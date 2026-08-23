@@ -14,8 +14,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from silica.kernel.report.graph_report.cooccur_delta import _compute_cooccur_delta
+from silica.kernel.report.graph_report.cooccur_delta import (
+    _compute_cooccur_delta,
+    _compute_cooccur_variables,
+)
 from silica.kernel.report.graph_report.embed_signals import (
+    _compute_dissonance,
     _compute_duplicate_pairs,
     _compute_missing_links,
 )
@@ -24,9 +28,12 @@ from silica.kernel.report.graph_report.models import (
     BridgeStat,
     ClusterStat,
     ContestedNote,
+    CoupledPair,
+    LoadBearingNote,
     NodeStat,
     SourceDrift,
     StructuralGap,
+    StructuralLink,
     TemporalStat,
     VaultReport,
 )
@@ -94,6 +101,26 @@ def _index_stores_sig(with_embeddings: bool, with_cooccurrence: bool,
     return tuple(sig)
 
 
+def _note_mtimes(real_ids: set[str], override: dict[str, float] | None) -> dict[str, float]:
+    """{node id: mtime} via the driver, or the injected override (tests)."""
+    if override is not None:
+        return dict(override)
+    mtimes: dict[str, float] = {}
+    from silica.driver import DRIVER
+
+    mtime_of = getattr(DRIVER, "mtime_of", None)
+    if mtime_of is None:
+        return mtimes
+    for nid in real_ids:
+        try:
+            ts = mtime_of(nid)
+        except Exception:
+            ts = None
+        if ts is not None:
+            mtimes[nid] = ts
+    return mtimes
+
+
 def compute_report(
     folder: str = "",
     *,
@@ -105,6 +132,8 @@ def compute_report(
     _cooccur_store_override: Any | None = None,
     _mtimes_override: dict[str, float] | None = None,
     _quiz_override: dict[str, dict] | None = None,
+    _transactions_override: list[set[str]] | None = None,
+    _dissonance_knn_k: int = 6,
 ) -> VaultReport:
     """Build a VaultReport from the driver's wikilink graph.
 
@@ -137,7 +166,7 @@ def compute_report(
     # (analytics only — nothing else reads it). Every other analytics input,
     # the contested/temporal scan included, is note text the epoch hashes.
     overrides = (_nodes_edges_override, _cooccur_store_override,
-                 _mtimes_override, _quiz_override)
+                 _mtimes_override, _quiz_override, _transactions_override)
     memo_key = None
     if all(o is None for o in overrides):
         from silica.kernel.recall.paths import vault_epoch
@@ -147,7 +176,7 @@ def compute_report(
                         _index_stores_sig(with_embeddings, with_cooccurrence,
                                           analytics),
                         folder, top_k, analytics, with_embeddings,
-                        with_cooccurrence)
+                        with_cooccurrence, _dissonance_knn_k)
             if (hit := _report_memo.get(memo_key)) is not None:
                 return hit
             # Miss: sweep entries from other epochs. A concurrent slow pass
@@ -187,17 +216,26 @@ def compute_report(
     # the /graph,/report path. Nucleate never reads it, so the structural core skips
     # the per-note read entirely.
     lean_notes: list[str] = []
+    lean_chars: dict[str, int] = {}
     reformat_notes: list[str] = []
     contested: list[ContestedNote] = []
     # Bi-temporal counters ride this same loop: reliability tiers, `## Superseded`
     # graveyards, `superseded_by` pointers and claim stamps are all note text the
     # scan is already holding, so reading the temporal layer costs no extra I/O.
     temporal: TemporalStat | None = None
+    # Read once, before the body scan: the attention ranking needs mtimes, and
+    # the burst (V6) needs creation dates that fall back to the same mtime.
+    mtimes: dict[str, float] = _note_mtimes(real_ids, _mtimes_override) if analytics else {}
+    # Frontmatter `sources:` per note (V3 transactions) and creation timestamp
+    # per note (V6 window), both harvested from the scan already holding the text.
+    sources_of: dict[str, list[str]] = {}
+    created_ts: dict[str, float] = {}
     if analytics:
         try:
             from silica.kernel.write import contested as contested_kernel
             from silica.kernel.link import ofm
             from silica.kernel.write import frontmatter
+            from silica.kernel.report.learner import _created_and_ai
             from silica.driver import DRIVER
 
             tiers: Counter = Counter()
@@ -216,6 +254,14 @@ def compute_report(
                         )
 
                     scanned += 1
+                    if data:
+                        srcs = data.get("sources")
+                        if isinstance(srcs, list):
+                            sources_of[nid] = [str(x) for x in srcs if isinstance(x, (str, int))]
+                    mt = mtimes.get(nid)
+                    ts_created, _ai = _created_and_ai(nc.content, mt if mt is not None else 0.0)
+                    if mt is not None or ts_created != 0.0:
+                        created_ts[nid] = ts_created
                     tiers[contested_kernel.reliability_tier(nc.content)] += 1
                     if contested_kernel.SUPERSEDED_HEADING in body:
                         superseded_sections += 1
@@ -226,10 +272,16 @@ def compute_report(
                         stamped += 1
                     valid_froms.extend(s["valid_from"] for s in stamps if s.get("valid_from"))
 
-                    is_empty = len(body.strip()) == 0
+                    body_chars = len(body.strip())
+                    is_empty = body_chars == 0
                     is_lean = ofm.is_lean(body)
                     if is_empty or is_lean:
                         lean_notes.append(nid)
+                        # The same figure is_lean compared against its limit,
+                        # kept rather than recomputed: a second read of the note
+                        # would be I/O for a number this loop is already holding,
+                        # and a second measurement is a second thing to disagree.
+                        lean_chars[nid] = body_chars
                     elif data is None or frontmatter.lint_tags(data):
                         reformat_notes.append(nid)
                 except Exception as exc:
@@ -321,20 +373,6 @@ def compute_report(
             except Exception as exc:  # a broken log must not sink the report
                 logger.warning("graph_report: quiz log unreadable (%s)", exc)
                 quiz_stats = {}
-        mtimes = _mtimes_override
-        if mtimes is None:
-            mtimes = {}
-            from silica.driver import DRIVER
-
-            mtime_of = getattr(DRIVER, "mtime_of", None)
-            if mtime_of is not None:
-                for nid in real_ids:
-                    try:
-                        ts = mtime_of(nid)
-                    except Exception:
-                        ts = None
-                    if ts is not None:
-                        mtimes[nid] = ts
         if mtimes or quiz_stats:
             from silica.kernel.report.quiz import key as _quiz_key
 
@@ -409,6 +447,86 @@ def compute_report(
         bridges = bridges[:top_k]
 
     # ------------------------------------------------------------------
+    # Load-bearing notes (V4). Coreness and cut vertices cost O(V+E), so the
+    # structural core carries them (nucleate's hub choice can read coreness);
+    # surprise needs betweenness and the ranked rows are analytics-only.
+    # ------------------------------------------------------------------
+    from silica.kernel.recall import signals as _signals
+
+    core_map: dict[str, int] = {}
+    articulation_set: set[str] = set()
+    surprise: dict[str, float] = {}
+    try:
+        core_map, articulation_set, surprise = _signals.load_bearing(
+            G_und, betweenness=bet, degree=deg,
+        )
+    except Exception as exc:
+        logger.warning("graph_report: load-bearing signals failed — %s", exc)
+    load_bearing: list[LoadBearingNote] = []
+    structural_links: list[StructuralLink] = []
+    coupled_pairs: list[CoupledPair] = []
+    coupling_map: dict[str, dict[str, float]] = {}
+    if analytics:
+        ranked_lb = sorted(
+            (n for n in real_ids if deg.get(n, 0) > 0),
+            key=lambda n: (n not in articulation_set, -surprise.get(n, 0.0), n),
+        )
+        load_bearing = [
+            LoadBearingNote(
+                path=n, degree=deg.get(n, 0), betweenness=round(bet.get(n, 0.0), 4),
+                coreness=core_map.get(n, 0), articulation=n in articulation_set,
+                surprise=surprise.get(n, 0.0),
+            )
+            for n in ranked_lb[:top_k]
+        ]
+        # V1: unlinked pairs that share neighbours, Adamic-Adar. Disjoint from
+        # AUTOLINK by construction (that list keeps only pairs >2 hops apart).
+        try:
+            structural_links = [
+                StructuralLink(source=u, target=v, score=round(sc, 4), common=cm)
+                for u, v, sc, cm in _signals.structural_links(G_und, top_k=top_k)
+            ]
+        except Exception as exc:
+            logger.warning("graph_report: structural links failed — %s", exc)
+        # V3: transactions = frontmatter `sources:` (one per cited source) plus
+        # the notes each run wrote together (manifest, scoped to this vault).
+        try:
+            from silica.kernel.recall.cooccurrence import cooccur_key as _ck
+
+            if _transactions_override is not None:
+                transactions = [set(t) for t in _transactions_override]
+                dropped_runs = 0
+            else:
+                from silica.config import CONFIG as _CFG
+                from silica.kernel.report.cowrite import coupling_transactions
+
+                # One assembly, shared with the graph viewer's COUPLED layer:
+                # two copies of "what counts as written together" would drift
+                # the moment either learned about a third kind of transaction.
+                transactions, dropped_runs = coupling_transactions(
+                    str(getattr(_CFG, "vault_path", "") or ""), sources_of, set(real_ids),
+                )
+            adj, dropped_big = _signals.coupling_adjacency(transactions, report_dropped=True)
+            if dropped_runs or dropped_big:
+                logger.info("graph_report: coupling dropped %d over-cap transaction(s)",
+                            dropped_runs + dropped_big)
+            coupling_map = {
+                _ck(a): {_ck(b): round(w, 4) for b, w in row.items()} for a, row in adj.items()
+            }
+            seen_cp: set[tuple[str, str]] = set()
+            for a, row in adj.items():
+                for b, w in row.items():
+                    key = (min(a, b), max(a, b))
+                    if key in seen_cp or G_und.has_edge(a, b) or a not in real_ids or b not in real_ids:
+                        continue
+                    seen_cp.add(key)
+                    coupled_pairs.append(CoupledPair(source=key[0], target=key[1], score=round(w, 4)))
+            coupled_pairs.sort(key=lambda c: (-c.score, c.source, c.target))
+            coupled_pairs = coupled_pairs[:top_k]
+        except Exception as exc:
+            logger.warning("graph_report: coupling failed — %s", exc)
+
+    # ------------------------------------------------------------------
     # Clusters
     # ------------------------------------------------------------------
     cluster_members: dict[int, list[str]] = {}
@@ -420,11 +538,22 @@ def compute_report(
     # Cohesion (intra-cluster edges / possible pairs) — analytics-only. One O(E)
     # pass tallies intra-edges per cluster; the per-cluster scan was O(C x E).
     intra_edges: dict[int, int] = {}
+    # The off-diagonal of the same tally, in the same pass. Walking G_und twice
+    # to get the other half of one contingency table is O(E) spent to keep two
+    # loops in step, and they would drift the first time one of them learns to
+    # skip an edge kind. Keyed on the ordered pair because a coupling is
+    # symmetric and (a,b) and (b,a) counted apart would halve every cell.
+    inter_pairs: dict[tuple[int, int], int] = {}
     if analytics:
         for u, v in G_und.edges():
-            cu = cluster_map.get(u, -1)
-            if cu >= 0 and cu == cluster_map.get(v, -1):
+            cu, cv = cluster_map.get(u, -1), cluster_map.get(v, -1)
+            if cu < 0 or cv < 0:
+                continue
+            if cu == cv:
                 intra_edges[cu] = intra_edges.get(cu, 0) + 1
+            else:
+                key = (cu, cv) if cu < cv else (cv, cu)
+                inter_pairs[key] = inter_pairs.get(key, 0) + 1
 
     clusters: list[ClusterStat] = []
     for cid, members in sorted(cluster_members.items()):
@@ -444,6 +573,8 @@ def compute_report(
 
     # Structural gaps + discourse shape — analytics-only, mirror of the bridge
     # signal (areas that SHOULD connect but don't) plus a one-word topology read.
+    sizes_by_cluster = {c.cluster_id: c.size for c in clusters}
+
     structural_gaps_list: list[StructuralGap] = []
     discourse_state = ""
     if analytics:
@@ -490,8 +621,23 @@ def compute_report(
         if e.get("type") == "AMBIGUOUS"
     )
 
+    # Who asks for each missing target. "Referenced from" is what decides
+    # whether a target is worth writing: three notes asking for it is a gap in
+    # the vault, one is probably a typo. The list is bounded by the number of
+    # AMBIGUOUS edges, which is the same thing already counted above.
+    ghost_sources: dict[str, list[str]] = {}
+    for e in edges:
+        if e.get("type") != "AMBIGUOUS":
+            continue
+        target = e.get("to", "").removeprefix("__unresolved__")
+        src = e.get("from", "")
+        seen = ghost_sources.setdefault(target, [])
+        if src and src not in seen:
+            seen.append(src)
+
     dangling: list[dict] = sorted(
-        [{"target": t, "refs": c} for t, c in ghost_refs.items()],
+        [{"target": t, "refs": c, "sources": ghost_sources.get(t, [])}
+         for t, c in ghost_refs.items()],
         key=lambda d: (-d["refs"], d["target"]),
     )
 
@@ -516,17 +662,37 @@ def compute_report(
         degree_map={nid: deg.get(nid, 0) for nid in real_ids},
         attention_candidates=attention,
         lean_notes=lean_notes,
+        lean_chars=lean_chars,
         reformat_notes=reformat_notes,
         contested=contested,
         source_drift=source_drift,
         structural_gaps=structural_gaps_list,
+        # Multi-note areas only, the same cut the coupling matrix and the app's
+        # own "areas" count already make: a singleton is a row and a column of
+        # zeroes with a perfect diagonal, and on a real vault there are more of
+        # them than there are areas that carry it.
+        inter_cluster={
+            f"{a}|{b}": n
+            for (a, b), n in ({(c, c): intra_edges.get(c, 0) for c in intra_edges}
+                              | inter_pairs).items()
+            if sizes_by_cluster.get(a, 0) > 1 and sizes_by_cluster.get(b, 0) > 1
+        },
         discourse_state=discourse_state,
         temporal=temporal,
+        structural_links=structural_links,
+        coupled_pairs=coupled_pairs,
+        coupling_map=coupling_map,
+        load_bearing=load_bearing,
+        core_map={nid: int(core_map.get(nid, 0)) for nid in real_ids},
+        articulation=sorted(n for n in articulation_set if n in real_ids),
     )
 
     if with_embeddings:
         report.missing_links = _compute_missing_links(report, G_und, tau=0.82, k=top_k)
         report.duplicate_pairs, report.confirmed_duplicate_pairs = _compute_duplicate_pairs(report)
+        report.dissonance_map, report.misfiled = _compute_dissonance(
+            report, nodes, G_und, knn_k=_dissonance_knn_k, k=top_k,
+        )
 
     if with_cooccurrence:
         autolinks, stale, hubs, deficits = _compute_cooccur_delta(
@@ -537,6 +703,11 @@ def compute_report(
         report.stale_links = stale
         report.missing_hubs = hubs
         report.integration_deficits = deficits
+        (report.prerequisites, report.prereq_map,
+         report.sprawling, report.bursting_concepts) = _compute_cooccur_variables(
+            report, G_und, G_dir,
+            cooccur_store=_cooccur_store_override, created=created_ts, k=top_k,
+        )
 
     if analytics:
         try:
@@ -577,6 +748,14 @@ def compute_report(
         "components": n_components,
         "clusters": len(clusters),
         "structural_gaps": len(structural_gaps_list),
+        "structural_links": len(report.structural_links),
+        "prerequisites": len(report.prerequisites),
+        "coupled_pairs": len(report.coupled_pairs),
+        "load_bearing": len(report.load_bearing),
+        "articulation": len(report.articulation),
+        "misfiled": len(report.misfiled),
+        "bursting": len(report.bursting_concepts),
+        "sprawling": len(report.sprawling),
         "code_files_documented": (report.code_coverage.documented if report.code_coverage else 0),
         "code_files_total": (report.code_coverage.total if report.code_coverage else 0),
     }

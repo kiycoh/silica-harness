@@ -15,7 +15,7 @@ import logging
 import time
 from typing import Any
 
-from silica.kernel.report.graph_report.models import DuplicatePair, MissingLink, VaultReport
+from silica.kernel.report.graph_report.models import DuplicatePair, MisfiledNote, MissingLink, VaultReport
 from silica.kernel.recall.paths import in_folder
 
 logger = logging.getLogger(__name__)
@@ -264,3 +264,48 @@ def _compute_duplicate_pairs(
     borderline.sort(key=_pair_key)
     confirmed.sort(key=_pair_key)
     return borderline, confirmed
+
+
+def _compute_dissonance(
+    report: VaultReport,
+    nodes: list[dict],
+    G_und: Any,
+    *,
+    knn_k: int = 6,
+    k: int = 10,
+    min_degree: int = 2,
+    threshold: float = 0.75,
+) -> tuple[dict[str, float], list[MisfiledNote]]:
+    """Partition dissonance (V5, ADR-0023): linked like one area, reads like another.
+
+    The semantic partition is Louvain over the embedding k-NN, recomputed here
+    without touching the persisted snapshot: the report needs membership only,
+    and the snapshot's id inheritance exists for the viewer's colours.
+    `dissonance_map` covers every zoned note with a zoned neighbour; `misfiled`
+    keeps the notes with at least `min_degree` zoned neighbours of which
+    `threshold` or more disagree, so a single odd link cannot flag a note.
+    Degrades to ({}, []) without an embed index.
+    """
+    try:
+        from silica.kernel.recall.graph_export import _louvain_partition, knn_edges
+        from silica.kernel.recall.signals import dissonance
+    except Exception as exc:  # pragma: no cover - import guard
+        logger.debug("graph_report: dissonance unavailable (%s)", exc)
+        return {}, []
+    try:
+        sim = knn_edges(nodes, k=knn_k)
+        if not sim:
+            return {}, []
+        partition = _louvain_partition(nodes, sim, "SIMILAR")
+    except Exception as exc:
+        logger.debug("graph_report: semantic partition skipped (%s)", exc)
+        return {}, []
+    zone_of = {nid: i for i, comm in enumerate(partition) for nid in comm}
+    dmap = {n: round(v, 4) for n, v in dissonance(G_und, zone_of).items()}
+    rows: list[MisfiledNote] = []
+    for nid, d in dmap.items():
+        zoned = sum(1 for m in G_und.neighbors(nid) if m != nid and m in zone_of)
+        if zoned >= min_degree and d >= threshold:
+            rows.append(MisfiledNote(path=nid, degree=int(G_und.degree(nid)), dissonance=d))
+    rows.sort(key=lambda m: (-m.dissonance, -m.degree, m.path))
+    return dmap, rows[:k]

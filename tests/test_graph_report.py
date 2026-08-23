@@ -355,6 +355,9 @@ def test_missing_links_common_neighbors_boosts_ranking(monkeypatch):
     ])
 
     class _Store:
+        def sync_from_disk(self):
+            return False  # no file behind a fake (paths.DiskSynced)
+
         def __len__(self):
             return 6
 
@@ -408,6 +411,9 @@ def test_missing_links_bridge_the_md_keyspace(monkeypatch):
     G.add_edges_from([("S.md", "X.md"), ("A.md", "X.md")])
 
     class _Store:
+        def sync_from_disk(self):
+            return False  # no file behind a fake (paths.DiskSynced)
+
         def __len__(self):
             return 3
 
@@ -451,6 +457,9 @@ def test_duplicate_pairs_split_confirmed_vs_borderline(monkeypatch):
     }
 
     class _Store:
+        def sync_from_disk(self):
+            return False  # no file behind a fake (paths.DiskSynced)
+
         def __len__(self): return len(nn)
         def paths(self): return list(nn)
         def get_vec(self, p): return [p] if p in nn else None
@@ -733,3 +742,37 @@ def test_inbox_and_done_files_are_not_orphans(monkeypatch):
 
     assert r.orphans == ["Concepts/Uriel.md"]
     assert r.totals["orphans"] == 1
+
+
+def test_edge_graph_is_the_same_graph_whatever_order_the_edges_arrive_in():
+    """Sorting the NODES only fixed where Louvain starts. Each local move then
+    scans `G[u]`, whose order is edge insertion order, and build_graph_data
+    hands back a list whose order varies per process (dict/set iteration under
+    hash randomisation). Measured 2026-08-22 on a 709-note vault: three runs of
+    an unchanged vault gave 24, 24 and 23 areas, with the largest community at
+    74, 74 and 96.
+
+    Everything that persists a partition rides on this: cluster_id in
+    clusters_ctx.json, the colour a community gets, E(vault), and the report
+    history's `areas` delta, which otherwise reports movement nobody made.
+    """
+    import random
+
+    from silica.kernel.recall.graph_export import edge_graph
+
+    nodes = [{"id": f"n{i}.md", "type": "note"} for i in range(20)]
+    edges = [{"from": f"n{i}.md", "to": f"n{(i * 7 + 3) % 20}.md", "type": "EXTRACTED"}
+             for i in range(20)]
+
+    def adjacency(order):
+        G = edge_graph(nodes, order)
+        return [(n, list(G[n])) for n in G]
+
+    baseline = adjacency(edges)
+    rng = random.Random(0)
+    for _ in range(5):
+        shuffled = edges[:]
+        rng.shuffle(shuffled)
+        assert adjacency(shuffled) == baseline
+    # and the node order still cannot leak in either
+    assert adjacency(edges) == adjacency(list(reversed(edges)))
