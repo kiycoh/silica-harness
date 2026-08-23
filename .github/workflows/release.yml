@@ -9,38 +9,61 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write   # create the GitHub Release
-  id-token: write   # OIDC for PyPI Trusted Publishing (no stored token)
+permissions: {}   # the one job below asks for what it needs; nothing inherits
+
+concurrency:
+  # Never cancel a publish in flight: half a release is worse than a late one.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Scopes the Trusted Publishing OIDC to this environment (set the same name
+    # on the PyPI publisher for the narrowing to be real), and gives the repo
+    # one checkbox, required reviewers, to make a stray tag push wait for a
+    # human instead of shipping.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/silica-harness
+    permissions:
+      contents: write   # create the GitHub Release
+      id-token: write   # OIDC for PyPI Trusted Publishing (no stored token)
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned by commit, not by tag: this job holds a token that
+      # can publish to PyPI, and a tag is mutable. Dependabot (github-actions,
+      # weekly) bumps the pins and rewrites the version comment.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0  # full history + tags for setuptools-scm and git-cliff
 
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
         with:
           python-version: "3.11"
 
+      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp --extra bi
+
+      # A version on PyPI is burned even after a yank, so the irreversible step
+      # gets the gate: no green suite, no publish. ci.yml runs the same command
+      # on PRs; duplicated on purpose, because a tag can be pushed onto a commit
+      # no PR ever covered. ~2.5 min, measured 2026-08-22 (5068 tests).
+      - name: Test before anything irreversible
+        run: uv run pytest -q
+
       - name: Build sdist and wheel
-        run: |
-          python -m pip install --upgrade build
-          python -m build
+        run: uv build
 
       - name: Verify built version matches the tag
-        run: ls -1 dist/ && python -c "import pathlib,sys; t='${{ github.ref_name }}'.lstrip('v'); files=[p.name for p in pathlib.Path('dist').glob('*.whl')]; sys.exit(0 if any(t.replace('-','_') in f for f in files) else f'tag {t} not in {files}')"
+        run: ls -1 dist/ && uv run python -c "import pathlib,sys; t='${{ github.ref_name }}'.lstrip('v'); files=[p.name for p in pathlib.Path('dist').glob('*.whl')]; sys.exit(0 if any(t.replace('-','_') in f for f in files) else f'tag {t} not in {files}')"
 
       - name: Verify the wheel ships runtime assets
         # Guards the package-data config: a wheel that drops these crashes at
-        # runtime (recipes/prompts/domains are loaded via Path(__file__)).
+        # runtime (recipes, prompts and web assets are loaded via Path(__file__)).
         run: |
           for f in \
             silica/capabilities/prompts/distiller_prompt.txt \
             silica/recipes/injector.yaml \
-            silica/domains/codebase.yaml \
+            silica/recipes/organizer.yaml \
             silica/ui/web/static/index.html \
             silica/.env.example; do
             unzip -l dist/*.whl | grep -q "$f" || { echo "MISSING from wheel: $f"; exit 1; }
@@ -50,17 +73,17 @@ jobs:
       - name: Publish to PyPI
         # Trusted Publishing via OIDC — the PyPI project must have this repo +
         # workflow registered as a trusted publisher. No API token in secrets.
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
       - name: Generate release notes
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5  # v4.8.0
         id: notes
         with:
           config: cliff.toml
           args: --latest --strip header
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228  # v3.0.2
         with:
           body: ${{ steps.notes.outputs.content }}
           files: dist/*

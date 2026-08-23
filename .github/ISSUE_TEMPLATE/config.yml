@@ -1,0 +1,15 @@
+# Questions and open-ended ideas belong in Discussions, security in the advisory
+# flow: this file is what keeps them out of the tracker. blank_issues_enabled is
+# false so every issue arrives through a form carrying a reproduction or a problem
+# statement, because triage on a solo project is the scarce resource, not filing.
+blank_issues_enabled: false
+contact_links:
+  - name: Question, or something behaving in a way you did not expect
+    url: https://github.com/kiycoh/silica-harness/discussions/categories/q-a
+    about: Ask in Q&A. Faster than an issue when you are not yet sure it is a bug.
+  - name: Idea, or a use case you want to talk through
+    url: https://github.com/kiycoh/silica-harness/discussions/categories/ideas
+    about: For anything that is not yet a concrete feature request.
+  - name: Security vulnerability
+    url: https://github.com/kiycoh/silica-harness/security/policy
+    about: Never open a public issue for a security problem. Read the policy first.

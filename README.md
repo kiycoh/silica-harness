@@ -1,18 +1,19 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kiycoh/silica-agent/main/assets/banner-light.svg" />
-    <img src="https://raw.githubusercontent.com/kiycoh/silica-agent/main/assets/banner.svg" alt="Silica" width="440" />
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/banner-light.svg" />
+    <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/banner.svg" alt="Silica" width="440" />
   </picture>
 </p>
 
 <p align="center">
-  <a href="https://deepwiki.com/kiycoh/silica-agent"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
-  <a href="https://pypi.org/project/silica-agent/"><img src="https://img.shields.io/pypi/v/silica-agent.svg" alt="PyPI" /></a>
-  <a href="https://pypi.org/project/silica-agent/"><img src="https://img.shields.io/pypi/dm/silica-agent.svg" alt="PyPI Downloads" /></a>
-  <a href="https://github.com/kiycoh/silica-agent/blob/main/pyproject.toml#L13"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >=3.11" /></a>
+  <a href="https://deepwiki.com/kiycoh/silica-harness"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
+  <a href="https://pypi.org/project/silica-harness/"><img src="https://img.shields.io/pypi/v/silica-harness.svg" alt="PyPI" /></a>
+  <a href="https://pypi.org/project/silica-harness/"><img src="https://img.shields.io/pypi/dm/silica-harness.svg" alt="PyPI Downloads" /></a>
+  <a href="https://github.com/kiycoh/silica-harness/blob/main/pyproject.toml#L13"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >=3.11" /></a>
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-Native-7a46e6" alt="Obsidian Native" /></a>
   <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md"><img src="https://img.shields.io/badge/OKF-v0.2-4285f4" alt="Open Knowledge Format v0.2" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/kiycoh/silica-agent" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/kiycoh/silica-harness" alt="License" /></a>
+  <a href="https://ko-fi.com/kiycoh"><img src="https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi" /></a>
 </p>
 
 
@@ -81,7 +82,7 @@ Nothing is asked, nothing else is configured, and nothing is written. Full [inst
 ## How the guardrail works
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-agent/main/assets/gate.svg" alt="An edit proposed by the model passes parse, structure and link checks, lands in the note and is read back after it lands. A second edit fails the structure check and is sent back, leaving the note unchanged." width="880" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/gate.svg" alt="An edit proposed by the model passes parse, structure and link checks, lands in the note and is read back after it lands. A second edit fails the structure check and is sent back, leaving the note unchanged." width="880" />
 </p>
 
 Code already survived this exact failure mode: software absorbs model-written changes because nothing lands unparsed. Compilers, type checkers, and test gates mechanically check what the model writes, and you let them reject and rewrite your work every day. Vaults had no equivalent. Silica puts an LLM's edits behind the same kind of guardrail:
@@ -105,7 +106,7 @@ Silica is not a free-form agent. Every vault mutation passes through a finite-st
 - **Layered rollback.** `/undo` (per note), `/revert` (per run), and optional `SILICA_GIT_COMMIT=auto` stack as independent safety nets.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-agent/main/assets/architecture.svg" alt="Silica architectural schematic" width="880" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/architecture.svg" alt="Silica architectural schematic" width="880" />
 </p>
 
 > **Scope of the claim.** The guardrail is enforced today on the normal write path. It is not yet crash-verified: a harness that kills the process mid-write to prove the invariants survive failure is [in progress](#status). Read it as enforced control flow, not as a proof under adversarial faults. Back your vault up before letting any tool rewrite it, and keep git as the byte-level backstop.
@@ -191,7 +192,7 @@ The [one-liner above](#why-silica) writes the MCP server into your client's own 
 Writing notes needs a model. That is what the wizard is for:
 
 ```bash
-uv tool install silica-agent    # or: pipx install silica-agent
+uv tool install silica-harness    # or: pipx install silica-harness
 silica init                     # interactive setup: vault, model, embeddings
 silica                          # start the interactive session
 ```
@@ -211,26 +212,26 @@ Make a read-only audit your first move. It touches none of your notes (the repor
 
 <br/>
 
-Extras install alone or combined, for example `'silica-agent[gui,mcp]'`:
+Extras install alone or combined, for example `'silica-harness[gui,mcp]'`:
 
 ```bash
-uv tool install 'silica-agent[gui]'      # web GUI: silica --gui
-uv tool install 'silica-agent[mcp]'      # MCP server: silica mcp
-uv tool install 'silica-agent[connect]'  # Obsidian plugin bridge: silica connect
-uv tool install 'silica-agent[pdf]'      # PDF nucleation
-uv tool install 'silica-agent[rerank]'   # in-process cross-encoder rerank
-uv tool install 'silica-agent[all]'      # everything above except dev
+uv tool install 'silica-harness[gui]'      # web GUI: silica --gui
+uv tool install 'silica-harness[mcp]'      # MCP server: silica mcp
+uv tool install 'silica-harness[connect]'  # Obsidian plugin bridge: silica connect
+uv tool install 'silica-harness[pdf]'      # PDF nucleation
+uv tool install 'silica-harness[rerank]'   # in-process cross-encoder rerank
+uv tool install 'silica-harness[all]'      # everything above except dev
 ```
 
 `[all]` inherits `[pdf]` and `[rerank]`, so it pulls torch and downloads several GB of model weights the first time those run.
 
-Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted).
+Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted). The exit code is 0 when every check passed, 1 when one failed, and 2 when nothing failed but a row needs reading (a warning, or a check that could not answer): a script should treat 2 as neither.
 
 For development, clone and install editable instead (adds tests and linters), then prefix commands with `uv run`:
 
 ```bash
-git clone https://github.com/kiycoh/silica-agent.git
-cd silica-agent
+git clone https://github.com/kiycoh/silica-harness.git
+cd silica-harness
 uv pip install -e '.[dev]'
 ```
 
@@ -279,38 +280,59 @@ A live bridge into the Obsidian desktop app: Silica reads and writes the vault y
 
 ### 4. Agent memory &nbsp;·&nbsp; `silica mcp`
 
-Silica serves your vault over stdio to any MCP client, so an assistant recalls your real notes and real decisions before it answers. One command line, `uvx --from 'silica-agent[mcp]' silica mcp`, and no model or API key on the read path: search, recall, and note reading run on the vault alone.
+Silica serves your vault over stdio to any MCP client, so an assistant recalls your real notes and real decisions before it answers. One command line, `uvx --from 'silica-harness[mcp]' silica mcp`, and no model or API key on the read path: search, recall, and note reading run on the vault alone.
 
 The vault is the folder the client was started in, the way a coding agent already works: open a project, get that project's vault. No path is written into the config, so the same entry serves every project.
 
-`silica setup <client>` writes that line into the client's config for you:
+A tool is passive, though: nothing makes an assistant call `silica_recall` on its own. So the server carries its own instructions (the recall/capture loop, put in front of the model by every client that surfaces them), a skill teaches the long form, and two hooks make the rest deterministic: `SessionStart` opens the session with the vault it is in, `SessionEnd` and `PreCompact` hand the transcript to `silica capture`. The three pieces live once in this repo (`mcp.json` with its Codex twin `mcp.codex.json`, `silica/skills/`, `hooks/hooks.json`), and the manifest for each harness points at them.
+
+**Claude Code and Codex.** This repo is a plugin for both, so server, skill and hooks arrive together:
+
+```bash
+claude plugin marketplace add kiycoh/silica-harness
+claude plugin install silica@silica
+
+codex plugin marketplace add kiycoh/silica-harness   # then install silica from the plugins directory
+```
+
+`silica setup <client>` is the server-only path, and the one for clients without a plugin format. It writes the MCP entry into the client's config, and for Codex and DeepSeek Harness it also copies the skill to `~/.agents/skills/silica/`, the user root both discover:
 
 ```bash
 silica setup claude      # delegates to `claude mcp add`
-silica setup codex       # ~/.codex/config.toml
+silica setup codex       # ~/.codex/config.toml, plus the skill
+silica setup dsh         # ~/.dsh/cordis.patch.yml, plus the skill
 silica setup opencode    # ~/.config/opencode/opencode.json
 ```
 
 It backs the file up before touching it, leaves an existing `silica` entry alone, and takes `--dry-run` to print the block instead, or `--config <path>` for a project-local file.
 
-**Claude Code.** This repo is also a plugin, so the server and the recall/capture skill arrive together:
-
-```bash
-claude plugin marketplace add kiycoh/silica-agent
-claude plugin install silica@silica
-```
+**DeepSeek Harness** spawns the server once per `dsh web` process, in the folder you launched it from, so there the vault is that folder rather than each session's. Its `dsh-hooks-claude-code` bridge runs the plugin's `hooks/hooks.json` unchanged: add a row for it to the same patch file to get the session hooks too.
 
 <details>
 <summary><b>The same blocks by hand</b></summary>
 
 <br/>
 
-**Codex** (`~/.codex/config.toml`):
+**Codex** (`~/.codex/config.toml`; the timeout covers a first-run `uvx` resolve, which outlasts the 10 s default):
 
 ```toml
 [mcp_servers.silica]
 command = "uvx"
-args = ["--from", "silica-agent[mcp]", "silica", "mcp"]
+args = ["--from", "silica-harness[mcp]", "silica", "mcp"]
+startup_timeout_sec = 60
+```
+
+**DeepSeek Harness** (`~/.dsh/cordis.patch.yml`, a list of patches):
+
+```yaml
+- insert:
+    - id: mcp-silica
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: silica
+        transport: stdio
+        command: uvx
+        args: ['--from', 'silica-harness[mcp]', 'silica', 'mcp']
 ```
 
 **opencode** (`opencode.json`):
@@ -320,14 +342,14 @@ args = ["--from", "silica-agent[mcp]", "silica", "mcp"]
   "mcp": {
     "silica": {
       "type": "local",
-      "command": ["uvx", "--from", "silica-agent[mcp]", "silica", "mcp"],
+      "command": ["uvx", "--from", "silica-harness[mcp]", "silica", "mcp"],
       "enabled": true
     }
   }
 }
 ```
 
-Add `SILICA_VAULT` to the entry (an `env` table for Codex, `environment` for opencode) only to override the working directory and serve one fixed vault everywhere, which is what a headless run like a cron unit wants. An MCP client starts the server with its own environment, so any other setting the tools need (embedding endpoint, model) belongs in that same block rather than in a shell profile.
+Add `SILICA_VAULT` to the entry (an `env` table for Codex, `env` under `config` for DeepSeek Harness, `environment` for opencode) only to override the working directory and serve one fixed vault everywhere, which is what a headless run like a cron unit wants. An MCP client starts the server with its own environment, so any other setting the tools need (embedding endpoint, model) belongs in that same block rather than in a shell profile.
 
 </details>
 
@@ -338,7 +360,7 @@ Add `SILICA_VAULT` to the entry (an `env` table for Codex, `environment` for ope
 A question is not handed to one index and hoped for. It runs down independent legs, and the results are fused by rank:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-agent/main/assets/grounding.svg" alt="A question runs down three legs: embeddings, co-occurrence, and the opt-in lexical leg. The lexical leg abstains. The other two return their own rankings, fused by rank, so a note both legs found outranks a note only one of them found." width="880" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/grounding.svg" alt="A question runs down three legs: embeddings, co-occurrence, and the opt-in lexical leg. The lexical leg abstains. The other two return their own rankings, fused by rank, so a note both legs found outranks a note only one of them found." width="880" />
 </p>
 
 Fusing by rank is what lets legs that measure nothing comparable sit in the same pool: a cosine and an unbounded BM25 score never have to agree on a scale. And a leg with nothing useful to say **abstains** rather than emitting a flat ranking that would poison the pool, so fusion degrades to whichever legs survived.
@@ -465,6 +487,8 @@ One artifact, two readers: a human reads it as a current map of the repository, 
 | `/vault [path]` | Show active vault or switch to another path for this session |
 | `/help` · `/model` · `/tools` | Display help, current LLM model limits, or registered toolset |
 | `/verbose` · `/thinking` · `/clear` · `/exit` | Cycle tool progress, toggle CoT reasoning, clear history, or exit |
+| `/sessions [prune <days>d]` | List saved conversations for this vault (newest first); `prune` deletes narration sessions older than the given age |
+| `/resume <n\|id>` | Reopen a saved conversation and continue it (`/new` starts a fresh one) |
 | `/incognito` | Stop capturing the session you are in (capture is opt-in to begin with) |
 
 ---
@@ -491,13 +515,13 @@ One artifact, two readers: a human reads it as a current map of the repository, 
 
 Everything under **Available now** ships in the current release. Everything below it does not.
 
-**Available now.** Note nucleation, structural audit, semantic and embedder-free search, graph-safe refactor / dedup / merge, graph and mind-map export, codebase skeletons with git-backed `/stale` and `/impact`, the code wiki, layered `/undo` and `/revert`, the git safety net, the MCP server, and the Claude Code plugin.
+**Available now.** Note nucleation, structural audit, semantic and embedder-free search, graph-safe refactor / dedup / merge, graph and mind-map export, codebase skeletons with git-backed `/stale` and `/impact`, the code wiki, layered `/undo` and `/revert`, the git safety net, the MCP server, and the Claude Code / Codex plugin with its session hooks.
 
 **Next, and it is the one that decides the rest.** Upkeep runs when you ask for it (`/curate`, `/organize`, `/stale`, `/report`). Being answerable for a folder means noticing without being asked, so the next work is scheduled upkeep: a folder watch, an audit that runs on its own, and a queue of changes waiting for your yes. Until it ships, Silica keeps the vault from rotting on demand, not on its own.
 
 **In progress.** Richer codebase coverage across more languages, PDF/DOCX/TXT nucleation, the live Obsidian bridge, and the crash harness backing the guardrail.
 
-**Planned.** Image nucleation, MCP packaging for non-Claude agents.
+**Planned.** Image nucleation.
 
 ---
 

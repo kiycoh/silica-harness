@@ -1,0 +1,18 @@
+name: Feature request
+description: Something Silica should do and does not.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were doing when you hit the wall. Describe the situation, not the solution you already have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would want instead
+      description: Silica takes the smallest diff that works, so a proposal that reuses a path already in the codebase lands where one that adds a layer does not.
+    validations:
+      required: true

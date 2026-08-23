@@ -1,0 +1,26 @@
+name: Bug report
+description: Something Silica does that it should not.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got instead. A minimal reproduction helps most.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and how you installed it
+      placeholder: "0.4.1, uv tool install silica-harness"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: silica doctor
+      description: Optional, and it answers most environment questions in one paste. It prints setting names, never their values.
+      render: text
+    validations:
+      required: false

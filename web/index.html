@@ -43,7 +43,7 @@
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt"
-    content="Silica gives any LLM the documents you actually keep. When it writes back, every edit is re-read after it lands and reverted if it broke something. uv tool install silica-agent.">
+    content="Silica gives any LLM the documents you actually keep. When it writes back, every edit is re-read after it lands and reverted if it broke something. uv tool install silica-harness.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:image" content="/og.png">
   <link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-latin.woff2" crossorigin>
@@ -66,7 +66,7 @@
         <a href="#gate">the gate</a>
         <a href="#run">the run</a>
         <a href="#measured">measured</a>
-        <a href="https://github.com/kiycoh/silica-agent" rel="noopener">source</a>
+        <a href="https://github.com/kiycoh/silica-harness" rel="noopener">source</a>
         <a class="nav-cta" href="#install">install</a>
       </nav>
     </div>
@@ -105,7 +105,7 @@
       <!-- the one element that crosses the rule, and it is the action -->
       <div class="strike">
         <div class="strike-cmd" id="cmd-install">
-          <span class="pr" aria-hidden="true">$</span><code>uv tool install silica-agent</code>
+          <span class="pr" aria-hidden="true">$</span><code>uv tool install silica-harness</code>
         </div>
         <button class="btn" type="button" data-copy="#cmd-install">copy</button>
         <a class="btn btn--ghost" href="#install">then <code>silica init</code></a>
@@ -454,14 +454,14 @@
           writes are confined by <code>write_dir</code> in <code>vault.yaml</code>. Your settings live in
           <code>~/.silica/.env</code> and follow you between folders.</p>
 
-        <pre class="cmdblock cmdblock--lg" id="cmd-full"><span class="pr">$</span> uv tool install silica-agent    <span class="cm"># or: pipx install silica-agent</span>
+        <pre class="cmdblock cmdblock--lg" id="cmd-full"><span class="pr">$</span> uv tool install silica-harness    <span class="cm"># or: pipx install silica-harness</span>
 <span class="pr">$</span> silica init                     <span class="cm"># vault, model, embeddings</span>
 <span class="pr">$</span> silica                          <span class="cm"># start the session</span></pre>
 
         <div class="actions">
           <button class="btn" type="button" data-copy="#cmd-full">copy</button>
-          <a class="btn btn--ghost" href="https://github.com/kiycoh/silica-agent" rel="noopener">read the source</a>
-          <a class="btn btn--ghost" href="https://pypi.org/project/silica-agent/" rel="noopener">on PyPI</a>
+          <a class="btn btn--ghost" href="https://github.com/kiycoh/silica-harness" rel="noopener">read the source</a>
+          <a class="btn btn--ghost" href="https://pypi.org/project/silica-harness/" rel="noopener">on PyPI</a>
         </div>
 
         <p class="note">Make a read-only audit your first move. <code>/report</code> writes nothing, and it shows you the
@@ -507,9 +507,9 @@
     <div class="foot-in">
       <span class="foot-mark">Silica</span>
       <span>AGPL-3.0 · Python 3.11+</span>
-      <a href="https://github.com/kiycoh/silica-agent" rel="noopener">github.com/kiycoh/silica-agent</a>
-      <a href="https://pypi.org/project/silica-agent/" rel="noopener">pypi.org/project/silica-agent</a>
-      <a href="https://deepwiki.com/kiycoh/silica-agent" rel="noopener">deepwiki</a>
+      <a href="https://github.com/kiycoh/silica-harness" rel="noopener">github.com/kiycoh/silica-harness</a>
+      <a href="https://pypi.org/project/silica-harness/" rel="noopener">pypi.org/project/silica-harness</a>
+      <a href="https://deepwiki.com/kiycoh/silica-harness" rel="noopener">deepwiki</a>
     </div>
   </footer>
 

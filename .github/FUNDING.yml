@@ -1,0 +1,4 @@
+# Renders the "Sponsor" button on the repo, on issues and on PRs.
+# github: needs Sponsors enabled at github.com/sponsors first, or the button stays hidden.
+github: [kiycoh]
+ko_fi: kiycoh

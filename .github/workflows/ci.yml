@@ -1,0 +1,50 @@
+name: ci
+
+# The gates CONTRIBUTING already asks for, run where they can actually block:
+# every PR and every push to main. A checklist the author ticks by hand is not
+# a gate, and dependabot's weekly PRs have nothing checking them without this.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A superseded push on the same branch is dead work.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The two versions pyproject claims in its classifiers. A claim no job
+        # checks is how a package promises 3.12 and ships broken on it.
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # --locked fails when uv.lock has drifted from pyproject.toml, so a
+      # dependency edited without a relock dies here and not at a user's
+      # install. Extras: exactly the ones the suite reaches for with
+      # importorskip (fastapi/uvicorn, websockets, mcp, duckdb, openpyxl).
+      # [pdf] and [rerank] stay out: 3.8 GB of torch to run tests that skip.
+      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp --extra bi
+
+      - run: uv run pytest -q
+
+      # Both are seconds and both were green when this file landed
+      # (2026-08-22: 9/9 contracts kept, 0 mypy errors over 206 files). They
+      # are here because a contract nothing re-checks is a comment.
+      - run: uv run lint-imports
+      - run: uv run mypy silica
