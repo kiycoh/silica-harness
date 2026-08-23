@@ -7,6 +7,11 @@
   },
   "keywords": ["memory", "knowledge-graph", "obsidian", "vault", "mcp"],
   "skills": "./silica/skills",
-  "mcpServers": "./mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./mcp.codex.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "Silica",
+    "shortDescription": "Your Obsidian vault as the agent's memory: recall before answering, capture after learning.",
+    "developerName": "Alessandro Carosia"
+  }
 }

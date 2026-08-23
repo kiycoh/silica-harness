@@ -1,0 +1,8 @@
+{
+  "mcp_servers": {
+    "silica": {
+      "command": "uvx",
+      "args": ["--from", "silica-harness[mcp]", "silica", "mcp"]
+    }
+  }
+}

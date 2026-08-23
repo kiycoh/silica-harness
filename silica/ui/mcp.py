@@ -97,22 +97,30 @@ def exposed_tools(all_tools: bool = False) -> dict[str, Any]:
     return {n: allowed[n] for n in CORE_TOOLS}  # KeyError = registry drift, fail loud
 
 
-def run_mcp(all_tools: bool = False) -> int:
-    """Serve the tool registry over MCP stdio. Blocks until the client hangs up."""
-    try:
-        import anyio
-        import mcp.types as types
-        from mcp.server.lowlevel import Server
-        from mcp.server.stdio import stdio_server
-    except ImportError:
-        print(
-            "silica mcp needs the [mcp] extra: uv pip install 'silica-agent[mcp]'",
-            file=sys.stderr,
-        )
-        return 1
+# The server's own account of itself, sent in the initialize reply. Claude
+# Code and Codex put it in front of the model; a client with no skill surface
+# at all (opencode) has nothing else to go on. The skill is the long form,
+# this is the loop, and `silica hook SessionStart` opens a session with the
+# same text so the three never disagree.
+INSTRUCTIONS = (
+    "Silica serves the vault of the folder this server was started in as "
+    "memory. Before answering from memory call silica_recall; read a hit with "
+    "silica_read_note before citing it. Capture what should outlive the "
+    "session with silica_write_note (new concept) or silica_patch_note "
+    "(existing note): decisions and their why, non-obvious constraints, "
+    "hard-won references. If retrieval behaves as if switched off, call "
+    "silica_doctor."
+)
+
+
+def make_server(all_tools: bool = False):
+    """The MCP Server with the registry slice wired in, not yet serving."""
+    import anyio
+    import mcp.types as types
+    from mcp.server.lowlevel import Server
 
     tools = exposed_tools(all_tools)
-    server = Server("silica")
+    server = Server("silica", instructions=INSTRUCTIONS)
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -135,6 +143,24 @@ def run_mcp(all_tools: bool = False) -> int:
         # (errors included) — exactly what a text content block wants.
         out = await anyio.to_thread.run_sync(lambda: t.run(**(arguments or {})))
         return [types.TextContent(type="text", text=out)]
+
+    return server
+
+
+def run_mcp(all_tools: bool = False) -> int:
+    """Serve the tool registry over MCP stdio. Blocks until the client hangs up."""
+    try:
+        import anyio
+        from mcp.server.stdio import stdio_server
+    except ImportError:
+        print(
+            "silica mcp needs the [mcp] extra: uv pip install 'silica-harness[mcp]'",
+            file=sys.stderr,
+        )
+        return 1
+
+    server = make_server(all_tools)
+    tools = exposed_tools(all_tools)
 
     async def _serve() -> None:
         async with stdio_server() as (read, write):

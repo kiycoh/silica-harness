@@ -1,0 +1,36 @@
+{
+  "description": "Silica vault memory: the session opens knowing which vault it is in, and the transcript is captured for the drain when it ends or compacts.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx --from 'silica-harness[mcp]' silica hook SessionStart",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx --from 'silica-harness[mcp]' silica capture"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uvx --from 'silica-harness[mcp]' silica capture"
+          }
+        ]
+      }
+    ]
+  }
+}

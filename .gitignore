@@ -89,7 +89,10 @@ docs/_build/
 /docs/*
 
 # Silica & Agent Specific
-/.agents
+# .agents/ is local agent tooling, except the Codex plugin marketplace, which
+# Codex looks for at exactly .agents/plugins/marketplace.json.
+/.agents/*
+!/.agents/plugins/
 .claude/
 CLAUDE.md
 .impeccable
