@@ -131,22 +131,30 @@ Before you commit the afternoon, `scripts/bench_nucleate.py <folder> --sample 3`
 
 - **Learn from your own documents, and be told when you are wrong.**<br/>
 `/explain "<concept>"`, `/compare "A" "B"`, `/summarize <folder>`, `/quiz [note]`, `/learn <target>`. All grounded in the vault, and only in the vault: what it does not find there it refuses rather than fills in, and the [refusal rate is published](#measured) next to the accuracy, 87.2% correct on the questions a benchmark plants to be unanswerable. Graded answers feed a learner model that estimates what you still retain, so untargeted `/quiz` re-tests what is decaying and probes what was never measured, and `/learn` turns the same estimate into a step-by-step syllabus over your own notes.<br/>
-It counts writing as learning and reading as nothing, which is the whole point: a note you wrote yourself starts with months of assumed retention, a note the model wrote for you starts with none until you answer a question about it correctly, and passive exposure never counts at all. Citing a note in a chat is not evidence you know it.
+It counts writing as learning and reading as nothing, which is the whole point: a note you wrote yourself starts with months of assumed retention, a note the model wrote for you starts with none until you answer a question about it correctly, and passive exposure never counts at all. Citing a note in a chat is not evidence you know it.<br/>
+<img src="assets/screenshots/explore-note-reader.png" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" /><br/>
+<sub>A note open next to the graph it sits in, with summarize, explain, quiz and relate acting on that note in place.</sub>
 
 - **Ask what two notes have to do with each other.**<br/>
-`/path <A> <B>` walks the shortest reading path between any two notes, over your wikilinks *and* the concept graph, so it finds routes through notes you never linked by hand. `/relate <note>` names the kind of each relationship rather than just its strength, and `/compare` puts two notes in a table and surfaces where they contradict each other, which `/contested` then keeps as a standing list. This is the part that is hard to do by hand: the connection between two ideas you had four years apart is exactly the one you cannot remember you made.
+`/path <A> <B>` walks the shortest reading path between any two notes, over your wikilinks *and* the concept graph, so it finds routes through notes you never linked by hand. `/relate <note>` names the kind of each relationship rather than just its strength, and `/compare` puts two notes in a table and surfaces where they contradict each other, which `/contested` then keeps as a standing list. This is the part that is hard to do by hand: the connection between two ideas you had four years apart is exactly the one you cannot remember you made.<br/>
+<img src="assets/screenshots/explore-path.png" alt="A reading path laid out in rows: two steps before, read first, this note, what it unlocks, two steps after" width="820" /><br/>
+<sub>The same reading path in the browser: what to read before a note, what the note unlocks, and the step either side of both.</sub>
 
 - **When the vault does not have it.**<br/>
 If every search a turn ran came back empty, Silica says so instead of answering thin, and names `/web`. Typing it is the consent: the answer comes from the web, with citations appended from the pages that were actually opened rather than from what the model claims it read. Fetching is direct, with no third-party reader in the path. That turn writes nothing; `/keep` saves it to the inbox when it was worth keeping, and `/web-search "<topic>"` does the same in bulk for a whole question.
 
 - **See the structure your notes already have.**<br/>
-`/graph out.html` renders the vault as an interactive page, notes as nodes, communities colored and named, no server needed. `/map <note>` grows a radial mind-map out from a single note, written as an Obsidian canvas plus an SVG. Both local, both drawn from the same co-occurrence graph retrieval uses.
+`/graph out.html` renders the vault as an interactive page, notes as nodes, communities colored and named, no server needed. `/map <note>` grows a radial mind-map out from a single note, written as an Obsidian canvas plus an SVG. Both local, both drawn from the same co-occurrence graph retrieval uses.<br/>
+<img src="assets/screenshots/explore-map.png" alt="A mind-map grown out of one note, solid edges for wikilinks and dashed edges for relations the concept graph found" width="820" /><br/>
+<sub>The map grown out of a single note. Solid ties are wikilinks you wrote, dashed ties are relations the concept graph found; closer means stronger.</sub>
 
 - **Take a write back out, however far it spread.**<br/>
 Every note records where it came from, and the journal keeps that link, so `/revert --source <file>` takes back *every* run derived from one dropped PDF, not just the last one. `/undo` is the per-note step and `/revert <run-id>` the per-run one; `/changes` lists what this session touched with added and removed line counts, the same tally the GUI opens as a diff.
 
 - **See time the way the vault already records it.**<br/>
-`/agenda` merges one day's events, dated notes, agent activity, and what is due for review into a single column. Events are notes like any other, so the calendar is the vault read along its dates rather than a second store to keep in sync.
+`/agenda` merges one day's events, dated notes, agent activity, and what is due for review into a single column. Events are notes like any other, so the calendar is the vault read along its dates rather than a second store to keep in sync.<br/>
+<img src="assets/screenshots/calendar.png" alt="A month view with one day selected, listing that day's agent runs and the notes due for review" width="820" /><br/>
+<sub>One day opened: what the agent wrote that day, note by note, next to what is due for review.</sub>
 
 Reorganizing by intent, typed relation maps, reading paths, diagrams, contested claims, dedup, and the rest are below, and `/help` prints the same list in any driver.
 
@@ -255,6 +263,15 @@ flowchart LR
 ### 1. Web GUI &nbsp;·&nbsp; `silica --gui`
 
 A chat-first interface at `http://localhost:8765`. Query and curate from the browser, watch answers stream in, and switch to three other tabs on the same vault: the **graph**, in 2D or 3D, with communities and semantic zones as separate colour keys; a **calendar** that shows what already happened next to what is booked; and **metrics**, which reports what moved since the last run rather than only the current state. A long job narrates itself while it runs, and every write it makes lands in a drawer with its own diff. Start here if you are new.
+
+<p align="center">
+  <img src="assets/screenshots/explore-graph-3d.png" alt="The vault as a 3D graph, with self-named areas in the left rail, an edge-type legend, and a hovered note showing its area and that it is load-bearing" width="900" />
+</p>
+
+<p align="center">
+  <sub>The whole vault in 3D, 1,306 notes and 2,609 edges. Areas name themselves from the terms their notes share,<br/>
+  each edge type is its own toggle, and hovering a note says which area it sits in and what cutting it would strand.</sub>
+</p>
 
 ### 2. Terminal &nbsp;·&nbsp; `silica`
 
@@ -371,6 +388,15 @@ Make a read-only audit your first move. It touches none of your notes (the repor
 ```
 /report
 ```
+
+<p align="center">
+  <img src="assets/screenshots/metrics.png" alt="The audit as a GUI tab: lattice energy, link distribution, hubs, cross-area bridges, an area treemap, and the deltas since the last report" width="900" />
+</p>
+
+<p align="center">
+  <sub>The same audit as a tab, run local with no model. What moved since the last report is on the right,<br/>
+  which is the part a single snapshot cannot tell you.</sub>
+</p>
 
 <details>
 <summary><b>Optional features and development setup</b></summary>
