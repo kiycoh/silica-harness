@@ -5,7 +5,7 @@
 
 Pure data containers — no I/O, no graph computation. Authoritative
 structures (NodeStat … VaultReport) and PROPOSED-signal records
-(MissingLink, DuplicatePair, AutolinkCandidate, StaleLink, MissingHub,
+(DuplicatePair, AutolinkCandidate, StaleLink, MissingHub,
 AttentionCandidate) live together because they all describe one VaultReport payload.
 """
 from __future__ import annotations
@@ -60,14 +60,6 @@ class ClusterStat:
 
 
 @dataclass
-class MissingLink:          # PROPOSED — not authoritative
-    source: str
-    target: str
-    cosine: float
-    d_prev: int = 0         # shortest path before prediction (0 = unreachable → highest novelty)
-
-
-@dataclass
 class DuplicatePair:        # PROPOSED — cosine-close pair (band depends on which list it lands in)
     source: str
     target: str
@@ -77,13 +69,13 @@ class DuplicatePair:        # PROPOSED — cosine-close pair (band depends on wh
 # --- Co-occurrence vs wikilink delta (PROPOSED, embedder-free) -------------
 
 @dataclass
-class AutolinkCandidate:    # co-occurrence − wikilink: related in text, unlinked
+class AutolinkCandidate:    # relatedness − wikilink: related in text, unlinked
     source: str
     target: str
-    weight: float          # co-occurrence relatedness weight (higher = stronger)
+    weight: float          # Jaccard (direct) or RRF score (fused); higher = stronger, scales differ
     shared: list[str]      # directly shared concept labels (evidence)
     convergence: int = 0   # #8: number of god-node hubs this pair connects to
-    provenance: str = "expanded"  # CORRELATE (ADR-0013): "direct" (note_edges) | "expanded"
+    provenance: str = "fused"  # "direct" (CORRELATE Jaccard edge) | "fused" (relatedness facade, ADR-0029)
 
 
 @dataclass
@@ -219,7 +211,6 @@ class VaultReport:
     orphans: list[str]
     dangling: list[dict]   # [{"target": str, "refs": int}]
     clusters: list[ClusterStat]
-    missing_links: list[MissingLink] = field(default_factory=list)
     duplicate_pairs: list[DuplicatePair] = field(default_factory=list)          # borderline band (τ_low..τ_high): link, don't merge
     confirmed_duplicate_pairs: list[DuplicatePair] = field(default_factory=list)  # ≥ τ_high: likely true duplicates (merge candidates)
     autolink_candidates: list[AutolinkCandidate] = field(default_factory=list)

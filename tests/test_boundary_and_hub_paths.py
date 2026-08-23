@@ -79,7 +79,7 @@ def test_archive_of_a_source_inside_the_boundary_lands_inside_it(mirror_vault, m
 
     wrapped.silica_cleanup("silica/Inbox/note.md")
 
-    assert moved == [("silica/Inbox/note.md", "silica/done/note.md")]
+    assert moved == [("silica/Inbox/note.md", "silica/Done/note.md")]
 
 
 def test_no_boundary_leaves_the_archive_at_the_vault_root(tmp_path, monkeypatch):
@@ -94,6 +94,51 @@ def test_no_boundary_leaves_the_archive_at_the_vault_root(tmp_path, monkeypatch)
     # The module global, not an attribute ON the proxy: reading through the
     # proxy builds the real driver against this tmp vault and leaves it cached
     # for every later test.
+    monkeypatch.setattr(wrapped, "DRIVER", _RecordingDriver(moved))
+
+    wrapped.silica_cleanup("Inbox/note.md")
+
+    assert moved == [("Inbox/note.md", "Done/note.md")]
+    vm.reset_manifest_cache()
+
+
+def test_archive_mirrors_the_inbox_tree(tmp_path, monkeypatch):
+    """The archive keeps the folder structure the source had in the inbox.
+
+    Flattening onto a basename made the move unrecoverable by hand: `/revert`
+    records no inverse for it, so the structure is the only undo the user has.
+    """
+    import silica.kernel.vault_manifest as vm
+    from silica.config import CONFIG
+    from silica.tools import wrapped
+
+    (tmp_path / "Inbox" / "Kant" / "Critica").mkdir(parents=True)
+    monkeypatch.setattr(CONFIG, "vault_path", str(tmp_path))
+    vm.reset_manifest_cache()
+    moved: list[tuple[str, str]] = []
+    monkeypatch.setattr(wrapped, "DRIVER", _RecordingDriver(moved))
+
+    wrapped.silica_cleanup("Inbox/Kant/Critica/ch3.md")
+
+    assert moved == [("Inbox/Kant/Critica/ch3.md", "Done/Kant/Critica/ch3.md")]
+    vm.reset_manifest_cache()
+
+
+def test_archive_keeps_a_legacy_lowercase_done_where_it_is(tmp_path, monkeypatch):
+    """A vault that already archived under `done/` is never renamed to `Done/`.
+
+    The rename would fork the archive in two on a case-sensitive filesystem,
+    leaving half the user's sources under a folder nothing reads any more.
+    """
+    import silica.kernel.vault_manifest as vm
+    from silica.config import CONFIG
+    from silica.tools import wrapped
+
+    (tmp_path / "Inbox").mkdir()
+    (tmp_path / "done").mkdir()
+    monkeypatch.setattr(CONFIG, "vault_path", str(tmp_path))
+    vm.reset_manifest_cache()
+    moved: list[tuple[str, str]] = []
     monkeypatch.setattr(wrapped, "DRIVER", _RecordingDriver(moved))
 
     wrapped.silica_cleanup("Inbox/note.md")

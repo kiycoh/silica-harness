@@ -265,3 +265,82 @@ class TestRepeatedTokenPhrases:
         from silica.kernel.text.overlay import DEFAULT_OVERLAY
         from silica.kernel.text.recon import is_concept
         assert is_concept(phrase, overlay=DEFAULT_OVERLAY)
+
+
+# ---------------------------------------------------------------------------
+# Collision evidence is whole-word: the driver's body search is a substring
+# scan (the agent tool wants that), but "posi" inside "position" is not a
+# vault collision for POSI.
+# ---------------------------------------------------------------------------
+
+
+class _SubstringHitDriver(_BatchSpyDriver):
+    """Every query gets two hits on the same vault note: one line mentioning
+    it as a whole word, one where it is only a fragment of a longer word.
+    Measured 2026-08-23 (OpenAlex payload): 6 of 15 reported collisions had
+    zero whole-word matches (posi→position, gui→guide, MAG→image, ror→error)."""
+    def search_context_batch(self, queries):
+        self.batch_calls += 1
+        from silica.driver.base import Hit, NoteRef
+        ref = NoteRef(name="Other", path="vault/Other.md")
+        return {
+            q: [
+                Hit(ref=ref, line=1, snippet=f"the {q} is named here"),
+                Hit(ref=ref, line=2, snippet=f"but x{q}y only contains it"),
+            ]
+            for q in queries
+        }
+
+
+class _FragmentOnlyDriver(_BatchSpyDriver):
+    """Every query matches ONLY as a fragment of a longer word."""
+    def search_context_batch(self, queries):
+        self.batch_calls += 1
+        from silica.driver.base import Hit, NoteRef
+        ref = NoteRef(name="Other", path="vault/Other.md")
+        return {q: [Hit(ref=ref, line=1, snippet=f"x{q}y")] for q in queries}
+
+
+class TestReconWholeWordEvidence:
+    def test_fragment_only_hits_are_not_collisions(self, monkeypatch):
+        import silica.tools.pipeline as pipe
+        from silica.config import CONFIG
+        monkeypatch.setattr(CONFIG, "defer_uncorroborated_concepts", False, raising=False)
+        monkeypatch.setattr(pipe, "DRIVER", _FragmentOnlyDriver(_RECON_BODY))
+
+        res = pipe.silica_recon("inbox/note.md")
+
+        assert res["collisions"] == []
+        assert res["new_concepts"]
+
+    def test_fragment_lines_do_not_count_as_evidence(self, monkeypatch):
+        import silica.tools.pipeline as pipe
+        from silica.config import CONFIG
+        monkeypatch.setattr(CONFIG, "defer_uncorroborated_concepts", False, raising=False)
+        monkeypatch.setattr(pipe, "DRIVER", _SubstringHitDriver(_RECON_BODY))
+
+        res = pipe.silica_recon("inbox/note.md")
+
+        assert res["collisions"]
+        for c in res["collisions"]:
+            assert c["total_hits"] == 1, c
+
+
+class TestMentionsWholeWord:
+    def test_whole_word_and_fragment(self):
+        from silica.kernel.text.recon import mentions_whole_word
+        assert mentions_whole_word("posi", "POSI is a set of principles")
+        assert not mentions_whole_word("posi", "the position of the node")
+        assert not mentions_whole_word("ror", "an error occurred")
+        assert not mentions_whole_word("MAG", "an image of the graph")
+
+    def test_multiword_and_punctuation_boundaries(self):
+        from silica.kernel.text.recon import mentions_whole_word
+        assert mentions_whole_word("knowledge graph", "see [[Knowledge Graph]] for details")
+        assert mentions_whole_word("api", "the API, documented at /v1")
+        assert not mentions_whole_word("api", "rapid results")
+
+    def test_accented_letters_are_word_chars(self):
+        from silica.kernel.text.recon import mentions_whole_word
+        assert not mentions_whole_word("rete", "la retè non basta")
+        assert mentions_whole_word("rete", "la rete non basta")

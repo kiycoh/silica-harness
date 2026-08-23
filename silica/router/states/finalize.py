@@ -843,7 +843,7 @@ def handle_cleanup(fsm: "InjectorFSM") -> None:
                 # at its inbox path. On failure the source stays in the inbox
                 # for retry, so nothing is lost by skipping the leaf here.
                 _write_source_leaf(fsm, inbox_file_for_fi)
-                res = silica_cleanup(inbox_file_for_fi, "done")
+                res = silica_cleanup(inbox_file_for_fi)
                 if "error" in res:
                     fsm.context["cleanup_warning"] = res["error"]
                 # Title-index run cache: the archived source moved out of its

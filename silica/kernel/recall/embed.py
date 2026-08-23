@@ -611,7 +611,12 @@ class EmbedStore(DiskSynced):
                 for r, key in enumerate(present[start:start + block]):
                     row = sims[r]
                     if k >= row.size:
-                        cand = np.arange(row.size)
+                        # Every column but the masked self row: the -inf the
+                        # exclusion wrote above must not reach the heap, or a
+                        # k >= N batch hands back the query note at -inf where
+                        # the per-note path never would (found by the
+                        # related_notes_many equality test, 2026-08-23).
+                        cand = np.flatnonzero(np.isfinite(row))
                     else:
                         part = np.argpartition(-row, k - 1)[:k]
                         kth = float(row[part].min())

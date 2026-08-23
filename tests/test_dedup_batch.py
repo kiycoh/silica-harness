@@ -99,7 +99,7 @@ def test_judge_schema_omits_authoring_fields_unless_spoke_requested():
     seen = []
 
     class _Provider:
-        def call_llm(self, *, messages, tools, response_schema, max_tokens):
+        def call_llm(self, *, messages, tools, response_schema, max_tokens, **kw):
             seen.append(response_schema)
             return SimpleNamespace(text='{"verdict": "distinct", "rationale": "r"}')
 

@@ -108,3 +108,17 @@ def test_search_uses_heapq_nlargest(tmp_path):
     with patch.object(embed_mod.heapq, "nlargest", wraps=embed_mod.heapq.nlargest) as spy:
         store.cosine_top_k([1.0, 0.0], k=3)
     assert spy.called
+
+
+def test_batch_with_k_at_or_above_store_size_never_returns_the_query_itself(tmp_path):
+    """`cosine_top_k_batch` promises the per-note result; with k >= N the
+    self row masked at -inf used to ride along as the last candidate."""
+    from silica.kernel.recall.embed import EmbedStore
+    store = EmbedStore(path=tmp_path / "e.json")
+    store.upsert("A", "A", [1.0, 0.0, 0.0])
+    store.upsert("B", "B", [0.9, 0.1, 0.0])
+    store.upsert("C", "C", [0.0, 1.0, 0.0])
+    batch = store.cosine_top_k_batch(["A"], k=25)["A"]
+    single = store.cosine_top_k(store.get_vec("A"), k=25, exclude={"A"})
+    assert [c["path"] for c in batch] == [c["path"] for c in single] == ["B", "C"]
+    assert all(c["score"] > float("-inf") for c in batch)

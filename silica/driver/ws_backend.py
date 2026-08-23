@@ -33,10 +33,8 @@ from silica.driver.base import (
     NoteContent,
     NoteRef,
     Txn,
-    build_title_trie,
-    mentions_in,
 )
-from silica.kernel.link.ast import extract_links
+from silica.kernel.link.ast import extract_links_typed
 from silica.kernel.recall.graph_export import is_vault_artifact
 from silica.kernel.recall.paths import is_source_leaf
 from silica.kernel.write import session_changes
@@ -76,7 +74,6 @@ class ObsidianWSBackend(GraphIndexMixin):
         self._unresolved_links: set[tuple[str, str]] = set()
         self._notes: dict[str, NoteRef] = {}
         self._notes_by_name: dict[str, list[NoteRef]] = {}
-        self._mention_index: dict[str, set[str]] = {}
         self._is_graph_built = False
 
     # ------------------------------------------------------------------
@@ -328,13 +325,6 @@ class ObsidianWSBackend(GraphIndexMixin):
             for target in targets:
                 self._unresolved_links.add((source, target))
 
-        titles = [ref.name.lower() for ref in self._notes.values() if len(ref.name) >= 2]
-        mentions = self._rpc("mention_index", titles=titles) or {}
-        self._mention_index.clear()
-        for title_lower, paths in mentions.items():
-            if isinstance(paths, list):
-                self._mention_index[title_lower] = set(paths)
-
         self._is_graph_built = True
 
     def _path_of(self, ref: NoteRef | str) -> str | None:
@@ -519,14 +509,6 @@ class ObsidianWSBackend(GraphIndexMixin):
         if ref not in by_name:
             by_name.append(ref)
         self._add_link_edges(path, content)
-        # Mention index: rescan this body against all known titles. Existing
-        # notes that mention the *new* title are not rescanned (deliberate
-        # trade-off — the bulk build captured session-start state).
-        for paths_set in self._mention_index.values():
-            paths_set.discard(path)
-        trie = build_title_trie(self._notes_by_name)
-        for title_lower in mentions_in(content.lower(), trie):
-            self._mention_index.setdefault(title_lower, set()).add(path)
 
     def _patch_graph_remove(self, path: str) -> None:
         """Patch the index after a delete."""
@@ -541,14 +523,12 @@ class ObsidianWSBackend(GraphIndexMixin):
                 r for r in self._notes_by_name[name_lower] if r.path != path
             ]
         self._unresolved_links = {(s, t) for s, t in self._unresolved_links if s != path}
-        for paths_set in self._mention_index.values():
-            paths_set.discard(path)
 
     def _add_link_edges(self, path: str, content: str) -> None:
-        for target in extract_links(content):
+        for target, scaffold in extract_links_typed(content).items():
             resolved = self._resolve_link(target)
             if resolved is not None:
-                self._graph.add_edge(path, resolved.path)
+                self._add_link_edge(path, resolved.path, scaffold=scaffold)
             else:
                 self._unresolved_links.add((path, target))
 

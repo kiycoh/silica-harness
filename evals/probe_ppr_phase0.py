@@ -96,7 +96,6 @@ def _pct(values: list[float], q: float) -> float:
 def run(vault: Path, *, hops: int = HOPS, alpha: float = ALPHA,
         samples: int = 100, verbose: bool = False) -> dict:
     from evals.golden.runner import _open_stores, vault_digest
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import related_notes
 
     store, embed_store = _open_stores(vault)
@@ -124,7 +123,6 @@ def run(vault: Path, *, hops: int = HOPS, alpha: float = ALPHA,
           f"(adjacency built in {adj_ms:.0f}ms, cached)")
 
     # --- pairs the gate evaluates -----------------------------------------
-    correlate.recompute_all_edges(store)
     eligible = eligible_pairs(wikilink_graph(vault, store))
     endpoints = sorted({e for pr in eligible for e in pr})
 

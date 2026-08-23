@@ -8,6 +8,8 @@ survivor's ranking passes through unchanged ("embedder down -> cooccur routing")
 """
 from __future__ import annotations
 
+import pytest
+
 
 from silica.kernel.recall.embed import EmbedStore
 from silica.kernel.recall.cooccurrence import CooccurStore, build_contribution
@@ -18,6 +20,16 @@ from silica.kernel.recall.cooccurrence import CooccurStore, build_contribution
 # ---------------------------------------------------------------------------
 
 from silica.kernel.recall.relatedness import _rrf_fuse, RRF_K
+
+
+@pytest.fixture(autouse=True)
+def _linear_tf_unless_the_test_says_otherwise(monkeypatch):
+    """The reference-equivalence tests below pin the LINEAR tf form of the
+    cooccur leg against its old note-major implementation; they predate the
+    BM25 default (ADR-0029, 2026-08-23) and measure the other branch. Tests
+    that want BM25 set the flag themselves, after this fixture ran."""
+    from silica.config import CONFIG
+    monkeypatch.setattr(CONFIG, "cooccur_bm25", False)
 
 
 def test_rrf_fuse_single_ranking_orders_by_rank():
@@ -45,16 +57,6 @@ def test_rrf_fuse_uses_standard_damping_constant():
 def test_rrf_fuse_empty_is_empty():
     assert _rrf_fuse([]) == {}
     assert _rrf_fuse([[]]) == {}
-
-
-# --- CORRELATE (ADR-0013): third fusion leg from note_edges -----------------
-
-def test_fuse_includes_edges_leg():
-    from silica.kernel.recall.relatedness import _fuse
-    out = _fuse(None, None, edges_rank=[("B", 0.31)], k=5)
-    assert out and out[0].path == "B"
-    assert out[0].edge_score == 0.31
-    assert "edge:0.31" in out[0].evidence
 
 
 def test_fuse_drops_vault_root_artifacts():
@@ -301,23 +303,6 @@ def test_related_notes_evidence_score_formats(tmp_path):
     assert any(e.startswith("cooccur:w") for e in ev_all)
 
 
-def test_related_notes_direct_edge_leg_carries_edge_score(tmp_path):
-    from silica.kernel.link.correlate import recompute_all_edges
-    st = CooccurStore(path=tmp_path / "c.json", lang="english")
-    st.upsert_note("A", build_contribution("A", "alpha beta gamma"))
-    st.upsert_note("B", build_contribution("B", "alpha beta delta"))  # jaccard 0.5 -> edge
-    recompute_all_edges(st)
-    out = related_notes("A", embed_store=None, cooccur_store=st, k=5)
-    b = next(r for r in out if r.path == "B")
-    assert b.edge_score is not None
-    assert any(e.startswith("edge:") for e in b.evidence)
-
-
-def test_related_notes_edge_leg_abstains_without_edges(tmp_path):
-    st = _cooc_store(tmp_path)  # contributions only, no note_edges built
-    out = related_notes("A", embed_store=None, cooccur_store=st, k=5)
-    assert out  # cooccur leg still carries the fusion
-    assert all(r.edge_score is None for r in out)
 
 
 def test_related_note_exposes_structured_per_leg_scores(tmp_path):
@@ -383,16 +368,6 @@ def test_for_query_respects_exclude(tmp_path):
     out = related_notes_for_query(query_text="alpha beta gamma", cooccur_store=st, k=5, exclude={"B"})
     assert "B" not in [r.path for r in out]
 
-
-def test_for_query_never_has_edge_leg(tmp_path):
-    # Structural abstention (ADR-0013 Q5): fresh query text has no note_edges
-    # row, so the third leg NEVER fires here — even when the store has edges.
-    from silica.kernel.link.correlate import recompute_all_edges
-    st = _cooc_store(tmp_path)
-    recompute_all_edges(st)
-    out = related_notes_for_query(query_text="alpha beta gamma", cooccur_store=st, k=5)
-    assert out
-    assert all(r.edge_score is None for r in out)
 
 
 def test_for_query_both_absent_returns_empty(tmp_path):
@@ -819,3 +794,20 @@ def test_rank_cooccur_skips_zero_weight_stems_like_the_note_major_form(tmp_path)
     ranked = _rank_cooccur_from_profile(st, profile, k=100, blocked=set(), scope=None)
     assert "root6" not in [p for p, _s in ranked]
     assert ranked == _old_rank_cooccur_from_profile(st, profile, k=100, blocked=set(), scope=None)
+
+
+def test_related_notes_many_equals_the_per_note_facade(tmp_path):
+    """One blocked matmul for the embed leg must reproduce the per-note path
+    exactly — same pool, same abstention, same fusion (ADR-0029)."""
+    from silica.kernel.recall.relatedness import related_notes_many
+    es = _embed_store(tmp_path)
+    st = _cooc_store(tmp_path)
+    paths = sorted(set(st.paths()) | set(es.paths()))
+    many = related_notes_many(paths, embed_store=es, cooccur_store=st, k=5)
+    for p in paths:
+        single = related_notes(p, embed_store=es, cooccur_store=st, k=5)
+        assert [(r.path, r.evidence) for r in many[p]] == [(r.path, r.evidence) for r in single], p
+    # an empty embed store abstains on that leg for every note, like the per-note path
+    cooc_only = related_notes_many(paths, embed_store=None, cooccur_store=st, k=5)
+    for p in paths:
+        assert [r.path for r in cooc_only[p]] == [r.path for r in related_notes(p, cooccur_store=st, k=5)]

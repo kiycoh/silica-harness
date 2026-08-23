@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 import networkx as nx
-from silica.kernel.link.ast import extract_links
+from silica.kernel.link.ast import extract_links_typed
 
 from silica.driver.base import (
     GraphIndexMixin,
@@ -33,10 +33,6 @@ from silica.driver.base import (
     NoteContent,
     NoteRef,
     Txn,
-    build_title_trie,
-    mentions_in,
-    trie_insert,
-    trie_remove,
 )
 from silica.kernel.write import frontmatter as fm
 from silica.kernel.write import session_changes
@@ -141,9 +137,7 @@ class ObsidianFSBackend(GraphIndexMixin):
         self._notes_by_name: dict[str, list[NoteRef]] = {}  # lower_name -> list of NoteRefs
         self._graph = nx.DiGraph()
         self._unresolved_links: set[tuple[str, str]] = set() # (source_path, raw_target)
-        self._mention_index: dict[str, set[str]] = {}        # title_lower -> set(path)
         self._alias_pairs: dict[str, list[str]] = {}         # path -> frontmatter aliases
-        self._title_trie: dict = {}                    # char trie of note titles (mention matching)
         self._needs_reindex: bool = True
         self._dirty_paths: set[str] = set()           # paths patched since last full rebuild
         # LRU-bounded at _BODY_CACHE_CAP entries (a note is a few KB, so the
@@ -327,7 +321,6 @@ class ObsidianFSBackend(GraphIndexMixin):
         self._notes_by_name.clear()
         self._graph.clear()
         self._unresolved_links.clear()
-        self._mention_index.clear()
         self._alias_pairs.clear()
 
         # Stamped BEFORE the file pass, deliberately: a note created between
@@ -360,8 +353,8 @@ class ObsidianFSBackend(GraphIndexMixin):
                 # Silica's own generated vault-root files (log.md, GRAPH_REPORT.md)
                 # are tooling output, not knowledge notes. Keeping them out of the
                 # index here excludes them from every metric that reads it —
-                # list_files (embed + cooccurrence builds), _mention_index
-                # (occurrence), and graph_data (mindmap) — in one place.
+                # list_files (embed + cooccurrence builds) and graph_data
+                # (mindmap) — in one place.
                 if is_vault_artifact(rel_path_file):
                     continue
 
@@ -377,24 +370,19 @@ class ObsidianFSBackend(GraphIndexMixin):
                 
                 files_to_process.append((rel_path_file, path))
 
-        # Pass 2: Parse and resolve links + build mention index. Bucket the
-        # titles by first word ONCE so the per-body scan is near-linear, not the
-        # old O(N²·L) title×body sweep.
-        self._title_trie = build_title_trie(self._notes_by_name)
+        # Pass 2: parse and resolve links. The mention index that used to be
+        # built here (title trie walked over every body) was deleted 2026-08-23:
+        # its only reader, `mentions_of`, had no caller left once BACKLINK moved
+        # to `search_context_batch` (a fresh title has no postings by construction).
         for rel_path_file, path in files_to_process:
             try:
                 content = path.read_text(encoding="utf-8")
-                targets = set(extract_links(content))
-                for target in targets:
+                for target, scaffold in extract_links_typed(content).items():
                     ref = self._resolve_target(target, source_path=rel_path_file)
                     if ref:
-                        self._graph.add_edge(rel_path_file, ref.path)
+                        self._add_link_edge(rel_path_file, ref.path, scaffold=scaffold)
                     else:
                         self._unresolved_links.add((rel_path_file, target))
-
-                # Mention index
-                for title_lower in mentions_in(content.lower(), self._title_trie):
-                    self._mention_index.setdefault(title_lower, set()).add(rel_path_file)
 
                 # Frontmatter aliases — harvested here because this pass already
                 # holds every body in hand; a separate props_of() sweep would
@@ -432,8 +420,6 @@ class ObsidianFSBackend(GraphIndexMixin):
         if rel_path in self._graph:
             self._graph.remove_edges_from(list(self._graph.out_edges(rel_path)))
         self._unresolved_links = {(s, t) for s, t in self._unresolved_links if s != rel_path}
-        for paths_set in self._mention_index.values():
-            paths_set.discard(rel_path)
         self._alias_pairs.pop(rel_path, None)
 
         if content is None:
@@ -447,8 +433,6 @@ class ObsidianFSBackend(GraphIndexMixin):
                     self._notes_by_name[name_lower] = [
                         r for r in self._notes_by_name[name_lower] if r.path != rel_path
                     ]
-                    if not self._notes_by_name.get(name_lower):
-                        trie_remove(self._title_trie, name_lower)
             self._dirty_paths.discard(rel_path)
             return
 
@@ -462,20 +446,14 @@ class ObsidianFSBackend(GraphIndexMixin):
             self._notes_by_name[name_lower] = []
         if ref not in self._notes_by_name[name_lower]:
             self._notes_by_name[name_lower].append(ref)
-        trie_insert(self._title_trie, name_lower)
 
         # --- rebuild edges for this path ---
-        targets = set(extract_links(content))
-        for target in targets:
+        for target, scaffold in extract_links_typed(content).items():
             target_ref = self._resolve_target(target, source_path=rel_path)
             if target_ref:
-                self._graph.add_edge(rel_path, target_ref.path)
+                self._add_link_edge(rel_path, target_ref.path, scaffold=scaffold)
             else:
                 self._unresolved_links.add((rel_path, target))
-
-        # --- rebuild mention index for this path (first-word-anchored) ---
-        for title_lower in mentions_in(content.lower(), self._title_trie):
-            self._mention_index.setdefault(title_lower, set()).add(rel_path)
 
         if (al := fm.aliases_of(content)):
             self._alias_pairs[rel_path] = al

@@ -11,10 +11,10 @@ tool (diagnostic) both call these.
 ``fusion_probe`` — masked-pair recovery through the FULL relatedness facade.
 For each human body-wikilink pair (A, B) that stays >2 hops apart once the
 link is masked: does ``related_notes()`` — the real fused ranking (RRF over
-embed + cooccur + note_edges, with abstention) — surface the counterpart in
+embed + cooccur, with abstention) — surface the counterpart in
 its top-k? Tier-adaptive with no tier code: for indexed notes the embed leg
 is a pure index lookup + cosine (no API call); absent or empty, the leg
-abstains per the facade contract and the probe measures cooccur+edges fusion.
+abstains per the facade contract and the probe measures the cooccur leg alone.
 ``legs`` reports what was actually live; ``embed_coverage`` (fraction of
 evaluated notes with a stored vector) exposes stale or key-mismatched
 embedding indexes that would otherwise read as a recall drop. Masking caveat:
@@ -127,18 +127,13 @@ def eligible_pairs(adj: dict[str, set[str]]) -> list[tuple[str, str]]:
 
 
 def fusion_probe(vault: Path, store, *, embed_store=None, k: int = K, verbose: bool = False) -> dict:
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import related_notes
 
     es = embed_store if (embed_store is not None and len(embed_store)) else None
-    legs = ("embed+" if es is not None else "") + ("cooccur+edges" if len(store) else "")
+    legs = ("embed+" if es is not None else "") + ("cooccur" if len(store) else "")
 
     if len(store) == 0:
         return {**_EMPTY_FUSION, "legs": legs}
-
-    # Self-contained: derive note_edges from the current contributions
-    # (idempotent — probe order in the runner must not matter).
-    correlate.recompute_all_edges(store)
 
     eligible = eligible_pairs(wikilink_graph(vault, store))
     if not eligible:

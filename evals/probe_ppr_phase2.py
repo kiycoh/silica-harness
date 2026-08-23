@@ -249,7 +249,6 @@ def ceiling(missed, store, es, *, pool: int, arm_a_topk: dict[str, list[str]]) -
 def run(vault: Path, *, hops: int = HOPS, alpha: float = ALPHA,
         top_n: int = TOP_STEMS, sweep: bool = False) -> dict:
     from evals.golden.runner import _open_stores, vault_digest
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import _POOL_MIN
 
     store, embed_store = _open_stores(vault)
@@ -258,7 +257,6 @@ def run(vault: Path, *, hops: int = HOPS, alpha: float = ALPHA,
     pool = max(K * 3, _POOL_MIN)
     print(f"vault {vault}  ({notes} notes, {digest[:19]}…)  embed leg: {'live' if es else 'OFF'}")
 
-    correlate.recompute_all_edges(store)
     eligible = eligible_pairs(wikilink_graph(vault, store))
     endpoints = sorted({e for pr in eligible for e in pr})
     print(f"{len(eligible)} eligible pairs, {len(endpoints)} endpoints, cooccur pool top-{pool}")

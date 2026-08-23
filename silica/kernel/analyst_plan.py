@@ -22,7 +22,7 @@ from typing import Literal
 
 import networkx as nx
 
-from silica.kernel.report.graph_report import AutolinkCandidate, MissingLink, VaultReport
+from silica.kernel.report.graph_report import AutolinkCandidate, VaultReport
 from silica.kernel.progress import PlanStep
 
 Tier = Literal["auto", "propose", "escalate"]
@@ -34,23 +34,6 @@ Tier = Literal["auto", "propose", "escalate"]
 #   INFERRED   = single-signal / embedding  → propose (confirm before writing)
 #   AMBIGUOUS  = conflicting / needs a human → escalate
 Confidence = Literal["EXTRACTED", "INFERRED", "AMBIGUOUS"]
-
-_MISSING_LINK_TAU_HIGH = 0.85  # mirrors CONFIG.sim_threshold_high default
-
-
-def classify_missing_link(ml: "MissingLink", *, tau_high: float = _MISSING_LINK_TAU_HIGH) -> Confidence:
-    """Confidence of an embedding-proposed link from its provenance.
-
-    Embeddings propose, the graph disposes: a proposal the graph also corroborates
-    (d_prev == 2 → source and target share a neighbour) at a high cosine is
-    EXTRACTED; anything weaker is INFERRED. Missing links are pre-filtered ≥ τ in
-    compute_report, so they never fall to AMBIGUOUS here.
-    """
-    corroborated = ml.d_prev == 2
-    if ml.cosine >= tau_high and corroborated:
-        return "EXTRACTED"
-    return "INFERRED"
-
 
 def classify_autolink(cand: "AutolinkCandidate") -> Confidence:
     """Confidence of an embedder-free co-occurrence autolink, from its evidence.
@@ -223,47 +206,10 @@ def build_task_plan(report: VaultReport) -> AnalystPlan:
             priority=1,
         ))
 
-    # 2. Missing links (embedding proposals, already filtered ≥ τ in compute_report)
-    #    Tier follows the edge's confidence, not a flat propose: a proposal the
-    #    graph corroborates (EXTRACTED) is auto-linkable (reversible, unambiguous);
-    #    an embedding-only proposal (INFERRED) needs confirmation.
-    conf_by_source: dict[str, Confidence] = {}
-    for ml in report.missing_links:
-        conf = classify_missing_link(ml)
-        prev = conf_by_source.get(ml.source)
-        # EXTRACTED wins: a source with any corroborated link is auto-linkable.
-        if prev is None or (conf == "EXTRACTED" and prev != "EXTRACTED"):
-            conf_by_source[ml.source] = conf
-
-    missing_by_tier: dict[Confidence, dict[int, list[str]]] = {"EXTRACTED": {}, "INFERRED": {}}
-    for source, conf in conf_by_source.items():
-        cid = node_to_cluster.get(source, -1)
-        missing_by_tier[conf].setdefault(cid, []).append(source)
-
-    for chunk in _chunk_groups(missing_by_tier["EXTRACTED"]):
-        auto.append(TaskCandidate(
-            capability_name="silica_autolink",
-            payload={"note_paths": chunk, "use_candidates": True},
-            reason=f"Embedding + graph corroborate links for {len(chunk)} source note(s) → auto-link",
-            tier="auto",
-            confidence="EXTRACTED",
-            priority=2,
-        ))
-
-    for chunk in _chunk_groups(missing_by_tier["INFERRED"]):
-        propose.append(TaskCandidate(
-            capability_name="silica_autolink",
-            payload={"note_paths": chunk, "use_candidates": True},
-            reason=f"Embedding proposes links for {len(chunk)} source note(s) — confirm before writing",
-            tier="propose",
-            confidence="INFERRED",
-            priority=2,
-        ))
-
-    # 2.6 Autolink candidates — the embedder-free co-occurrence twin of step 2.
-    #     Works even when the embedder is down (missing_links would be empty).
-    #     Tier follows evidence via classify_autolink: a shared concept is INFERRED
-    #     → propose; an associative-only pair is AMBIGUOUS → escalate (human review).
+    # 2. Autolink candidates — the relatedness facade's proposals (ADR-0029),
+    #    embedder-free when the embed index is empty. Tier follows evidence via
+    #    classify_autolink: a shared concept is INFERRED → propose; an
+    #    associative-only pair is AMBIGUOUS → escalate (human review).
     autolink_inferred_by_cluster: dict[int, list[str]] = {}
     seen_inferred: set[str] = set()
     for cand in getattr(report, "autolink_candidates", []):
@@ -290,7 +236,7 @@ def build_task_plan(report: VaultReport) -> AnalystPlan:
         propose.append(TaskCandidate(
             capability_name="silica_autolink",
             payload={"note_paths": chunk, "use_candidates": True},
-            reason=f"Co-occurrence proposes links for {len(chunk)} source note(s) — confirm before writing",
+            reason=f"Relatedness proposes links for {len(chunk)} source note(s) — confirm before writing",
             tier="propose",
             confidence="INFERRED",
             priority=2,

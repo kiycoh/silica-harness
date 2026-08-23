@@ -435,7 +435,13 @@ def _stamp_agent(content: str) -> str:
     return content[:end] + "\n" + line + content[end:]
 
 
-_DOCS_BLOCK_RE = re.compile(r"^documents:[^\n]*(?:\n[ \t]+-[^\n]*)*\n?", re.MULTILINE)
+# `[ \t]*`, not `[ \t]+`: a top-level sequence is FLUSH LEFT the moment the
+# note has been through `frontmatter.dump`, because that is how yaml.safe_dump
+# writes one, and any property edit re-emits the block. Requiring indentation
+# deleted the key line and left its items orphaned under the previous scalar,
+# which is not YAML: 2 of 52 notes unreadable on the 2026-08-23 nucleate batch,
+# and `split` returning None there made `stamp_citation` re-append every key.
+_DOCS_BLOCK_RE = re.compile(r"^documents:[^\n]*(?:\n[ \t]*-[^\n]*)*\n?", re.MULTILINE)
 _CODE_REF_RE = re.compile(r"^code_ref:.*$", re.MULTILINE)
 
 
@@ -469,7 +475,7 @@ def stamp_documents(content: str, documents: list[str], code_ref: str | None = N
     return "---\n" + head + tail
 
 
-_SOURCES_BLOCK_RE = re.compile(r"^sources:[^\n]*(?:\n[ \t]+-[^\n]*)*\n?", re.MULTILINE)
+_SOURCES_BLOCK_RE = re.compile(r"^sources:[^\n]*(?:\n[ \t]*-[^\n]*)*\n?", re.MULTILINE)
 
 
 def stamp_sources(content: str, source_basename: str) -> str:
@@ -707,6 +713,17 @@ def related_trace(candidate: str, rationale: str) -> str:
     rat = " ".join((rationale or "").split())[:_RELATED_TRACE_RATIONALE_CHARS]
     tail = f": {rat}" if rat else ""
     return f"> [!info] Related: [[{cand}]] (judged distinct{tail})"
+
+
+def related_unjudged(candidate: str) -> str:
+    """The link a spoke keeps when the judge's reply could not be parsed.
+
+    Deliberately NOT the trace form: `parse_related_traces` must read no
+    verdict off a pair that was never judged, so this line shares the link
+    and the callout type with the trace and nothing else.
+    """
+    cand = _related_trace_candidate(candidate)
+    return f"> [!info] Related: [[{cand}]] (flagged as similar; no verdict recorded)"
 
 
 def parse_related_traces(body: str) -> list[tuple[str, str]]:

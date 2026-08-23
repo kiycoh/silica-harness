@@ -14,6 +14,7 @@ import os
 from typing import Any, Literal
 
 from pydantic import BaseModel
+from pydantic.json_schema import SkipJsonSchema
 
 from silica.agent.commit import commit_ops
 from silica.agent.bounds import dedup_bounds, dedup_spoke_bounds
@@ -42,6 +43,10 @@ class DedupVerdict(BaseModel):
     #                (judge+author); ad-hoc pairs: no write
     # contradicts  → record the conflicting claim as a contested patch (never resolve)
     verdict: VerdictLabel = "distinct"
+    # False when the verdict is the parse-failure default rather than the
+    # model's answer. Off the wire schema: constrained decoding would
+    # otherwise ask the model to fill it, and it is the framework's field.
+    judged: SkipJsonSchema[bool] = True
     rationale: str = ""
     addition: str = ""
 
@@ -493,7 +498,7 @@ def _route_distinct(
         return no_merge
 
     from silica.kernel.write.templates import (
-        has_related_trace, related_trace, slugify,
+        has_related_trace, related_trace, related_unjudged, slugify,
     )
 
     concept = ctx.get("concept", "")
@@ -516,8 +521,15 @@ def _route_distinct(
     # provenance spec, Lane A): the judge call is already paid, this line is
     # the only record of its verdict. In-body rather than a post-commit patch,
     # so the trace exists iff the spoke does and re-runs cannot stack copies.
+    # A parse-failure default is not a verdict: the spoke is still born
+    # linked, but no "judged distinct" record is written for a pair nobody
+    # judged, and the fallback's diagnostic string stays out of vault copy
+    # (2026-08-23: "(judged distinct: unparseable decision)" on a spoke).
     if candidate_name and not has_related_trace(body, candidate_name):
-        body += f"\n\n{related_trace(candidate_name, decision.rationale)}"
+        body += "\n\n" + (
+            related_trace(candidate_name, decision.rationale) if decision.judged
+            else related_unjudged(candidate_name)
+        )
 
     emit_feedback(item, "committing")
     spoke_path = f"{target_dir}/{slugify(title) or title}.md"
@@ -617,6 +629,12 @@ def _decide_dedup(
         tools=None,
         response_schema=DedupDecision if author_spoke else DedupVerdict,
         max_tokens=2048,
+        # The verdict is a few hundred tokens of JSON; with thinking on, a
+        # hybrid model spends the budget on its trace and the JSON arrives
+        # cut (finish=length, "Unterminated string", 2026-08-23 run on
+        # deepseek-v4-flash). That trace had concluded "duplicate", and the
+        # parse fallback then wrote "distinct". Same knob as residue.py.
+        reasoning=False,
     )
     raw = response.text or ""
     try:
@@ -640,7 +658,7 @@ def _decide_dedup(
     except Exception as e:
         logger.debug("dedup decision parse failed: %s", e)
     # Conservative default: when in doubt, do not merge and do not contest.
-    return DedupDecision(verdict="distinct", rationale="unparseable decision")
+    return DedupDecision(verdict="distinct", rationale="unparseable decision", judged=False)
 
 
 def _score_block(score: float, full_score: float, title_score: float) -> str:
@@ -724,6 +742,7 @@ def _decide_dedup_batch(
         tools=None,
         response_schema=DedupBatchDecision if author_spoke else DedupVerdictBatch,
         max_tokens=2048 * n,
+        reasoning=False,  # same budget arithmetic as the single path
     )
     return _parse_batch(response.text or "", n)
 
@@ -738,7 +757,8 @@ def _parse_batch(raw: str, n: int) -> list[DedupDecision]:
     from silica.kernel.text.sanitize import parse_json
 
     def fallback() -> DedupDecision:
-        return DedupDecision(verdict="distinct", rationale="missing from batch response")
+        return DedupDecision(
+            verdict="distinct", rationale="missing from batch response", judged=False)
 
     decisions: list[DedupDecision] = []
     try:

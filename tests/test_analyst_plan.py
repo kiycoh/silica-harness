@@ -9,9 +9,9 @@ import pytest
 
 from silica.kernel.report.graph_report.compute import _empty_report
 from silica.kernel.report.graph_report import (
+    AutolinkCandidate,
     BridgeStat,
     ClusterStat,
-    MissingLink,
     NodeStat,
     VaultReport,
 )
@@ -129,32 +129,7 @@ def test_orphan_without_a_cluster_gets_an_empty_neighbourhood():
     assert tasks and tasks[0].payload["neighbourhood"] == []
 
 
-# ---------------------------------------------------------------------------
-# Missing links → propose
-# ---------------------------------------------------------------------------
 
-def test_missing_link_above_threshold_goes_propose():
-    r = _empty_report()
-    r.missing_links = [MissingLink(source="A", target="B", cosine=0.90)]
-    plan = build_task_plan(r)
-    propose_caps = [c.capability_name for c in plan.propose]
-    assert "silica_autolink" in propose_caps
-    sources = []
-    for c in plan.propose:
-        sources.extend(c.payload.get("note_paths", []))
-    assert "A" in sources
-
-
-def test_missing_link_deduplicated_by_source():
-    """Multiple missing links from the same source → only one propose task."""
-    r = _empty_report()
-    r.missing_links = [
-        MissingLink(source="A", target="B", cosine=0.91),
-        MissingLink(source="A", target="C", cosine=0.88),
-    ]
-    plan = build_task_plan(r)
-    a_tasks = [c for c in plan.propose if "A" in c.payload.get("note_paths", [])]
-    assert len(a_tasks) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +186,7 @@ def test_single_dangling_not_escalated():
 def test_no_irreversible_capability_in_auto():
     r = _empty_report()
     r.orphans = ["Notes/SomeOrphan"]
-    r.missing_links = [MissingLink(source="A", target="B", cosine=0.95)]
+    r.autolink_candidates = [AutolinkCandidate(source="A", target="B", weight=0.9, shared=["x"])]
     r.clusters = [_cluster(0, _CLUSTER_SIZE_THRESHOLD + 10, "H", ["H"] * (_CLUSTER_SIZE_THRESHOLD + 10))]
     r.dangling = [{"target": "X", "refs": 5}]
     plan = build_task_plan(r)

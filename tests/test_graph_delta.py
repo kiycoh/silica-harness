@@ -136,18 +136,25 @@ def test_autolink_carries_shared_concept_evidence(delta_report):
     assert cand.weight > 0
 
 
-# --- CORRELATE (ADR-0013): direct note_edges provenance + IDF evidence ------
+# --- CORRELATE (ADR-0013, ADR-0029): direct provenance + IDF evidence -------
 
-def test_autolink_provenance_is_expanded_without_edges(delta_report):
-    # No note_edges built on the fixture store -> today's behaviour: the pair
-    # surfaces only through the expanded ranking.
-    cand = next(a for a in delta_report.autolink_candidates if {a.source, a.target} == {"A", "E"})
-    assert cand.provenance == "expanded"
+def test_autolink_provenance_is_fused_without_a_direct_edge(tmp_path):
+    # The facade surfaces the pair (shared stems rank them together) but their
+    # top-k Jaccard stays under tau: the candidate is "fused", never "direct".
+    st = CooccurStore(path=tmp_path / "fused.json", lang="english")
+    st.upsert_note("P", build_contribution("P", "rare scarce alpha beta gamma delta one two"))
+    st.upsert_note("Q", build_contribution("Q", "rare scarce epsilon zeta eta theta three four"))
+    st.upsert_note("R", build_contribution("R", "bread flour yeast water salt"))
+    nodes = [_make_node(x, x, 0) for x in ("P", "Q", "R")]
+    r = compute_report(_nodes_edges_override=(nodes, []), with_cooccurrence=True,
+                       _cooccur_store_override=st)
+    cand = next(a for a in r.autolink_candidates if {a.source, a.target} == {"P", "Q"})
+    assert cand.provenance == "fused"
+    assert 0 < cand.weight < 0.1          # an RRF score, kept at 4 decimals
+    assert "rare" in cand.shared and "scarce" in cand.shared
 
 
 def test_autolink_provenance_is_direct_when_edges_present(synthetic_graph, cooccur_store):
-    from silica.kernel.link.correlate import recompute_all_edges
-    recompute_all_edges(cooccur_store)  # A-E is a direct edge (jaccard 0.5 >= tau)
     nodes, edges = synthetic_graph
     r = compute_report(
         _nodes_edges_override=(nodes, edges),
@@ -162,8 +169,6 @@ def test_autolink_bridges_md_suffixed_graph_ids(cooccur_store):
     # Real vaults: graph node ids carry '.md' while store keys are stripped.
     # The delta must bridge the two keyspaces — a raw `nid in G_und` matches
     # nothing and AUTOLINK silently comes out empty (regression 2026-07-10).
-    from silica.kernel.link.correlate import recompute_all_edges
-    recompute_all_edges(cooccur_store)
     nodes = [_make_node(f"{x}.md", x, 0) for x in ("A", "B", "C", "D", "E", "F")]
     edges = [
         _make_edge("e0", "A.md", "B.md"),
@@ -183,14 +188,12 @@ def test_autolink_bridges_md_suffixed_graph_ids(cooccur_store):
 
 
 def test_direct_evidence_orders_shared_stems_by_idf(tmp_path):
-    from silica.kernel.link.correlate import recompute_all_edges
     st = CooccurStore(path=tmp_path / "idf.json", lang="english")
     # "common" is ubiquitous (low IDF); "rare"/"scarce" live only in P,Q (high IDF).
     st.upsert_note("P", build_contribution("P", "common rare scarce alpha"))
     st.upsert_note("Q", build_contribution("Q", "common rare scarce beta"))
     st.upsert_note("R", build_contribution("R", "common ordinary usual"))
     st.upsert_note("S", build_contribution("S", "common typical routine"))
-    recompute_all_edges(st)  # P-Q share {common,rare,scarce}: jaccard 3/5, a direct edge
     # P and Q are isolated nodes (no wikilink path) -> a valid >2-hop candidate.
     nodes = [_make_node(x, x, 0) for x in ("P", "Q", "R", "S")]
     r = compute_report(
@@ -206,11 +209,10 @@ def test_direct_evidence_orders_shared_stems_by_idf(tmp_path):
     assert len(cand.shared) <= 5
 
 
-def test_autolink_quota_keeps_direct_above_the_expanded_flood(tmp_path):
-    # Direct weights are Jaccard (<=1); expanded overlap weights run orders of
-    # magnitude higher. Without the per-leg quota one mixed sort floods the
-    # top-k with expanded pairs and the direct leg never renders.
-    from silica.kernel.link.correlate import recompute_all_edges
+def test_autolink_quota_keeps_direct_above_the_fused_flood(tmp_path):
+    # Direct weights are Jaccard (<=1); fused weights are RRF scores (~0.02).
+    # Without the per-leg quota one mixed sort orders the legs by scale and
+    # one of them never renders.
     st = CooccurStore(path=tmp_path / "quota.json", lang="english")
     st.upsert_note("P", build_contribution("P", "rare scarce alpha beta"))
     st.upsert_note("Q", build_contribution("Q", "rare scarce alpha gamma"))
@@ -218,7 +220,6 @@ def test_autolink_quota_keeps_direct_above_the_expanded_flood(tmp_path):
     st.upsert_note("R", build_contribution("R", hub + "red rope rust rain rock"))
     st.upsert_note("S", build_contribution("S", hub + "sand salt song sail seed"))
     st.upsert_note("T", build_contribution("T", hub + "tree tent tide turf twig"))
-    recompute_all_edges(st)  # P-Q is the ONLY direct edge (jaccard 0.6)
     nodes = [_make_node(x, x, 0) for x in ("P", "Q", "R", "S", "T")]
     r = compute_report(
         _nodes_edges_override=(nodes, []),
@@ -228,7 +229,7 @@ def test_autolink_quota_keeps_direct_above_the_expanded_flood(tmp_path):
     )
     provs = [a.provenance for a in r.autolink_candidates]
     assert "direct" in provs      # the Jaccard-scaled leg holds its slot
-    assert "expanded" in provs    # without starving the high-recall leg
+    assert "fused" in provs       # without starving the high-recall leg
 
 
 def test_autolink_excludes_already_wikilinked_pairs(delta_report):
@@ -448,4 +449,4 @@ def test_markdown_autolink_table_shows_convergence():
     assert "Hubs" in md          # convergence column header
     assert "| 2 |" in md         # the convergence value rendered
     assert "Via" in md           # provenance column header
-    assert "expanded" in md      # default provenance rendered
+    assert "fused" in md         # default provenance rendered

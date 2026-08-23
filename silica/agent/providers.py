@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import threading
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urlsplit
@@ -260,7 +261,12 @@ class Provider:
         max_tokens: int | None = None,
         openrouter_provider: str | None = None,
         temperature: float | None = None,
+        reasoning: bool | None = None,
+        cancel: "threading.Event | None" = None,
     ) -> LLMResponse:
+        """`cancel` marks the call abandoned: a caller that bounds this with its
+        own wall-clock deadline sets it when that deadline fires, so retry_transient
+        stops rescheduling instead of issuing requests nobody is waiting for."""
         from silica.agent.llm import call_llm  # lazy: llm.py imports this module
 
         # Structured decoding defaults to greedy: this path exists to extract a
@@ -279,6 +285,13 @@ class Provider:
             temperature=temperature,
             openrouter_provider=openrouter_provider,
             api_key=self.api_key or None,
+            # Forwarded, not defaulted: a hybrid model bills its thinking
+            # against max_tokens, and a structured worker call that cannot
+            # switch it off gets its JSON cut at the budget (the dedup judge,
+            # 2026-08-23). Which workers turn it off is their call, not the
+            # lane's: the distiller's output is prose the trace may improve.
+            reasoning=reasoning,
+            cancel=cancel,
         )
 
 

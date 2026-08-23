@@ -178,3 +178,35 @@ def test_ad_hoc_pair_writes_nothing():
         )
     assert res["status"] == "no_merge"
     assert commit.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# An unparseable judge reply is not a verdict: the spoke stays linked to the
+# candidate, but no "judged distinct" record may be written for it.
+# ---------------------------------------------------------------------------
+
+
+def test_unjudged_link_is_not_a_trace():
+    from silica.kernel.write.templates import related_unjudged
+
+    line = related_unjudged("Gradient Descent")
+    assert "[[Gradient Descent]]" in line
+    assert "judged" not in line
+    assert "unparseable" not in line
+    assert parse_related_traces(line) == []
+    assert not has_related_trace(line, "Gradient Descent")
+
+
+def test_unjudged_decision_links_without_claiming_a_verdict():
+    """2026-08-23 run: `rdf.md` carried "(judged distinct: unparseable decision)"
+    after the judge's JSON was cut at max_tokens. The pair was never judged;
+    the survey parser must not read a verdict off it, and the internal
+    diagnostic must not reach vault copy."""
+    op = _committed_op(
+        _pipeline_ctx(),
+        _decision(title="", body="", rationale="unparseable decision", judged=False),
+    )
+    assert "[[Gradient Descent]]" in op.snippet
+    assert parse_related_traces(op.snippet) == []
+    assert "unparseable" not in op.snippet
+    assert "judged" not in op.snippet

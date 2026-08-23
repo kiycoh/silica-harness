@@ -269,7 +269,7 @@ def test_fsm_multi_chunk_loop(
     assert any({"chunk_id": 1, "concepts": ["b"]}.items() <= p.items() for p in payloads_seen)
 
     # Verify cleanup (file move) was only called once (on the final chunk completion)
-    mock_cleanup.assert_called_once_with("Inbox/test.md", "done")
+    mock_cleanup.assert_called_once_with("Inbox/test.md")
 
 
 def test_fsm_recipe_configuration():
@@ -892,33 +892,29 @@ def test_collision_borderline_defers_rematerializable_op_and_tags_workitem():
     assert ctx["target_dir"] == "TargetDir"
 
 
-def test_collision_cooccur_only_candidate_is_never_routed():
-    """A facade candidate the embed leg did not propose (embed_score=None) has
-    no cosine to threshold against — the concept must flow to distillation."""
-    from silica.kernel.recall.relatedness import RelatedNote
-
+def test_collision_does_not_consult_the_fused_facade():
+    """The candidate is the cosine-best note (ADR-0030); the co-occurrence leg
+    is never consulted, so a note only that leg would propose cannot become a
+    candidate, and an empty cosine result keeps the concept for distillation."""
     fsm = _make_fsm_at_collision([{"name": "Graph Theory", "inbox_excerpt": "Nodes and edges."}])
 
     mock_store = MagicMock()
     mock_store.__len__ = lambda _: 5  # non-empty index
+    mock_store.cosine_top_k.return_value = []
 
     mock_embedder = MagicMock()
     mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
 
-    cooccur_only = [RelatedNote(
-        path="Math/Networks.md", name="Networks", score=0.016,
-        evidence=["cooccur:w7"], embed_score=None, cooccur_weight=7.0,
-    )]
-
     with patch("silica.router.orchestrator.CONFIG") as mock_cfg, \
          patch("silica.kernel.recall.embed.EmbedStore", return_value=mock_store), \
          patch("silica.agent.providers.get_embedder", return_value=mock_embedder), \
-         patch("silica.kernel.recall.relatedness.related_notes_for_query", return_value=cooccur_only):
+         patch("silica.kernel.recall.relatedness.related_notes_for_query") as facade:
         mock_cfg.sim_threshold_high = 0.85
         mock_cfg.sim_threshold_low = 0.65
 
         fsm.step()
 
+    facade.assert_not_called()
     assert fsm.state == InjectorState.DELEGATE
     assert fsm.context.get("chunk_0_collision_ops", []) == []
     concepts_left = [
@@ -935,26 +931,21 @@ def test_collision_inbox_candidate_is_filtered():
     patch target — validate rejects every Inbox path, so routing one guarantees
     a rejected op (real incident: 2026-07-17 nucleate run, Lezione 1↔2 and the
     SVM book cross-patching). The concept flows to normal distillation."""
-    from silica.kernel.recall.relatedness import RelatedNote
-
     fsm = _make_fsm_at_collision([{"name": "Support Vector Machines", "inbox_excerpt": "SVM intro."}])
 
     mock_store = MagicMock()
     mock_store.__len__ = lambda _: 5  # non-empty index
+    mock_store.cosine_top_k.return_value = [
+        {"path": "Inbox/svm-book/01-intro.md", "name": "Support Vector Machines", "score": 0.92},
+    ]
 
     mock_embedder = MagicMock()
     mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
 
-    inbox_hit = [RelatedNote(
-        path="Inbox/svm-book/01-intro.md", name="Support Vector Machines",
-        score=0.92, evidence=["embed:0.92"], embed_score=0.92, cooccur_weight=None,
-    )]
-
     with patch("silica.router.orchestrator.CONFIG") as mock_cfg, \
          patch("silica.router.orchestrator.DRIVER") as mock_driver, \
          patch("silica.kernel.recall.embed.EmbedStore", return_value=mock_store), \
-         patch("silica.agent.providers.get_embedder", return_value=mock_embedder), \
-         patch("silica.kernel.recall.relatedness.related_notes_for_query", return_value=inbox_hit):
+         patch("silica.agent.providers.get_embedder", return_value=mock_embedder):
         mock_cfg.sim_threshold_high = 0.85
         mock_cfg.sim_threshold_low = 0.65
         mock_driver.read_note.return_value = MagicMock()  # graph would confirm the node
@@ -1453,3 +1444,46 @@ def test_recon_steps_straight_to_payload():
 
     assert fsm.state == InjectorState.PAYLOAD
     assert not hasattr(InjectorState, "CROSSDEDUP")
+
+
+def test_collision_routes_on_the_cosine_best_note_not_the_fused_winner():
+    """Routing thresholds are cosine thresholds, so the note they are tested on
+    is the cosine-best one. Measured 2026-08-23 on 60 duplicates (ADR-0030):
+    the cosine-top is the duplicate 98% of the time, the RRF winner 87%, and a
+    duplicate handed to the judge under the wrong candidate is lost either
+    way. Here the fused facade would put a 0.70 note first (kept, under
+    tau_low) while the cosine-best note sits at 0.80 (deferred)."""
+    from silica.kernel.recall.relatedness import RelatedNote
+    from silica.kernel.workqueue import WorkQueue
+
+    fsm = _make_fsm_at_collision([{"name": "ML estimator", "inbox_excerpt": "Maximises the likelihood."}])
+    fsm.work_queue = WorkQueue()
+
+    mock_store = MagicMock()
+    mock_store.__len__ = lambda _: 5
+    mock_store.cosine_top_k.return_value = [
+        {"path": "Stats/Stimatore di massima verosimiglianza.md", "name": "Stimatore di massima verosimiglianza", "score": 0.80},
+        {"path": "Stats/Funzione di verosimiglianza.md", "name": "Funzione di verosimiglianza", "score": 0.70},
+    ]
+    mock_embedder = MagicMock()
+    mock_embedder.embed.return_value = [[0.1, 0.2, 0.3]]
+    fused_winner = [RelatedNote(
+        path="Stats/Funzione di verosimiglianza.md", name="Funzione di verosimiglianza",
+        score=0.03, evidence=["embed:0.70", "cooccur:w9"], embed_score=0.70, cooccur_weight=9.0,
+    )]
+    mock_deferred = MagicMock()
+    mock_deferred.get.return_value = None
+
+    with patch("silica.router.orchestrator.CONFIG") as mock_cfg, \
+         patch("silica.kernel.recall.embed.EmbedStore", return_value=mock_store), \
+         patch("silica.agent.providers.get_embedder", return_value=mock_embedder), \
+         patch("silica.kernel.recall.relatedness.related_notes_for_query", return_value=fused_winner), \
+         patch("silica.kernel.recall.deferred.get_deferred_store", return_value=mock_deferred):
+        mock_cfg.sim_threshold_high = 0.85
+        mock_cfg.sim_threshold_low = 0.75
+        fsm.step()
+
+    items = fsm.work_queue.items()
+    assert len(items) == 1, "the cosine-best note at 0.80 is in the band and must reach the judge"
+    assert items[0].target_path == "Stats/Stimatore di massima verosimiglianza.md"
+    assert items[0].context["score"] == 0.80

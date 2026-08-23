@@ -428,7 +428,7 @@ class TestT4PerFileCleanup:
                     fsm.context["ops_path"] = "/tmp/ops.json"
                     fsm.context["txn_id"] = "txn_1"
                     finalize.handle_cleanup(fsm)
-        mock_cleanup.assert_called_once_with("Inbox/test.md", "done")
+        mock_cleanup.assert_called_once_with("Inbox/test.md")
 
 
 # ---------------------------------------------------------------------------

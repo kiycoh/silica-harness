@@ -68,37 +68,6 @@ def bench_learner_memo(root: Path) -> None:
         RESULTS.append(("learner epoch memo (repeat call)", n, off_ms, on_ms))
 
 
-def bench_cooccur_adjacency(root: Path) -> None:
-    from silica.kernel.recall.cooccurrence import CooccurStore, cooccur_key
-
-    rng = random.Random(7)
-    for n in SIZES:
-        store = CooccurStore(path=root / f"cooccur_{n}.json")
-        keys = [f"area{i % 20}/note{i}" for i in range(n)]
-        for _ in range(int(0.57 * n)):
-            a, b = rng.sample(keys, 2)
-            store.set_note_edge(a, b, rng.random())
-
-        edges = store._note_edges
-
-        def off():  # the pre-lever body: O(E) reverse scan per node
-            for k in keys:
-                key = cooccur_key(k)
-                out = dict(edges.get(key, {}))
-                for lo, nbrs in edges.items():
-                    if lo != key and key in nbrs:
-                        out[lo] = nbrs[key]
-
-        def on():
-            for k in keys:
-                store.note_edges_for(k)
-
-        off_ms = timed(off)
-        store._note_edges_adj = None
-        on_ms = timed(on)  # includes the one-time adjacency build
-        RESULTS.append(("cooccur two-way adjacency (walk all nodes)", n, off_ms, on_ms))
-
-
 def bench_embed_deferred(root: Path) -> None:
     from silica.kernel.recall.embed import EmbedStore
 
@@ -163,7 +132,6 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="silica_lever_bench_"))
     try:
         bench_learner_memo(tmp)
-        bench_cooccur_adjacency(tmp)
         bench_embed_deferred(tmp)
         bench_body_cache_bound(tmp)
     finally:

@@ -9,12 +9,13 @@ notes and reports where a merge would go. No replica of pipeline logic — the
 harness calls the same functions, so it can never drift from what it measures.
 
 FP arm (gated on RISE):
-    Each non-inbox note's top retrieval candidate (through the real
-    ``related_notes`` facade, inbox-filtered exactly as ``handle_collision``
-    does). Any pair the router auto-routes ``patch`` — a mechanical merge with
-    no judge — is a FALSE POSITIVE: the human kept the two notes distinct.
-    Zero-API: the query is the note's stored vector and hub status comes from
-    the cached cluster context, the same offline signals COLLISION reads.
+    Each non-inbox note's cosine-best candidate (the store's own
+    ``cosine_top_k``, inbox-filtered exactly as ``collision_pass`` does since
+    ADR-0030; until then the facade's winner). Any pair the router auto-routes
+    ``patch`` — a mechanical merge with no judge — is a FALSE POSITIVE: the
+    human kept the two notes distinct. Zero-API: the query is the note's stored
+    vector and hub status comes from the cached cluster context, the same
+    offline signals COLLISION reads.
 
 TP arm (report; gate self-arms once labels resolve):
     Analyst-labeled real duplicates (same concept, different surface) ported
@@ -88,7 +89,6 @@ def run(vault, store, *, embed_store=None, verbose: bool = False) -> dict:
     from silica.config import CONFIG
     from silica.kernel.link.health import iter_notes
     from silica.kernel.recall.paths import is_inbox_path
-    from silica.kernel.recall.relatedness import related_notes
     from silica.router.states.collision import _names_agree, route_concept
 
     if embed_store is None or not len(embed_store):
@@ -105,34 +105,31 @@ def run(vault, store, *, embed_store=None, verbose: bool = False) -> dict:
     keys = [k for k in keys if embed_store.get_vec(k) is not None and not is_inbox_path(k)]
     domain = {k: k.split("/")[0] for k in keys}
 
-    # --- FP arm: top facade candidate per note, routed by the real functions ---
+    # --- FP arm: cosine-best candidate per note, routed by the real functions ---
     counts = {"patch": 0, "defer": 0, "keep": 0}
     evaluated = 0
     fp_examples: list[tuple[float, str, str]] = []
     for k in keys:
-        cands = related_notes(
-            k, embed_store=embed_store, cooccur_store=store,
-            k=5, exclude={k, k + ".md"},
-        )
+        # k=5 as in collision_pass, plus the self row the exclude removes.
+        hits = embed_store.cosine_top_k(embed_store.get_vec(k), k=6, exclude={k, k + ".md"})
         best = next(
-            (c for c in cands
-             if not is_inbox_path(c.path)
-             and c.embed_score is not None
-             and domain.get(c.path.removesuffix(".md")) == domain[k]),
+            (h for h in hits
+             if not is_inbox_path(h["path"])
+             and domain.get(h["path"].removesuffix(".md")) == domain[k]),
             None,
         )
         if best is None:
-            continue  # cold path: no same-domain embed candidate → COLLISION keeps
+            continue  # cold path: no same-domain candidate → COLLISION keeps
         evaluated += 1
-        is_hub = best.path.removesuffix(".md") in hubs
+        is_hub = best["path"].removesuffix(".md") in hubs
         d = route_concept(
-            best.embed_score,
-            names_agree=_names_agree(k.split("/")[-1], best.name),
+            best["score"],
+            names_agree=_names_agree(k.split("/")[-1], best["name"]),
             is_hub=is_hub, tau_high=tau_high, tau_low=tau_low,
         )
         counts[d] += 1
         if d == "patch":
-            fp_examples.append((round(best.embed_score, 3), k.split("/")[-1], best.name))
+            fp_examples.append((round(best["score"], 3), k.split("/")[-1], best["name"]))
 
     out = {
         "fp_auto_merge_rate": round(counts["patch"] / evaluated, 4) if evaluated else 0.0,

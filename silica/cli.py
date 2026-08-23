@@ -1604,7 +1604,7 @@ def _file_drafts(
         DRIVER.upsert(note_rel, note)
         if undo_run:
             _record_inverse(undo_run, note_rel, prior)
-        silica_cleanup(f, "done")
+        silica_cleanup(f)
         CONSOLE.print(
             f"  filed draft ({res.origin}): [bold]{note_rel}[/] — body kept intact"
         )
@@ -1612,7 +1612,10 @@ def _file_drafts(
 
 
 # Silica's own bookkeeping folders — never a destination for a concept note.
-_CENSUS_SKIP = {"done", "sources", "Images", "logs", "attachments"}
+# Casefolded at the comparison: the archive is `Done` since 2026-08-23 while a
+# vault that predates the rename keeps its `done`, and one set must answer for
+# both spellings or the older vault starts offering its archive as a target.
+_CENSUS_SKIP = {"done", "sources", "images", "logs", "attachments"}
 
 
 def _prior_conversions() -> dict[str, dict]:
@@ -1627,7 +1630,7 @@ def _prior_conversions() -> dict[str, dict]:
     from pathlib import Path
 
     from silica.driver import DRIVER
-    from silica.kernel.vault_manifest import active_inbox_dir, in_write_dir
+    from silica.kernel.vault_manifest import active_done_dir, active_inbox_dir
     from silica.kernel.write import frontmatter
 
     out: dict[str, dict] = {}
@@ -1652,7 +1655,7 @@ def _prior_conversions() -> dict[str, dict]:
     if active_inbox_dir():
         _scan([r.path for r in DRIVER.list_inbox_files()
                if r.path.endswith(".md")], "inbox")
-    done = in_write_dir("done")
+    done = active_done_dir()
     if done:
         _scan([r.path for r in DRIVER.list_files(done)], "done")
     from silica.tools.atomic import _natural_key
@@ -1713,7 +1716,7 @@ def _pick_target_folder(md_files: list[str]) -> str:
     listed = sorted(
         f for f in folders - {".", inbox}
         if not f.startswith(f"{inbox}/")
-        and not any(part.startswith(".") or part in _CENSUS_SKIP
+        and not any(part.startswith(".") or part.casefold() in _CENSUS_SKIP
                     for part in Path(f).parts)
     )
     # read_source_text, not DRIVER.read_note: a .txt inbox source (draft
@@ -1726,8 +1729,14 @@ def _pick_target_folder(md_files: list[str]) -> str:
         "content into a knowledge vault. Reply with ONLY the folder path on one "
         "line, no quotes. Prefer an existing folder; invent a sensible new path "
         "only if nothing fits.\n\n"
-        "Existing folders:\n" + "\n".join(f"- {f}" for f in listed[:200]) +
-        f"\n\nContent excerpt ({md_files[0]}):\n{excerpt}"
+        "Existing folders:\n" + (
+            "\n".join(f"- {f}" for f in listed[:200]) if listed
+            # Say it, never leave the list blank: on a fresh vault the model
+            # spent its whole reply on "nothing follows 'Existing folders:'"
+            # before guessing (473 completion tokens for two words, 2026-08-23).
+            else "(no folders yet: this vault holds only its inbox, so name a "
+                 "sensible new top-level folder)"
+        ) + f"\n\nContent excerpt ({md_files[0]}):\n{excerpt}"
     )
     resp = call_llm(CONFIG.model, [{"role": "user", "content": prompt}], max_tokens=2048)
     lines = [ln.strip().strip('"').strip("`").rstrip("/") for ln in (resp.text or "").splitlines()]

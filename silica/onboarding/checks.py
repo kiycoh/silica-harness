@@ -369,7 +369,7 @@ def sample_vault_text(vault: str) -> str:
     below, which calls this — no duplicated sampling.
     """
     from silica.kernel.recall.graph_export import is_vault_artifact
-    from silica.kernel.vault_manifest import load_manifest
+    from silica.kernel.vault_manifest import load_manifest, resolve_done_dir
 
     root = Path(vault)
     try:
@@ -386,7 +386,7 @@ def sample_vault_text(vault: str) -> str:
         write_dir = load_manifest(vault).write_dir or ""
     except Exception:
         write_dir = ""
-    done_prefix = f"{write_dir}/done/" if write_dir else "done/"
+    done_prefix = (resolve_done_dir(vault, write_dir) or "done").casefold() + "/"
     parts: list[str] = []
     total = 0
     sampled = 0
@@ -397,7 +397,7 @@ def sample_vault_text(vault: str) -> str:
             rel = f.relative_to(root).as_posix()
         except ValueError:
             rel = f.name
-        if is_vault_artifact(rel) or rel.startswith(done_prefix):
+        if is_vault_artifact(rel) or rel.casefold().startswith(done_prefix):
             continue
         try:
             head = f.read_text(encoding="utf-8", errors="ignore")[:2000]

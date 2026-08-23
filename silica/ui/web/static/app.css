@@ -1,7 +1,7 @@
 /* Silica reads and writes for a living, so it is typeset as a reading tool,
-   not as a terminal. Blue-black crystal substrate and an iced cyan accent, both
-   keyed to the sili mascot so the mark and the interface agree. Rigid
-   1px-compartment grid, 90 degree corners only. Type: Lexend for UI and prose,
+   not as a terminal. Graphite substrate and one signal hue at 189deg, the same
+   hue the paper theme and the mark carry, so every surface agrees. Rigid
+   1px-compartment grid, 90 degree corners only. Type: Archivo for UI and prose,
    Martian Mono only where the cell grid matters, meaning code.
    Two rules carry the design. First, hierarchy comes from size and surface, not
    from decoration: uppercase and letterspacing stay on chrome micro-labels and
@@ -15,10 +15,14 @@
   font-display: swap;
 }
 
+/* font-stretch is the point of choosing Archivo over Lexend: without the width
+   range declared the browser will not expose the axis, and every
+   font-variation-settings "wdth" below silently does nothing. */
 @font-face {
-  font-family: "Lexend";
-  src: url("/static/lexend-latin.woff2") format("woff2");
+  font-family: "Archivo";
+  src: url("/static/archivo-latin.woff2") format("woff2");
   font-weight: 100 900;
+  font-stretch: 62% 125%;
   font-style: normal;
   font-display: swap;
 }
@@ -33,54 +37,54 @@
      within a few percent of the others and the whole screen read as one flat
      field crossed by hairlines.
 
-     The ramp also travels in hue, 258deg at the floor to 224deg at the top
-     hairline, because that is how the mascot is shaded: its receding facets
-     are violet (#23174C, #461C64) and its lit ones are blue. A flat 220deg
-     across all six steps was the blue half of the mark and none of the other.
-     Luminance is held to the previous value at every step, so the travel is
-     free: no contrast pair in this file moves by more than 0.05:1. */
-  --void: #0D0917;
+     The ramp no longer travels in hue. It sits flat at 214deg, 10% saturation:
+     enough hue that it is not a dead grey, far too little to read as the
+     blue-violet every tool in this category ships. The travelling 258-to-224deg
+     version was keyed to the mascot, which the mark no longer quotes. See
+     docs/specs/visual-identity.md. Step separation is what the ramp is actually
+     for, and this one never drops below 1.058:1 where the old one bottomed out
+     at 1.039:1 between --void and --slate. */
+  --void: #0D0E0F;
   /* app floor and code wells */
-  --slate: #120E21;
+  --slate: #141518;
   /* chrome: header, sidebar, your own turns */
-  --page: #181930;
+  --page: #1B1E21;
   /* the reading surface */
-  --slate-2: #1F243A;
+  --slate-2: #24272B;
   /* raised: inputs, chips, hover */
-  --line: #292F45;
-  --line-2: #3B4662;
+  --line: #2F343A;
+  --line-2: #3F454D;
   /* type. Prose is --text so that --frost has somewhere brighter to go: the
      model emits a lot of bold, and bold at the same colour as body is noise. */
-  --frost: #EBEFF8;
+  --frost: #F4F5F7;
   /* cool off-white: headings, bold, what you type */
-  --text: #BAC4D8;
+  --text: #C5CAD2;
   /* prose */
-  --ash: #8E99B0;
+  --ash: #AEB4BE;
   /* secondary */
-  --ash-dim: #838DA7;
-  /* meta labels. Was #757F99, which held AA over --slate (4.73:1) but landed at
-     3.83:1 on --slate-2, and that is where the 9-10px stat labels and every
-     placeholder actually sit. #838DA7 clears 4.5:1 on the brightest plane it
-     touches (4.61:1) at the cost of a slightly shorter step down from --ash. */
-  --accent: #35C6E8;
-  /* iced cyan, sampled off the mascot's eye. The only vivid colour that is
-     ever interactive: in the mark, cyan is the one emissive point and the
-     violet half is body, so violet below is allowed to be surface and data
-     and is never allowed to mean "clickable". */
-  --violet: #5B4BD6;
-  /* the mascot's warm pole, by way of the banner glow. Data and the far stop
-     of the wordmark sweep, never a control state. */
+  --ash-dim: #969CA6;
+  /* meta labels. The rule this token exists to enforce: measure against the
+     BRIGHTEST plane the token is allowed on, not a convenient one. An earlier
+     value held AA over --slate and fell to 3.83:1 on --slate-2, which is where
+     the 9-10px stat labels and every placeholder actually sit. #969CA6 clears
+     4.54:1 there. */
+  --accent: #22B4CC;
+  /* the signal, hue 189deg. One hue at two stops, this one for graphite and
+     #0A6070 for paper, because no single chromatic hex clears AA on both a
+     near-white and a near-black ramp. 189deg is short of the cyan the category
+     reaches for: far enough toward teal to read as an instrument colour rather
+     than a glow, far enough from green not to collide with --add. The only
+     vivid colour that is ever interactive. */
   --warn: #E0A93B;
   /* amber, caution only */
   --add: #4FD08A;
-  --del: #E8657F;
-  /* the two diff poles. They are not in the mascot's palette and they are not
-     meant to be: added and removed is the one place in this app where the colour
-     is a convention older than any brand, and inventing a violet for "removed"
-     would cost the reader a legend. Both clear 4.5:1 on --slate and on the tinted
-     line fills below. */
+  --del: #EB778E;
+  /* the two diff poles. Added and removed is the one place in this app where the
+     colour is a convention older than any brand, and inventing a teal for
+     "removed" would cost the reader a legend. --del was #E8657F, which fell to
+     3.94:1 on --slate-2; #EB778E clears 4.52:1 on every plane it touches. */
   --mono: "Martian Mono", ui-monospace, Menlo, monospace;
-  --sans: "Lexend", system-ui, sans-serif;
+  --sans: "Archivo", ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
   /* the sidebar's width, so #dock's left inset cannot drift from it */
   --side-w: 264px;
 
@@ -92,8 +96,8 @@
                 where the role byline and the turn hint sit.
        --bubble 1.53:1 on --void, plus a --line-2 hairline for the edge.
      Both computed, not eyeballed. */
-  --sheet: #20233C;
-  --bubble: #2A3050;
+  --sheet: #23272B;
+  --bubble: #2F3339;
 
   /* Soft where you read, rigid where you scan. --r is for the transcript's
      objects and the controls you aim at; the compartment chrome (header strip,
@@ -133,13 +137,13 @@
      that translucency barely moves contrast. Measured on the worst pairs,
      --ash-dim on chrome goes 5.70:1 -> 5.56:1, and --ash on the drawer over a
      bubble goes 5.36:1 -> 5.14:1. Both still clear AA with room. */
-  --chrome-glass: rgba(18, 14, 33, .88);
+  --chrome-glass: rgba(20, 21, 24, .88);
   /* --slate */
-  --glass: rgba(32, 35, 60, .78);
+  --glass: rgba(35, 39, 43, .78);
   /* --sheet */
   --glass-blur: blur(20px) saturate(1.3);
   /* The lit top edge that says "pane of something", not "translucent box". */
-  --glass-edge: inset 0 1px 0 rgba(235, 239, 248, .07);
+  --glass-edge: inset 0 1px 0 rgba(244, 245, 247, .07);
 
   /* Two jobs --void used to do alone. They are the same colour here and only
      here: in the dark palette "deeper" and "the ink that survives a vivid fill"
@@ -150,12 +154,14 @@
      value swap instead of a second set of rules.
        --well     inset surfaces: code blocks, the .env sample in the stt panel.
        --on-vivid foreground on --accent / --warn / --frost fills. */
-  --well: #0D0917;
-  --on-vivid: #0D0917;
+  --well: #0D0E0F;
+  --on-vivid: #0D0E0F;
 
-  /* the page wash's two poles — see html,body */
-  --wash-a: rgba(43, 111, 212, .34);
-  --wash-b: rgba(186, 58, 168, .26);
+  /* The page wash's two poles, see html,body. Was a blue pole and a magenta
+     pole, which smuggled a second brand hue into the ambient field. Now one
+     hue plus tone: --accent lifts one corner, a neutral lifts the other. */
+  --wash-a: rgba(34, 180, 204, .16);
+  --wash-b: rgba(63, 69, 77, .30);
 
   /* Shadow, scrim and glow do not follow the surfaces: they all reverse
      direction between the two themes, and each reverses differently.
@@ -171,13 +177,14 @@
        --art-glow    the halo under the mascot on the empty transcript. Cyan on
                      crystal; on paper a cyan halo is a printing error, so light
                      gets contact shadow instead of emission.
-       --brand-sweep the logotype's hover sweep, sampled off the mark. Light
-                     needs its own stops: the mascot's cyan on white is 1.9:1. */
+   --brand-sweep is gone with the mark's gradient. The identity carries zero
+   gradients now: the logotype hovers to --accent, which is one token and the
+   same thing every other control does on hover. See
+   docs/specs/visual-identity.md. */
   --shadow-rgb: 0 0 0;
-  --scrim: rgba(13, 9, 23, .70);
-  --drop-scrim: rgba(10, 13, 20, .88);
-  --art-glow: rgba(53, 198, 232, .16);
-  --brand-sweep: linear-gradient(115deg, #35C6E8 0%, #5B4BD6 46%, #983A94 100%);
+  --scrim: rgba(13, 14, 15, .70);
+  --drop-scrim: rgba(13, 14, 15, .88);
+  --art-glow: rgba(34, 180, 204, .16);
 }
 
 /* --- light: the same room, lit --------------------------------------------
@@ -230,17 +237,18 @@
   --frost: #1A1815;
   --text: #3A362F;
   --ash: #5B554B;
-  --ash-dim: #615B4F;
+  --ash-dim: #655D4F;
   --on-vivid: #FFFFFF;
 
-  --accent: #096275;
-  /* the eye, on paper. 6.96:1 on the sheet, 4.87:1 on the deepest plane */
-  --violet: #4B3BC0;
-  --warn: #7A5305;
+  --accent: #0A6070;
+  /* the same 189deg hue as graphite, at the stop that survives paper: 5.03:1 on
+     the brightest plane it touches. Keeps the hue and gives up the glow, which
+     is the honest trade and not a compromise worth hiding. */
+  --warn: #7A4F03;
   /* the diff poles walked into paper's contrast range: the dark set's mint and
      rose are both under 2:1 on a white sheet */
-  --add: #1C6B3F;
-  --del: #A32338;
+  --add: #186B44;
+  --del: #9B2439;
 
   --sheet: #FFFFFF;
   /* the answer, printed */
@@ -263,16 +271,13 @@
   /* Same two poles, an eighth of the strength. Enough that the header's
      translucency has something to travel across — which is the whole reason
      the wash exists — and not enough to tint the paper. */
-  --wash-a: rgba(43, 111, 212, .10);
-  --wash-b: rgba(186, 58, 168, .07);
+  --wash-a: rgba(10, 96, 112, .07);
+  --wash-b: rgba(58, 44, 20, .05);
 
   --shadow-rgb: 58 44 20;
   --scrim: rgba(48, 38, 22, .34);
   --drop-scrim: rgba(247, 244, 238, .93);
   --art-glow: rgba(58, 44, 20, .13);
-  /* Same three stops, walked down into the paper's contrast range. The mark's
-     own hues, at the lightness a white page can hold them at. */
-  --brand-sweep: linear-gradient(115deg, #096275 0%, #4B3BC0 46%, #7A2A78 100%);
 }
 
 /* Supported floor: 900px. Below it the three-column shell compresses rather
@@ -473,38 +478,13 @@ header>* {
   transition: color var(--dur) var(--ease);
 }
 
-/* the iridescence is a hover reward, not a resting state: as a permanent
-   animated gradient it was the loudest AI tell on the page, but on hover it
-   reads as the crystal catching the light. */
+/* Was a three-stop gradient animated across the letters, and its own comment
+   admitted it was the loudest AI tell on the page. The sweep quoted a mark that
+   no longer has one, so it is deleted rather than restopped: the logotype now
+   hovers to --accent like every other control, which also drops a keyframe
+   animation and its reduced-motion counterpart. */
 .brand:hover {
-  /* impeccable-disable gradient-text — the logotype is the mark, not prose:
-     this is the single place the whole mascot appears in the app, and it is
-     the sweep across its body. Stops are sampled, not picked: the eye
-     (--accent), the banner's glow (--violet), the warm pole (#983A94). */
-  background: var(--brand-sweep);
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: iridesce 4s ease-in-out infinite alternate;
-}
-
-@keyframes iridesce {
-  to {
-    background-position: 100% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand:hover {
-    animation: none;
-    /* the 300% width only makes sense while the sweep is travelling. Frozen at
-       position 0 it crops the mark to the first third, which is the cyan stop
-       alone — the one third that is not the mascot. At 100% the whole blue to
-       magenta run sits in the letters at once, which is what the travel was
-       showing in the first place. */
-    background-size: 100% 100%;
-  }
+  color: var(--accent);
 }
 
 .spacer {
@@ -2936,9 +2916,13 @@ details.side-section:hover>summary.side-title {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+/* One hue at three strengths, not three hues. This band was --violet, which is
+   deleted: a three-level hierarchy is a hierarchy of weight, and expressing it
+   as three separate colours is what made the palette drift. Below .hl-cmd
+   because it carries no ring, above .hl-path because it is not neutral. */
 .hl-link {
   border-radius: var(--r-xs);
-  background: color-mix(in srgb, var(--violet) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 /* Weakest of the three on purpose, and still readable: a path is the commonest
@@ -3576,10 +3560,9 @@ body.dragging #drop-hint {
   display: flex;
 }
 
-/* The mark, at the scale's one display step. No sweep: the header's logotype
-   earns its iridescence by being a control you hover, and this one is not
-   touched — an animated gradient sitting permanently on the landing is the
-   loudest thing the page could do with its quietest moment. */
+/* The mark, at the scale's one display step. Nothing to opt out of any more:
+   the header logotype's animated sweep is deleted along with the mark's
+   gradient, so this is simply the mark at rest like everywhere else. */
 .vh-mark {
   font-size: 52px;
   font-weight: 200;
@@ -7067,7 +7050,7 @@ body.note-open #work {
 .wk-call::before {
   width: 0;
   height: 0;
-  border-left: 5px solid var(--violet);
+  border-left: 5px solid var(--accent);
   border-top: 3.5px solid transparent;
   border-bottom: 3.5px solid transparent;
 }

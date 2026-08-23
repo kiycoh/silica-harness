@@ -13,7 +13,6 @@ from silica.kernel.report.graph_report.compute import _empty_report
 from silica.kernel.report.graph_report import (
     BridgeStat,
     ClusterStat,
-    MissingLink,
     NodeStat,
     VaultReport,
     compute_report,
@@ -216,18 +215,6 @@ def test_to_markdown_sections(report):
     assert "## Surprising Cross-Cluster" in md
 
 
-def test_to_markdown_no_proposed_section_when_empty(report):
-    """Missing links section should be absent when missing_links is empty."""
-    assert not report.missing_links
-    md = to_markdown(report)
-    assert "Proposed Missing Links" not in md
-
-
-def test_to_markdown_proposed_section_when_present():
-    r = _empty_report()
-    r.missing_links = [MissingLink(source="X", target="Y", cosine=0.91)]
-    md = to_markdown(r)
-    assert "Proposed Missing Links" in md
 
 
 def test_to_markdown_folds_long_lists_into_callouts():
@@ -328,122 +315,7 @@ def test_to_facts_byte_stable(synthetic_graph):
     assert orjson.dumps(f1, option=orjson.OPT_SORT_KEYS) == orjson.dumps(f2, option=orjson.OPT_SORT_KEYS)
 
 
-# ---------------------------------------------------------------------------
-# _compute_missing_links — common_neighbors structural boost (paper #2)
-# ---------------------------------------------------------------------------
 
-def test_missing_links_common_neighbors_boosts_ranking(monkeypatch):
-    """Two candidates with equal cosine rank by shared-neighbor count.
-
-    Paper (Marwitz et al. 2026) Baseline uses sum_i A^2_u,i (2-length path
-    count) as a core feature. Silica equivalent: candidates sharing more
-    common neighbors with the source are likelier to form a real link and
-    must rank strictly higher than equally-similar but structurally-isolated
-    candidates.
-    """
-    import networkx as nx
-    from silica.kernel.report import graph_report as gr
-
-    # S reaches A through two shared neighbors (X, Y) and B through one (Z).
-    # Both A and B sit at shortest-path distance 2 from S (so both clear the
-    # d_prev > 1 gate), and both will be returned with identical cosine.
-    G = nx.Graph()
-    G.add_edges_from([
-        ("S", "X"), ("S", "Y"), ("S", "Z"),
-        ("A", "X"), ("A", "Y"),
-        ("B", "Z"),
-    ])
-
-    class _Store:
-        def sync_from_disk(self):
-            return False  # no file behind a fake (paths.DiskSynced)
-
-        def __len__(self):
-            return 6
-
-        def get_vec(self, p):
-            return [1.0, 0.0] if p == "S" else None
-
-        def get_ts(self, p):
-            return 0.0
-
-        def cosine_top_k(self, vec, k=10, exclude=None):
-            return [
-                {"path": "A", "score": 0.90},
-                {"path": "B", "score": 0.90},
-            ]
-
-    monkeypatch.setattr("silica.kernel.recall.embed.EmbedStore", _Store)
-    monkeypatch.setattr("silica.agent.providers.get_embedder", lambda cfg: object())
-
-    report = VaultReport(
-        generated_at="x", scope="", totals={},
-        god_nodes=[NodeStat(id="S", label="S", cluster=0,
-                            out_degree=3, in_degree=0, degree=3)],
-        bridges=[], orphans=[], dangling=[], clusters=[],
-    )
-
-    from silica.kernel.report.graph_report.embed_signals import _compute_missing_links
-    links = _compute_missing_links(report, G, tau=0.5, k=10)
-    by_target = {l.target: l for l in links}
-
-    assert "A" in by_target and "B" in by_target
-    # A shares 2 neighbors with S, B shares 1 → A must score strictly higher.
-    assert by_target["A"].cosine > by_target["B"].cosine
-    # …and the result list is ordered accordingly.
-    pairs = [(l.source, l.target) for l in links]
-    assert pairs.index(("S", "A")) < pairs.index(("S", "B"))
-
-
-def test_missing_links_bridge_the_md_keyspace(monkeypatch):
-    """Graph node ids carry '.md'; embed-store keys do not. _compute_missing_links
-    must cross that boundary in both directions.
-
-    Regression: it did not, so `tgt not in G_und` was true for every candidate and
-    the section returned [] on every real vault. The other fixtures here use bare
-    ids ("S"/"A"/"B") where the two keyspaces happen to coincide, which is exactly
-    why the defect survived. This one uses the production shape.
-    """
-    import networkx as nx
-
-    # S -- X -- A: A sits at distance 2 from S, so it clears the d_prev > 1 gate.
-    G = nx.Graph()
-    G.add_edges_from([("S.md", "X.md"), ("A.md", "X.md")])
-
-    class _Store:
-        def sync_from_disk(self):
-            return False  # no file behind a fake (paths.DiskSynced)
-
-        def __len__(self):
-            return 3
-
-        def get_vec(self, p):
-            # Only ever answers to the STRIPPED key: proves the source side is bridged.
-            return [1.0, 0.0] if p == "S" else None
-
-        def get_ts(self, p):
-            assert not p.endswith(".md"), "timestamps are keyed in the store keyspace"
-            return 0.0
-
-        def cosine_top_k(self, vec, k=10, exclude=None):
-            assert exclude == {"S"}, "self-exclusion must use the store key"
-            return [{"path": "A", "score": 0.90}]        # stripped, as the real store returns
-
-    monkeypatch.setattr("silica.kernel.recall.embed.EmbedStore", _Store)
-    monkeypatch.setattr("silica.agent.providers.get_embedder", lambda cfg: object())
-
-    report = VaultReport(
-        generated_at="x", scope="", totals={},
-        god_nodes=[NodeStat(id="S.md", label="S", cluster=0,
-                            out_degree=1, in_degree=0, degree=1)],
-        bridges=[], orphans=[], dangling=[], clusters=[],
-    )
-
-    from silica.kernel.report.graph_report.embed_signals import _compute_missing_links
-    links = _compute_missing_links(report, G, tau=0.5, k=10)
-
-    # The proposal survives, and both ends are reported as graph node ids.
-    assert [(l.source, l.target) for l in links] == [("S.md", "A.md")]
 
 
 def test_duplicate_pairs_split_confirmed_vs_borderline(monkeypatch):

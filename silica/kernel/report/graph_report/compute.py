@@ -21,7 +21,6 @@ from silica.kernel.report.graph_report.cooccur_delta import (
 from silica.kernel.report.graph_report.embed_signals import (
     _compute_dissonance,
     _compute_duplicate_pairs,
-    _compute_missing_links,
 )
 from silica.kernel.report.graph_report.models import (
     AttentionCandidate,
@@ -57,7 +56,7 @@ def _is_staging(path: str) -> bool:
     calling them orphaned reports Silica's bookkeeping as vault damage.
     """
     from silica.kernel.recall.paths import is_inbox_path
-    from silica.kernel.vault_manifest import in_write_dir
+    from silica.kernel.vault_manifest import active_done_dir, in_write_dir
 
     from silica.kernel.recall.run_log import DEFAULT_LOG_FILENAME
 
@@ -66,7 +65,7 @@ def _is_staging(path: str) -> bool:
         return True
     if p.casefold() == in_write_dir(DEFAULT_LOG_FILENAME).casefold():
         return True  # the run journal, same reason
-    done = in_write_dir("done").casefold()
+    done = active_done_dir().casefold()
     return bool(done) and p.casefold().startswith(done + "/")
 
 
@@ -645,6 +644,10 @@ def compute_report(
     # Totals
     # ------------------------------------------------------------------
     n_links = sum(1 for e in edges if e.get("type") == "EXTRACTED")
+    # The share of the wikilink graph written by structure, not prose
+    # (frontmatter properties, heading lines). A reading, not a filter: every
+    # structural signal keeps both classes (ADR-0029).
+    n_scaffold = sum(1 for e in edges if e.get("type") == "EXTRACTED" and e.get("scaffold"))
     n_unresolved = sum(1 for e in edges if e.get("type") == "AMBIGUOUS")
 
     # Initialize report shell to allow recursive calculation of totals if needed
@@ -688,7 +691,6 @@ def compute_report(
     )
 
     if with_embeddings:
-        report.missing_links = _compute_missing_links(report, G_und, tau=0.82, k=top_k)
         report.duplicate_pairs, report.confirmed_duplicate_pairs = _compute_duplicate_pairs(report)
         report.dissonance_map, report.misfiled = _compute_dissonance(
             report, nodes, G_und, knn_k=_dissonance_knn_k, k=top_k,
@@ -726,11 +728,11 @@ def compute_report(
     totals = {
         "notes": len(real_ids),
         "links": n_links,
+        "scaffold_links": n_scaffold,
         # Every unresolved wikilink REFERENCE (the digest header's `unresolved=`),
         # not the count of distinct missing targets — that is `dangling_links`.
         "unresolved": n_unresolved,
         "dangling_links": len(dangling),
-        "missing_links": len(report.missing_links),
         "duplicate_pairs": len(report.duplicate_pairs),
         "confirmed_duplicates": len(report.confirmed_duplicate_pairs),
         "autolink_candidates": len(report.autolink_candidates),
@@ -835,7 +837,6 @@ def _empty_report(scope: str = "") -> VaultReport:
         orphans=[],
         dangling=[],
         clusters=[],
-        missing_links=[],
         duplicate_pairs=[],
         lean_notes=[],
         reformat_notes=[],

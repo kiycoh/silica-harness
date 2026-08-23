@@ -510,3 +510,48 @@ def test_fallback_reranker_names_the_fallback_not_degradation(mock_post, caplog,
     assert len(msgs) == 1
     assert "falling back to in-process local-x" in msgs[0]
     assert "recall degrades" not in msgs[0]
+
+
+class ProviderReasoningForwardingTests(unittest.TestCase):
+    def test_reasoning_flag_reaches_call_llm(self):
+        """A structured-output worker call must be able to switch a hybrid
+        model's thinking off: the trace bills against max_tokens, and at 2048
+        the dedup judge came back finish=length with its JSON cut mid-string
+        (2026-08-23 run, deepseek-v4-flash). The knob exists on llm.call_llm;
+        the Provider lane silently dropped it."""
+        import silica.agent.llm as llm_mod
+        from silica.agent.llm import LLMResponse
+        from silica.agent.providers import Provider
+
+        captured: dict = {}
+
+        def fake_call_llm(**kw):
+            captured.update(kw)
+            return LLMResponse(text="{}", tool_calls=[],
+                               assistant_message={"role": "assistant"}, usage={})
+
+        with patch.object(llm_mod, "call_llm", fake_call_llm):
+            Provider(base_url="http://dummy", api_key="", model="openrouter/v/m").call_llm(
+                messages=[{"role": "user", "content": "judge"}],
+                reasoning=False,
+            )
+        self.assertIs(captured["reasoning"], False)
+
+    def test_reasoning_defaults_to_provider_choice(self):
+        """Unset ⇒ None on the wire, so every other worker keeps its current behaviour."""
+        import silica.agent.llm as llm_mod
+        from silica.agent.llm import LLMResponse
+        from silica.agent.providers import Provider
+
+        captured: dict = {}
+
+        def fake_call_llm(**kw):
+            captured.update(kw)
+            return LLMResponse(text="", tool_calls=[],
+                               assistant_message={"role": "assistant"}, usage={})
+
+        with patch.object(llm_mod, "call_llm", fake_call_llm):
+            Provider(base_url="http://dummy", api_key="", model="openrouter/v/m").call_llm(
+                messages=[{"role": "user", "content": "x"}],
+            )
+        self.assertIsNone(captured["reasoning"])

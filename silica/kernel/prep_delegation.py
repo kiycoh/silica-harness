@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import typing
 from pathlib import Path
 
@@ -454,19 +455,30 @@ def _stitch_bodies(parsed: dict, raw: str) -> None:
                 i, op.get("path") or op.get("heading") or "?")
 
 
-def _call_with_deadline(fn, seconds: float):
+def _call_with_deadline(fn, seconds: float, cancel: "threading.Event | None" = None):
     """Run fn() under a wall-clock deadline; raise TimeoutError past it.
 
     The transport read-timeout cannot bound a hung distiller call: OpenRouter
     trickles keep-alive bytes while "processing", and every byte resets httpx's
     per-chunk read timer, so a dead upstream holds the socket open forever.
     Only real elapsed time is trustworthy here.
+
+    `cancel` is set when the deadline fires. Without it the abandoned worker kept
+    its own retry schedule and went on issuing requests nobody was waiting for:
+    measured 2026-08-23 on a throttled OpenRouter pool, this deadline gave up at
+    300s and the orphan hit its 400s per-call cap at t+400 and started attempt
+    2/3, so the run's own dead calls were producing the 429s it was retrying for.
     """
     from silica.agent.llm import run_with_deadline
-    return run_with_deadline(
-        fn, seconds,
-        lambda: TimeoutError(f"distiller call exceeded {seconds:.0f}s wall-clock deadline"),
-    )
+    try:
+        return run_with_deadline(
+            fn, seconds,
+            lambda: TimeoutError(f"distiller call exceeded {seconds:.0f}s wall-clock deadline"),
+        )
+    except TimeoutError:
+        if cancel is not None:
+            cancel.set()
+        raise
 
 
 def run_distiller(
@@ -652,8 +664,10 @@ def run_distiller(
 
     def _llm(msgs: list[dict], response_schema):
         nonlocal cache_ok
+        provider = None
         try:
             provider = get_provider(CONFIG, role="escalation" if escalate else "worker")
+            abandoned = threading.Event()
             return _call_with_deadline(lambda: provider.call_llm(
                 messages=msgs,
                 tools=None,
@@ -662,13 +676,22 @@ def run_distiller(
                 # The distiller pin is tied to the worker model's provider routing;
                 # an escalated call must not inherit it.
                 openrouter_provider=None if escalate else CONFIG.openrouter_provider_distiller,
-            ), deadline)
+                cancel=abandoned,
+            ), deadline, abandoned)
         except Exception as e:
+            fallback_model = (CONFIG.distill_escalation_model or CONFIG.model) if escalate else CONFIG.model
+            if provider is not None and fallback_model == provider.model:
+                # Same model, same stack (Provider routes through llm.call_llm too):
+                # a second full `deadline` round with the same retry schedule cannot
+                # succeed where the first just failed, and on a rate-limited pool it
+                # doubles the load that caused the failure. Only a DIFFERENT model
+                # makes this branch worth its cost.
+                raise
             # The reply now comes from the router model, not the worker the
             # cache key names: replaying it would blend two models' corpora
             # under one key.
             cache_ok = False
-            logger.warning("Distiller provider call failed, falling back to litellm: %s", e)
+            logger.warning("Distiller call failed, retrying on %s: %s", fallback_model, e)
             from silica.agent.llm import call_llm
             return _call_with_deadline(lambda: call_llm(
                 model=(CONFIG.distill_escalation_model or CONFIG.model) if escalate else CONFIG.model,

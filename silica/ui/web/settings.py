@@ -9,7 +9,7 @@ a row — so the surface and the writer cannot drift apart.
 Admission rule (docs/specs/settings-panel.md §3): a row is a setting only when the
 user can answer it without running a benchmark. Most of config.py is not that.
 `sim_threshold_*`, `novelty_tau`, `dedup_scan_k`, the `episodic_*` family and
-`cooccur_bm25` are research levers with a closed verdict behind them; offering
+`cooccur_bm25` are research levers with a measured verdict behind them; offering
 them in a GUI reopens that verdict for someone with no harness to re-run the
 gate, and a vault degraded by `sim_threshold_high = 0.95` gives no sign of it.
 They stay env vars.

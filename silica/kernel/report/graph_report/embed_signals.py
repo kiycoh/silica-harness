@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Alessandro Carosia
 
-"""Embedding-based PROPOSED signals: missing links and duplicate pairs.
+"""Embedding-based PROPOSED signals: duplicate pairs and dissonance.
 
-Both functions degrade to [] when the embedding index is empty or unreadable.
+Every function degrades to [] when the embedding index is empty or unreadable.
 They read stored vectors only and never construct an embedder, so a provider
 that is down does not suppress the proposals: this module reaches nothing
 under silica.agent, which is what lets the P2/DKB contract cover it without
@@ -12,127 +12,19 @@ an exemption.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
-from silica.kernel.report.graph_report.models import DuplicatePair, MisfiledNote, MissingLink, VaultReport
+from silica.kernel.report.graph_report.models import DuplicatePair, MisfiledNote, VaultReport
 from silica.kernel.recall.paths import in_folder
 
 logger = logging.getLogger(__name__)
 
-# Temporal decay half-life: a note updated 30 days ago gets ~50% boost; at
-# 90 days the boost is negligible.  The constant is chosen so the recency
-# factor degrades smoothly without overwhelming the cosine signal.
-_RECENCY_HALFLIFE_DAYS = 30.0
+
 
 
 def _pair_key(d: DuplicatePair) -> tuple[float, str, str]:
     """Deterministic pair ordering — best score first, then path. Byte-stable output."""
     return (-d.score, d.source, d.target)
-
-
-def _compute_missing_links(
-    report: VaultReport,
-    G_und: Any,
-    *,
-    tau: float = 0.82,
-    k: int = 10,
-) -> list[MissingLink]:
-    """Propose missing links via embedding similarity (PROPOSED — not authoritative).
-
-    Paper-inspired refinements (Marwitz et al. 2026):
-      - common_neighbors: a structural boost from the 2-length path count, the
-        paper's Baseline core feature — likelier links rank above structurally
-        isolated but equally-similar pairs.
-      - d_prev annotation: each result carries its shortest-path distance before
-        prediction. Only direct neighbours (d<=1) are hard-gated; d=2 candidates
-        (likely links) and d>=3 (novel, high creative value) both surface.
-      - Temporal decay: recent note pairs receive a modest cosine boost based on
-        EmbedStore timestamps, capturing the paper's velocity-of-growth signal.
-    """
-    try:
-        from silica.kernel.recall.cooccurrence import cooccur_key
-        from silica.kernel.recall.embed import get_store
-        import networkx as nx
-
-        store = get_store()
-        if len(store) == 0:
-            return []
-    except Exception as exc:
-        logger.debug("graph_report: embeddings unavailable (%s)", exc)
-        return []
-
-    now = time.time()
-    god_paths = [n.id for n in report.god_nodes]
-    results: list[MissingLink] = []
-    seen: set[tuple[str, str]] = set()
-
-    # Keyspace bridge, as in cooccur_delta: G_und node ids are graph paths WITH
-    # '.md', embed-store keys are stripped. Every candidate coming back from the
-    # store must be mapped BACK to a node id before it touches the graph — without
-    # it `tgt not in G_und` was true for every candidate and this whole section
-    # returned [] on any real vault (measured: 0 links, 12 once the keyspaces line
-    # up). The tests missed it because their fixtures use bare ids like "A"/"B",
-    # where the two keyspaces coincide.
-    gid_by_key = {cooccur_key(n): n for n in G_und.nodes}
-
-    for source in god_paths:
-        skey = cooccur_key(source)
-        vec = store.get_vec(skey)
-        if vec is None:
-            continue
-        try:
-            candidates = store.cosine_top_k(vec, k=k, exclude={skey})
-        except Exception:
-            continue
-
-        for cand in candidates:
-            tgt = gid_by_key.get(cand["path"])
-            if tgt is None:
-                continue                       # scored note is not a graph node
-            score = cand.get("score", 0.0)
-            if score < tau:
-                break  # results are sorted desc
-            if tgt not in G_und or source not in G_und:
-                continue
-
-            # --- #7 d_prev: annotate instead of hard-gating at d<=2 ----------
-            try:
-                d_prev = nx.shortest_path_length(G_und, source, tgt)
-            except nx.NetworkXNoPath:
-                d_prev = 0  # unreachable → highest novelty
-            if d_prev <= 1:
-                continue  # only skip direct neighbours
-
-            # --- #2 common_neighbors: structural-likelihood boost ------------
-            # Paper Baseline uses sum_i A^2_u,i (2-length path count) as a core
-            # feature; more shared neighbours → likelier real link. Mapped to
-            # [0, 1) for diminishing returns so it nudges the ranking without
-            # overwhelming the cosine signal.
-            cn = len(list(nx.common_neighbors(G_und, source, tgt)))
-            structural = cn / (1.0 + cn)
-
-            # --- #5 temporal decay: boost recent note pairs ------------------
-            # Store keyspace, not node ids — the old code passed `source` with its
-            # '.md' still on, so ts_src was always 0 and the pair's recency silently
-            # collapsed to the target's alone.
-            ts_src = store.get_ts(skey)
-            ts_tgt = store.get_ts(cooccur_key(tgt))
-            age_days = max(0.0, (now - max(ts_src, ts_tgt)) / 86400.0)
-            recency = 2.0 ** (-age_days / _RECENCY_HALFLIFE_DAYS)  # [0, 1]
-            adjusted = score * (1.0 + 0.3 * structural) * (1.0 + 0.1 * recency)
-
-            key = (min(source, tgt), max(source, tgt))
-            if key not in seen:
-                seen.add(key)
-                results.append(MissingLink(
-                    source=source, target=tgt,
-                    cosine=round(adjusted, 4),
-                    d_prev=d_prev,
-                ))
-
-    results.sort(key=lambda m: (-m.cosine, m.source, m.target))
-    return results[:k]
 
 
 def _minhash_duplicate_pairs(report: VaultReport) -> list[DuplicatePair]:

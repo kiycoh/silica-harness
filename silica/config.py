@@ -602,11 +602,21 @@ class SilicaConfig:
         or os.getenv("SILICA_ASR_WHISPERCPP_MODEL", "")
     )
 
+    # COLLISION routing thresholds on the cosine of the cosine-best vault note
+    # (ADR-0030). Measured 2026-08-23 as a risk-coverage curve (677 human-kept
+    # notes as distinct, 60 synthetic duplicates): the high bar at 0.85 auto-merged
+    # one pair, which the vault itself holds twice (a true duplicate), and 0.88
+    # none; the low bar is where the leaks were. At 0.75, 28% of the duplicates
+    # scored under it against their own source and were written as new notes; at
+    # 0.70 it is 10% for 1.65x the judge calls, at 0.66 3% for 2.1x. 0.70 is the
+    # 2%-risk point of the curve; the judge on the 0.66-0.75 band was measured at
+    # 0.85 accuracy with the prompt of ADR-0030, so what it is handed it decides.
+    # A repo .env that pins SILICA_SIM_THRESHOLD_LOW keeps its own value.
     sim_threshold_high: float = field(
         default_factory=lambda: float(os.getenv("SILICA_SIM_THRESHOLD_HIGH", "0.85"))
     )
     sim_threshold_low: float = field(
-        default_factory=lambda: float(os.getenv("SILICA_SIM_THRESHOLD_LOW", "0.75"))
+        default_factory=lambda: float(os.getenv("SILICA_SIM_THRESHOLD_LOW", "0.70"))
     )
 
     # Number of candidates to retrieve per note during dedup scan.
@@ -633,12 +643,19 @@ class SilicaConfig:
     )
 
     # BM25 tf term in the co-occurrence ranking leg (docs/specs/cooccur-scoring.md).
-    # Off by default: the probe gate (+4.02pp recall@10, +0.055 mrr, p=0.0015) covers
-    # retrieval only, and the same seam feeds autolink, dedup, /map and collision
-    # routing. Phase 2 (those surfaces) and phase 3 (answer-side) promote it, not this
-    # flag. k1/b stay untuned module constants in relatedness.py, by spec section 8.
+    # On by default since 2026-08-23 (ADR-0029). Gate 2026-07-25: +4.02pp recall@10,
+    # p=0.0015. Re-measured 2026-08-23 on the 709-note vault: +5.82pp (0.8233 ->
+    # 0.8815), cooccur alone 0.51 -> 0.86, which is what lets the two legs fuse
+    # unweighted. No decision surface reads this seam any more: COLLISION routes
+    # on the cosine-best note since ADR-0030 (the fused winner was the duplicate
+    # 87% of the time against 98% for the cosine-best one) and autolink's gate is
+    # embed-only. Answer-side (LoCoMo) not re-run: retrieval lift has failed to
+    # reach answers before in this project, so SILICA_COOCCUR_BM25=0 is the kill
+    # switch. k1/b stay module constants in relatedness.py: the sweep the spec
+    # pre-declared ran 2026-08-23 (ADR-0030) and its held-out best is +0.9pp,
+    # under the gate.
     cooccur_bm25: bool = field(
-        default_factory=lambda: env_flag("SILICA_COOCCUR_BM25", False)
+        default_factory=lambda: env_flag("SILICA_COOCCUR_BM25", True)
     )
 
     # Invocation-time index sweep (kernel/recall/sync.py): detect out-of-band

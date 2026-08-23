@@ -73,6 +73,33 @@ def extract_links(content: str) -> list[str]:
     return cleaned
 
 
+_FRONTMATTER_BLOCK_RE = re.compile(r"\A\s*---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
+_HEADING_LINE_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t].*$", re.MULTILINE)
+
+
+def extract_links_typed(content: str) -> dict[str, bool]:
+    """`extract_links` targets, each flagged scaffold (True) or prose (False).
+
+    Scaffold is a link the vault's structure wrote rather than its prose: a
+    frontmatter property (`parent note`, `related:`) or a heading line
+    (`## [[Concept]]`, a hub's spoke list). Measured 2026-08-23 on a 709-note
+    human vault: 257 of 1059 linked pairs exist only as scaffold (24%). The
+    flag rides on the graph edge so a consumer can tell the two apart; none
+    switches by default, because on that vault Adamic-Adar scored AUC 0.806
+    with scaffold and 0.750 without, and dropping it split the graph from 96
+    components into 178 (ADR-0029). A target that occurs in prose anywhere is
+    prose, whatever else mentions it. Same targets, same order as
+    `extract_links`.
+    """
+    all_targets = extract_links(content)
+    if not all_targets:
+        return {}
+    m = _FRONTMATTER_BLOCK_RE.match(content)
+    body = content[m.end():] if m else content
+    prose = set(extract_links(_HEADING_LINE_RE.sub("", body)))
+    return {t: t not in prose for t in all_targets}
+
+
 def parse_headings(body: str) -> list[dict]:
     """Parse headings from the body using AST, ignoring code blocks."""
     body = textwrap.dedent(body)

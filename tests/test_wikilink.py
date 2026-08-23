@@ -25,3 +25,26 @@ def test_intra_note_anchors_are_not_note_links():
     # ever satisfy, and the graph regression gate rolled back the chunk.
     content = "See [[#Derivazione]] and [[^ab12cd]], but keep [[Vera Nota]]."
     assert extract_links(content) == ["Vera Nota"]
+
+
+def test_extract_links_typed_splits_scaffold_from_prose():
+    from silica.kernel.link.ast import extract_links, extract_links_typed
+    content = (
+        "---\n"
+        "parent note: \"[[Hub]]\"\n"
+        "related:\n  - \"[[Hub]]\"\n  - \"[[Sibling]]\"\n"
+        "---\n\n"
+        "# Title\n\n"
+        "## [[Spoke]]\n\n"
+        "Prose mentions [[Sibling]] and [[Other]].\n"
+    )
+    typed = extract_links_typed(content)
+    assert list(typed) == extract_links(content)          # same targets, same order
+    assert typed == {"Hub": True, "Sibling": False, "Spoke": True, "Other": False}
+    assert extract_links_typed("no links here") == {}
+
+
+def test_extract_links_typed_prose_wins_over_a_scaffold_mention():
+    from silica.kernel.link.ast import extract_links_typed
+    content = "---\nrelated:\n  - \"[[X]]\"\n---\n\nBody cites [[X]] in a sentence.\n"
+    assert extract_links_typed(content) == {"X": False}

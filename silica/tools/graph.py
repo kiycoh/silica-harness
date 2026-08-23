@@ -301,7 +301,8 @@ def _facade_search(text: str, k: int) -> dict[str, Any]:
     or ``{"error": ...}`` when no index is available at all. The two legs
     abstain independently: an empty embedding index (or an offline embedder)
     still serves co-occurrence results, and vice versa — mirroring how
-    autolink/collision consume the facade.
+    perception and the run substrate consume the facade. (COLLISION does not:
+    it routes on the plain cosine search, ADR-0030.)
     """
     from silica.kernel.recall.perception import facade_retrieve
 
@@ -698,7 +699,6 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
     on an existing vault; writes keep it fresh afterwards.
     """
     from silica.config import CONFIG
-    from silica.kernel.link import correlate
     from silica.kernel.recall.cooccurrence import _index_path, build_index, get_cooccur_store
 
     try:
@@ -724,7 +724,6 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
         return {"error": "No notes found to index", "read_errors": errors}
 
     store = get_cooccur_store(lang=CONFIG.cooccurrence_lang)
-    seeded_before = set(store.paths())
     try:
         # prune=not errors: `notes` is the live set only when every listed note
         # was actually read — see silica_embed_refresh. A note skipped by a
@@ -734,10 +733,9 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
         # re-processes every note, so re-detecting store.lang here is safe.
         # A plain incremental /cooccur skips already-indexed notes and must NOT
         # refreeze: flipping the language without re-stemming existing
-        # contributions would mix stemmers across node keys. save=False: one
-        # flush at the end after GC + edge refresh.
-        # prune: drop nodes+edges for notes deleted out-of-band. save=False:
-        # one flush at the end after the prune and edge refresh below.
+        # contributions would mix stemmers across node keys.
+        # prune: drop nodes for notes deleted out-of-band. save=False: one
+        # flush at the end after the prune.
         build_index(
             notes, store=store, lang=CONFIG.cooccurrence_lang,
             force=force, refreeze=force, save=False, prune=not errors, folder=folder,
@@ -745,15 +743,6 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
     except Exception as e:
         return {"error": f"Index build failed: {e}", "read_errors": errors}
 
-    # CORRELATE note_edges (ADR-0013): --force rebuilds the whole graph; a plain
-    # incremental /cooccur only recomputes rows for notes seeded this run — the
-    # rest have unchanged contributions, so their edges are unchanged too.
-    if force:
-        correlate.recompute_all_edges(store)
-    else:
-        new_paths = [idx for idx, _, _ in notes if idx not in seeded_before]
-        if new_paths:
-            correlate.refresh_edges(store, new_paths)
     # A refresh that indexed nothing must not rewrite the index. Every graph
     # export calls this, the file is ~9.5 MB on a 700-note vault, and an
     # unchanged rewrite still moves the mtime - which is what vault_version()
@@ -925,12 +914,15 @@ def silica_vault_report(
     # whose converted .md already exists (inbox or done/) are not re-reported.
     try:
         if vault_path:
-            from silica.kernel.vault_manifest import in_write_dir
+            from silica.kernel.vault_manifest import active_done_dir
             from silica.onboarding.wizard import unindexable_docs
 
             root = Path(vault_path)
+            # rglob, not glob: the archive mirrors the inbox tree since
+            # 2026-08-23, so a flat scan saw only what had been archived from
+            # the inbox root and re-reported every nested book as unread.
             converted_stems = {
-                p.stem for p in (root / in_write_dir("done")).glob("*.md")
+                p.stem for p in (root / active_done_dir()).rglob("*.md")
             }
             try:
                 from silica.driver import DRIVER as _drv

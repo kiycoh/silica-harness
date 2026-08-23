@@ -7,16 +7,12 @@ Builds a VaultReport from the driver's wikilink graph using only networkx
 and the existing graph_export helpers. No LLM calls, no network access.
 
 Principle: "embeddings PROPOSE, graph DISPOSES" — the report is authoritative
-over vault structure; missing_links (embeddings) are clearly separated and
-labelled as proposed candidates.
+over vault structure; autolink_candidates (the relatedness facade, ADR-0029)
+are clearly separated and labelled as proposed candidates.
 
 Paper-inspired signals (Marwitz et al., Nature Mach. Intell. 2026):
-  - common_neighbors: structural likelihood boost (2-length path count) so
-    proposed links sharing more neighbours with the source rank higher.
-  - d_prev: shortest path distance before a link is predicted, annotated per
-    MissingLink so downstream consumers can differentiate likely (d=2) from
-    novel (d≥3) candidates.
-  - Temporal decay: EmbedStore timestamps boost recent note pairs.
+  - The d=2 ("likely") class is the structural V1 row (ADR-0027); the
+    autolink candidates keep the d>=3 ("novel") class by construction.
   - Cosine-band filtering: autolink candidates semantically too similar or
     too alien are suppressed when embeddings are available.
 
@@ -40,7 +36,6 @@ from silica.kernel.report.graph_report.models import (
     LoadBearingNote,
     MisfiledNote,
     MissingHub,
-    MissingLink,
     NodeStat,
     PrerequisiteEdge,
     SourceDrift,
@@ -63,7 +58,6 @@ __all__ = [
     "LoadBearingNote",
     "MisfiledNote",
     "MissingHub",
-    "MissingLink",
     "NodeStat",
     "PrerequisiteEdge",
     "SourceDrift",

@@ -1061,8 +1061,7 @@ def gather_materials(root: str, *, latent_k: int = 10) -> MapMaterials:
             # Radius wants a native 0-1 strength, not the RRF score (ordering
             # only). Cooccur-only rows carry no such signal: park them just
             # under the weakest scored one — they are the ranking's tail anyway.
-            native = [v for v in (r.embed_score, r.edge_score) if v]
-            latent.append((lid, r.name, max(native) if native else 0.0))
+            latent.append((lid, r.name, r.embed_score or 0.0))
             latent_evidence[lid] = "≈ " + " ".join(r.evidence)
     except Exception:
         latent = []

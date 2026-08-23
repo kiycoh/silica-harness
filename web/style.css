@@ -1,7 +1,7 @@
 /* Silica landing page.
    The page is a ruled ledger: a left rail carries the op key, a hairline rule runs the whole
-   height of the record, and the field carries the entry. Exactly one gradient on the page, the
-   spine, which draws itself down the rule as you read. See the direction contract in index.html. */
+   height of the record, and the field carries the entry. No gradients: the spine still draws
+   itself down the rule as you read, in flat --accent. See the direction contract in index.html. */
 
 @font-face {
     font-family: "Archivo";
@@ -21,19 +21,23 @@
 }
 
 :root {
-    --void: #0B0D12;
-    --slate: #10141B;
-    --line: #1E2530;
-    --line-2: #2B3442;
-    --frost: #E7EBF1;
-    --ash: #8A93A3;
-    --ash-dim: #737C8C;
-    /* 4.7:1 on --void; anything dimmer fails small text */
-    --cyan: #22D3EE;
-    --indigo: #6366F1;
-    --indigo-lit: #8B8DF5;
-    /* the indigo that passes contrast as text */
-    --grad: linear-gradient(180deg, var(--cyan), var(--indigo));
+    /* Graphite, 214deg at 10% saturation. The previous floor was #0B0D12 at
+       220deg and the accents were #22D3EE and #6366F1, which are Tailwind's
+       cyan-400 and indigo-500 verbatim: shipped defaults, not a palette. This
+       ramp and the app's are now the same ramp. See
+       docs/specs/visual-identity.md. */
+    --void: #0D0E0F;
+    --slate: #141518;
+    --line: #2F343A;
+    --line-2: #3F454D;
+    --frost: #F4F5F7;
+    --ash: #AEB4BE;
+    --ash-dim: #969CA6;
+    /* 4.54:1 on the brightest plane it touches; anything dimmer fails small text */
+    --accent: #22B4CC;
+    /* The signal, hue 189deg, and the only vivid colour on the page. --grad is
+       gone with it: the spine that drew itself down the rule was the page's one
+       gradient, and the identity carries none now. It draws in --accent. */
 
     --sans: "Archivo", ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
     --mono: "Martian Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
@@ -84,12 +88,12 @@ body {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     /* the silica lattice, one step quieter than the type it sits behind */
-    background-image: radial-gradient(circle at 1px 1px, rgba(138, 147, 163, 0.07) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, rgba(174, 180, 190, 0.07) 1px, transparent 0);
     background-size: 40px 40px;
 }
 
 a {
-    color: var(--cyan);
+    color: var(--accent);
     text-decoration: none;
 }
 
@@ -100,7 +104,7 @@ a:hover {
 }
 
 :focus-visible {
-    outline: 2px solid var(--cyan);
+    outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
 
@@ -132,7 +136,7 @@ b {
     left: -9999px;
     top: 0;
     z-index: 50;
-    background: var(--cyan);
+    background: var(--accent);
     color: var(--void);
     font-weight: 600;
     padding: 0.7rem 1.1rem;
@@ -206,15 +210,15 @@ b {
 }
 
 .nav-links .nav-cta {
-    color: var(--cyan);
+    color: var(--accent);
     border: 1px solid var(--line-2);
     padding: 0.32rem 0.85rem;
 }
 
 .nav-links .nav-cta:hover {
-    border-color: var(--cyan);
+    border-color: var(--accent);
     background: rgba(34, 211, 238, 0.08);
-    color: var(--cyan);
+    color: var(--accent);
 }
 
 @media (max-width: 720px) {
@@ -232,14 +236,15 @@ b {
     padding-inline: var(--pad);
 }
 
-/* the one gradient on the page: the record being written, drawn as you read down it */
+/* the record being written, drawn as you read down it. Flat, not a sweep: the gradient
+   this used to carry was the last one on the page. */
 .spine {
     position: absolute;
     top: 0;
     bottom: 0;
     left: calc(var(--pad) + var(--rail) - 1px);
     width: 1px;
-    background: var(--grad);
+    background: var(--accent);
     /* clipped rather than scaled: scaling would squeeze the whole ramp into whatever is
        drawn so far, and the colour under a given entry would shift as you scroll */
     clip-path: inset(0 0 0 0);
@@ -379,7 +384,7 @@ b {
     font-size: 0.78em;
     background: none;
     padding: 0;
-    color: var(--cyan);
+    color: var(--accent);
 }
 
 .deck {
@@ -464,7 +469,7 @@ b {
 }
 
 .refs a:hover {
-    color: var(--cyan);
+    color: var(--accent);
     text-decoration: none;
 }
 
@@ -482,7 +487,7 @@ b {
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
-    border: 1px solid var(--cyan);
+    border: 1px solid var(--accent);
     background: var(--slate);
 }
 
@@ -500,7 +505,7 @@ b {
 }
 
 .strike-cmd .pr {
-    color: var(--cyan);
+    color: var(--accent);
     font-weight: 700;
     user-select: none;
 }
@@ -514,7 +519,7 @@ b {
 
 .strike .btn {
     border: 0;
-    border-left: 1px solid var(--cyan);
+    border-left: 1px solid var(--accent);
 }
 
 .field--tail {
@@ -617,7 +622,7 @@ b {
     background: none;
     padding: 0;
     font-size: 1em;
-    color: var(--cyan);
+    color: var(--accent);
 }
 
 .rows--credit>li {
@@ -684,7 +689,7 @@ b {
     font-size: var(--t-micro);
     line-height: 1.85;
     letter-spacing: 0.02em;
-    color: var(--indigo-lit);
+    color: var(--accent);
 }
 
 .scope p {
@@ -794,7 +799,7 @@ b {
 }
 
 .cmdblock .pr {
-    color: var(--cyan);
+    color: var(--accent);
     font-weight: 700;
     user-select: none;
 }
@@ -814,8 +819,8 @@ b {
     font-size: var(--t-label);
     font-weight: 600;
     color: var(--void);
-    background: var(--cyan);
-    border: 1px solid var(--cyan);
+    background: var(--accent);
+    border: 1px solid var(--accent);
     padding: 0.72rem 1.35rem;
     cursor: pointer;
     white-space: nowrap;
@@ -831,12 +836,12 @@ b {
 
 .btn.is-ok {
     background: var(--slate);
-    color: var(--cyan);
+    color: var(--accent);
 }
 
 .btn--ghost {
     background: transparent;
-    color: var(--cyan);
+    color: var(--accent);
     border-color: var(--line-2);
     font-weight: 400;
 }
@@ -850,8 +855,8 @@ b {
 
 .btn--ghost:hover {
     background: rgba(34, 211, 238, 0.08);
-    border-color: var(--cyan);
-    color: var(--cyan);
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .actions {
@@ -898,7 +903,7 @@ b {
     font-family: var(--term);
     font-size: var(--t-label);
     line-height: 1.5;
-    color: var(--cyan);
+    color: var(--accent);
     overflow-wrap: anywhere;
 }
 
@@ -909,7 +914,7 @@ b {
 }
 
 .beats .beat--last .beat-cmd {
-    color: var(--indigo-lit);
+    color: var(--accent);
 }
 
 .beats .beat--last .beat-txt {

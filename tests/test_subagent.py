@@ -697,3 +697,58 @@ def test_expand_items_carry_the_same_triple():
 
     assert len(q.items) == 1
     assert _item_provenance(q.items[0]) == ("c.md", "sha-of-c", "run-9")
+
+
+def _decide_capturing_call(raw_text: str) -> dict:
+    """Run _decide_dedup and return the kwargs the provider was called with."""
+    from silica.capabilities.dedup import _decide_dedup
+
+    provider = MagicMock()
+    provider.call_llm.return_value = MagicMock(text=raw_text, finish_reason="stop")
+    with patch("silica.agent.providers.get_provider", return_value=provider):
+        _decide_dedup(CONFIG, concept="X", excerpt="e", candidate_name="Y", candidate_body="b")
+    return provider.call_llm.call_args.kwargs
+
+
+def test_decide_dedup_switches_thinking_off():
+    """The judge's output is a few hundred tokens of JSON; with thinking on, a
+    hybrid model spends the 2048 budget on its trace and the JSON arrives cut
+    (finish=length, "Unterminated string", 2026-08-23 run). The trace had
+    concluded "duplicate"; the parse fallback then wrote "distinct"."""
+    assert _decide_capturing_call('{"verdict": "distinct", "rationale": "r"}')["reasoning"] is False
+
+
+def test_decide_dedup_batch_switches_thinking_off():
+    from silica.capabilities.dedup import _decide_dedup_batch
+
+    provider = MagicMock()
+    provider.call_llm.return_value = MagicMock(text='{"decisions": []}', finish_reason="stop")
+    with patch("silica.agent.providers.get_provider", return_value=provider):
+        _decide_dedup_batch(
+            CONFIG, concepts=[{"concept": "X", "excerpt": "e"}],
+            candidate_name="Y", candidate_body="b",
+        )
+    assert provider.call_llm.call_args.kwargs["reasoning"] is False
+
+
+def test_decide_dedup_unparseable_is_not_a_judgement():
+    """Garbage output routes conservatively (distinct, no merge) but must say
+    so: the verdict is a default, and downstream must not record it as judged."""
+    decision = _decide_with_raw("non-JSON garbage")
+    assert decision.verdict == "distinct"
+    assert decision.judged is False
+
+
+def test_decide_dedup_parsed_verdict_is_judged():
+    assert _decide_with_raw('{"verdict": "duplicate", "rationale": "same"}').judged is True
+
+
+def test_judged_flag_stays_off_the_wire_schema():
+    """`judged` is the framework's field: constrained decoding must not ask
+    the model to fill it, so neither wire schema may declare it."""
+    from silica.capabilities.dedup import DedupDecision, DedupVerdict, DedupVerdictBatch
+
+    assert "judged" not in DedupVerdict.model_json_schema()["properties"]
+    assert "judged" not in DedupDecision.model_json_schema()["properties"]
+    nested = DedupVerdictBatch.model_json_schema()["$defs"]["DedupVerdict"]["properties"]
+    assert "judged" not in nested

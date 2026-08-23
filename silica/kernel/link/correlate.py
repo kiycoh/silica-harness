@@ -1,19 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Alessandro Carosia
 
-"""CORRELATE (ADR-0013): prose note-to-note edges from co-occurrence contributions.
+"""CORRELATE (ADR-0013, revised by ADR-0029): note-to-note edges from co-occurrence.
 
-L1 kernel: no LLM, no API, no embedder. Pure math here (top-k stem selection +
-Jaccard on stem sets); the store-coupled refresh lives below it. `note_edges` is
-derived data, never source of truth — discrepancies are resolved by
-recomputation, never repair.
+L1 kernel: no LLM, no API, no embedder, no store. Pure math over plain
+{stem: count} maps: each note's top-k stems by RAW count, an edge where the
+Jaccard of two top-k sets reaches tau. IDF was rejected by the data (it made a
+note's top-k a function of the whole corpus; raw count keeps it a function of
+that note alone).
 
-Metric (measured, ADR-0013 gate 2026-07-09): Jaccard over each note's top-30
-stems by RAW count, edge kept when >= tau. IDF was rejected by the data (it
-made the top-k of a note a function of the whole corpus; raw count keeps a
-note's row a pure function of that note alone).
+The edges are a MEMO on CooccurStore (`note_adjacency`), never a persisted
+section: they are a pure function of the contributions, and the 2026-07-10
+persistence (prune on delete, orphan prune on load, a dirty-edge overlay in the
+disk sync) bought nothing a recomputation does not. Measured 2026-08-23 on the
+709-note vault: as a fusion leg the edges recovered 0 pairs the embed leg lacked
+and cost 0.03 mrr when they fired, so the leg is gone too (ADR-0029). What stays
+is what the mindmap radius and the report's "direct" provenance read.
 """
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 # Module constants (config promotion declined 2026-08-19; revisit only if a
 # second vault ever needs different values).
@@ -21,7 +27,7 @@ _TOP_K = 30
 _TAU = 0.25
 
 
-def topk_set(nodes: dict[str, int], k: int = _TOP_K) -> frozenset[str]:
+def topk_set(nodes: Mapping[str, int], k: int = _TOP_K) -> frozenset[str]:
     """The k highest-count stems of one note, as a set. Tie-break lexicographic.
 
     `k` defaults to the module constant; production never passes it. It exists
@@ -38,52 +44,32 @@ def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(union)
 
 
-def _inverted_index(store) -> dict[str, set[str]]:
-    """top-stem -> {note keys with that stem in their top-k}. In-memory only,
-    never persisted; rebuilt in O(N*k) at refresh time (a scan of the store
-    already in memory). Used to find edge candidates without an O(N) sweep.
+def compute_edges(
+    nodes_by_path: Mapping[str, Mapping[str, int]],
+) -> dict[str, dict[str, float]]:
+    """Symmetric adjacency {path: {other: jaccard}} over every pair at or above tau.
+
+    Top-k sets are taken ONCE per note and candidates come from an inverted
+    index of those sets, so the cost is O(N*k) to bucket plus one k-element set
+    intersection per candidate pair. The refresh this replaced re-sorted the
+    neighbour's stems for every candidate it met: 5.3 s for 709 notes, against
+    well under a second here for the same 218 edges.
     """
-    idx: dict[str, set[str]] = {}
-    for path in store.paths():
-        for stem in topk_set(store.note_nodes(path)):
-            idx.setdefault(stem, set()).add(path)
-    return idx
-
-
-def refresh_edges(store, paths: list[str]) -> None:
-    """Recompute the note_edges rows of `paths` in place (does NOT save).
-
-    For each touched note A: clear every existing edge that involves A, then
-    among the notes sharing >=1 top-stem with A (via the inverted index,
-    O(candidates*k) not O(N*k)) re-add the ones with Jaccard >= tau.
-
-    Contributions are the input and are not mutated here, so the inverted index
-    is stable across the loop. Edges are stored once under the ordered pair, so
-    refreshing A also updates A's edges seen from a non-refreshed neighbour.
-    """
-    from silica.kernel.recall.cooccurrence import cooccur_key
-
-    idx = _inverted_index(store)
-    for path in paths:
-        key = cooccur_key(path)
-        a_set = topk_set(store.note_nodes(key))
-        store.clear_note_edges(key)
-        if not a_set:
-            continue
+    tops = {path: topk_set(nodes) for path, nodes in nodes_by_path.items()}
+    by_stem: dict[str, list[str]] = {}
+    for path, stems in tops.items():
+        for stem in stems:
+            by_stem.setdefault(stem, []).append(path)
+    adj: dict[str, dict[str, float]] = {}
+    for a, stems_a in tops.items():
         candidates: set[str] = set()
-        for stem in a_set:
-            candidates |= idx.get(stem, set())
-        candidates.discard(key)
-        for other in candidates:
-            score = jaccard(a_set, topk_set(store.note_nodes(other)))
+        for stem in stems_a:
+            candidates.update(by_stem[stem])
+        for b in candidates:
+            if b <= a:
+                continue  # each unordered pair once; the row is written both ways
+            score = jaccard(stems_a, tops[b])
             if score >= _TAU:
-                store.set_note_edge(key, other, score)
-
-
-def recompute_all_edges(store) -> None:
-    """Rebuild every note_edges row from scratch (/cooccur --force).
-
-    Refreshing all paths clears every edge (each touches some path) and rebuilds
-    it, so this needs no separate wipe. Does NOT save — the caller flushes once.
-    """
-    refresh_edges(store, store.paths())
+                adj.setdefault(a, {})[b] = score
+                adj.setdefault(b, {})[a] = score
+    return adj

@@ -45,7 +45,7 @@ def _bodies(vault: Path, exclude_inbox: bool = True) -> dict[str, str]:
     out = {}
     for p in vault.rglob("*.md"):
         rel = p.relative_to(vault).as_posix()
-        if exclude_inbox and (rel.startswith("Inbox/") or rel.startswith("done/")):
+        if exclude_inbox and rel.casefold().startswith(("inbox/", "done/")):
             continue
         out[rel] = p.read_text(encoding="utf-8", errors="replace")
     return out

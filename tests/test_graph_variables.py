@@ -418,64 +418,12 @@ def test_cowrite_transactions_are_scoped_to_the_vault_and_capped(tmp_path, monke
 # Relatedness legs (V1 structural, V3 coupling)
 # ===========================================================================
 
-from silica.kernel.recall.relatedness import _fuse, _structural_ranking, related_notes
+from silica.kernel.recall.relatedness import related_notes
 
 
-def test_fuse_carries_the_two_new_legs_with_evidence():
-    out = _fuse(
-        None, None, k=5,
-        structural_rank=[("B", 0.9), ("C", 0.4)],
-        coupling_rank=[("C", 1.2)],
-    )
-    by = {r.path: r for r in out}
-    assert by["C"].score > by["B"].score          # two legs agree on C
-    assert any(e.startswith("struct:") for e in by["B"].evidence)
-    assert any(e.startswith("coupled:") for e in by["C"].evidence)
-    assert _fuse(None, None, k=5) == []
 
 
-def test_structural_ranking_bridges_the_md_keyspace():
-    G = nx.Graph([("Concepts/A.md", "Concepts/M.md"), ("Concepts/M.md", "Concepts/B.md")])
-    ranking = _structural_ranking(G, "Concepts/A", k=5, exclude=set())
-    assert ranking == [("Concepts/B", pytest.approx(1 / math.log(2)))]
-    assert _structural_ranking(G, "nope", k=5, exclude=set()) is None
-    assert _structural_ranking(None, "Concepts/A", k=5, exclude=set()) is None
 
-
-def test_fuse_structural_boost_lifts_but_never_introduces():
-    out = _fuse(None, [("B", 5.0), ("C", 4.0)], k=5, structural_boost={"C": 1.0, "Z": 9.0})
-    assert [r.path for r in out] == ["C", "B"]          # C lifted above B
-    assert all(r.path != "Z" for r in out)             # Z was in no leg: never introduced
-    assert any(e.startswith("struct:") for e in out[0].evidence)
-
-
-def test_related_notes_boost_mode_keeps_the_pool_and_reorders(tmp_path):
-    st = CooccurStore(path=tmp_path / "c.json", lang="english")
-    st.upsert_note("A", build_contribution("A", "alpha beta gamma"))
-    st.upsert_note("B", build_contribution("B", "beta gamma delta"))
-    st.upsert_note("C", build_contribution("C", "gamma epsilon zeta"))
-    G = nx.Graph([("A.md", "M.md"), ("M.md", "C.md")])
-    base = [r.path for r in related_notes("A", cooccur_store=st, k=5)]
-    assert base == ["B", "C"]
-    boosted = related_notes("A", cooccur_store=st, k=5, graph=G)   # default mode: boost
-    assert [r.path for r in boosted] == ["C", "B"]
-    assert set(r.path for r in boosted) == set(base)
-
-
-def test_related_notes_folds_graph_and_coupling_legs(tmp_path):
-    st = CooccurStore(path=tmp_path / "c.json", lang="english")
-    st.upsert_note("A", build_contribution("A", "alpha beta gamma"))
-    st.upsert_note("B", build_contribution("B", "beta gamma delta"))
-    st.upsert_note("C", build_contribution("C", "zeta eta theta"))
-    G = nx.Graph([("A.md", "M.md"), ("M.md", "C.md")])
-    baseline = related_notes("A", cooccur_store=st, k=5)
-    assert [r.path for r in baseline] == ["B"]
-    fused = related_notes("A", cooccur_store=st, k=5, graph=G, coupling_rank=[("C", 0.8)],
-                          structural_mode="leg")
-    assert {r.path for r in fused} == {"B", "C"}
-    c = next(r for r in fused if r.path == "C")
-    assert any(e.startswith("struct:") for e in c.evidence)
-    assert any(e.startswith("coupled:") for e in c.evidence)
 
 
 # ===========================================================================

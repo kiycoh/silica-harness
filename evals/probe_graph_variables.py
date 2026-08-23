@@ -46,11 +46,9 @@ JUDGE_AGREEMENT = 0.65   # direction agreement a coin cannot explain at n=40
 
 def _stores(vault: Path):
     from evals.golden.runner import _open_stores
-    from silica.kernel.link import correlate
 
     store, es = _open_stores(vault)
     es = es if (es is not None and len(es)) else None
-    correlate.recompute_all_edges(store)   # note_edges leg, as fusion_probe does
     return store, es
 
 
@@ -160,6 +158,86 @@ def _title(key: str) -> str:
     return key.rsplit("/", 1)[-1]
 
 
+def _structural_ranking(graph, query_path: str, *, k: int, exclude: set[str]):
+    """V1 leg: Adamic-Adar neighbours of `query_path` over the wikilink graph.
+
+    Lived in relatedness.py while the gate ran; moved here with the gate's
+    verdict (ADR-0027, ADR-0029): no production caller ever passed a graph. The
+    graph carries driver node ids (with `.md`), the facade speaks store keys;
+    bridged both ways so the leg joins the product legs' keyspace.
+    """
+    if graph is None:
+        return None
+    from silica.kernel.recall.cooccurrence import cooccur_key
+    from silica.kernel.recall.signals import adamic_adar_ranking
+
+    key_of = {cooccur_key(n): n for n in graph.nodes}
+    gid = key_of.get(cooccur_key(query_path))
+    if gid is None:
+        return None
+    blocked_ids = {key_of[x] for x in exclude if x in key_of}
+    ranking = adamic_adar_ranking(graph, gid, k=k, exclude=blocked_ids)
+    if not ranking:
+        return None
+    return [(cooccur_key(n), s) for n, s in ranking]
+
+
+def fused_with(key: str, es, store, *, k: int = K, graph=None, mode: str = "leg",
+               coupling=None) -> list[str]:
+    """The production fusion with one extra leg mounted, as the probe's arm C.
+
+    Rebinds nothing: it calls the same `_embed_ranking` / `_cooccur_ranking`
+    the facade calls and fuses them with the facade's own `_rrf_fuse`, so with
+    no extra leg it reproduces `related_notes` path-for-path (asserted by
+    `check_reproduces_facade`, the alpha=1.0 trick of the PPR probe). `mode`
+    "leg" adds the structural ranking as a fourth list; "boost" multiplies the
+    fused score of candidates the other legs surfaced by aa/(1+aa) and never
+    introduces one (the 2026-08-22 corroboration arm).
+    """
+    from silica.kernel.recall import relatedness as R
+    from silica.kernel.recall.cooccurrence import cooccur_key
+    from silica.kernel.recall.graph_export import is_vault_artifact
+
+    blocked = {cooccur_key(key)}
+    pool = max(k * 3, R._POOL_MIN)
+    rankings = []
+    e = R._embed_ranking(es, key, k=pool, exclude=blocked)
+    if e is not None:
+        rankings.append([(p, sc) for p, _n, sc in e])
+    c = R._cooccur_ranking(store, key, k=pool, exclude=blocked, scope=None, expand=False)
+    if c is not None:
+        rankings.append(list(c))
+    boost = None
+    if graph is not None:
+        ranked = _structural_ranking(graph, key, k=pool, exclude=blocked)
+        if ranked and mode == "leg":
+            rankings.append(ranked)
+        elif ranked:
+            boost = dict(ranked)
+    if coupling:
+        rankings.append([(p, w) for p, w in coupling if p not in blocked][:pool])
+    fused = R._rrf_fuse(rankings)
+    if boost:
+        for p in list(fused):
+            aa = boost.get(p)
+            if aa:
+                fused[p] *= 1.0 + aa / (1.0 + aa)
+    ranked_paths = [p for p, _ in sorted(fused.items(), key=lambda kv: (-kv[1], kv[0]))
+                    if not is_vault_artifact(p)]
+    return ranked_paths[:k]
+
+
+def check_reproduces_facade(keys, es, store, *, k: int = K) -> None:
+    """Validity check: no extra leg == the product facade, path for path."""
+    from silica.kernel.recall.relatedness import related_notes
+
+    for key in keys:
+        mine = fused_with(key, es, store, k=k)
+        theirs = [r.path for r in related_notes(key, embed_store=es, cooccur_store=store, k=k)]
+        assert mine == theirs, f"probe fusion drifted from the facade on {key!r}"
+
+
+
 # ---------------------------------------------------------------------------
 # V1 structural
 # ---------------------------------------------------------------------------
@@ -208,16 +286,15 @@ def run_structural(vault: Path) -> dict:
 
     # (b) the fused leg on the masked pairs, both directions, k=10
     endpoints = sorted({e for pr in masked for e in pr})
-    legs = ("embed+" if es is not None else "") + "cooccur+edges"
+    legs = ("embed+" if es is not None else "") + "cooccur"
 
     def arms(keys, Gx):
+        check_reproduces_facade(keys[:20], es, store)
         a = {key: [r.path for r in related_notes(key, embed_store=es, cooccur_store=store, k=K)]
              for key in keys}
         out = {}
         for mode in ("leg", "boost"):
-            out[mode] = {key: [r.path for r in related_notes(
-                key, embed_store=es, cooccur_store=store, k=K, graph=Gx, structural_mode=mode)]
-                for key in keys}
+            out[mode] = {key: fused_with(key, es, store, graph=Gx, mode=mode) for key in keys}
         return a, out
 
     topk_a, variants = arms(endpoints, G_train)
@@ -285,15 +362,15 @@ def run_coupling(vault: Path) -> dict:
         return {"variable": "coupling", "verdict": "no eligible pairs"}
     topk_a = {key: [r.path for r in related_notes(key, embed_store=es, cooccur_store=store, k=K)]
               for key in endpoints}
+    check_reproduces_facade(endpoints[:20], es, store)
     topk_c = {}
     for key in endpoints:
         row = cmap.get(key) or {}
         rank = sorted(row.items(), key=lambda kv: (-kv[1], kv[0])) or None
-        topk_c[key] = [r.path for r in related_notes(key, embed_store=es, cooccur_store=store, k=K,
-                                                     coupling_rank=rank)]
+        topk_c[key] = fused_with(key, es, store, coupling=rank)
     arm_a = _score(topk_a, eligible)
     arm_c = _score(topk_c, eligible)
-    legs = ("embed+" if es is not None else "") + "cooccur+edges"
+    legs = ("embed+" if es is not None else "") + "cooccur"
     gate = _gate(arm_a, arm_c)
     gate["ordering"] = _ordering(topk_a, topk_c, eligible)
     alone = sum(1 for a, b in eligible if b in (cmap.get(a) or {}) or a in (cmap.get(b) or {}))

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Alessandro Carosia
 
-"""Pure math of CORRELATE (ADR-0013): top-k stem selection + Jaccard.
+"""Pure math of CORRELATE (ADR-0013, ADR-0029): top-k stem selection + Jaccard.
 
 These functions are the metric the spec's admission gate measured
 (top-30 by raw count, Jaccard, tau=0.25). They know nothing about the store —
@@ -11,13 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from silica.kernel.link.correlate import (
-    jaccard,
-    recompute_all_edges,
-    refresh_edges,
-    topk_set,
-)
-from silica.kernel.recall.cooccurrence import CooccurStore
+from silica.kernel.link.correlate import compute_edges, jaccard, topk_set
 
 
 def _nodes(**counts: int) -> dict:
@@ -67,55 +61,31 @@ def test_jaccard_disjoint_is_zero_identical_is_one() -> None:
     assert jaccard(a, a) == 1.0
 
 
-def test_refresh_creates_edge_for_overlapping_notes() -> None:
-    store = CooccurStore()
-    store.upsert_note("a", _nodes(quick=1, sort=1, array=1, tree=1))
-    store.upsert_note("b", _nodes(quick=1, sort=1, array=1, heap=1))
+def _topk(**counts: int) -> dict[str, int]:
+    return dict(counts)
+
+
+def test_compute_edges_creates_edge_for_overlapping_notes() -> None:
     # top-k(a)={quick,sort,array,tree}, top-k(b)={quick,sort,array,heap}
     # jaccard = |3 shared| / |5 union| = 0.6 >= tau
-    refresh_edges(store, ["a", "b"])
-    assert store.note_edges_for("a") == {"b": pytest.approx(0.6)}
+    adj = compute_edges({"a": _topk(quick=1, sort=1, array=1, tree=1),
+                         "b": _topk(quick=1, sort=1, array=1, heap=1)})
+    assert adj == {"a": {"b": pytest.approx(0.6)}, "b": {"a": pytest.approx(0.6)}}
 
 
-def test_refresh_no_edge_below_tau() -> None:
-    store = CooccurStore()
-    store.upsert_note("a", _nodes(quick=1, sort=1, array=1))
-    store.upsert_note("b", _nodes(bread=1, flour=1, yeast=1))
-    refresh_edges(store, ["a", "b"])
-    assert store.note_edges_for("a") == {}
+def test_compute_edges_no_edge_below_tau() -> None:
+    adj = compute_edges({"a": _topk(quick=1, sort=1, array=1),
+                         "b": _topk(bread=1, flour=1, yeast=1)})
+    assert adj == {}
 
 
-def test_refresh_is_local_to_touched_paths() -> None:
-    store = CooccurStore()
-    store.upsert_note("a", _nodes(quick=1, sort=1, array=1, tree=1))
-    store.upsert_note("b", _nodes(quick=1, sort=1, array=1, heap=1))
-    store.upsert_note("c", _nodes(bread=1, flour=1, yeast=1, water=1))
-    store.upsert_note("d", _nodes(bread=1, flour=1, yeast=1, salt=1))
-    recompute_all_edges(store)
-    assert store.note_edges_for("c") == {"d": pytest.approx(0.6)}
-    # rewrite A to be disjoint, refresh ONLY A: A's row changes, C-D untouched
-    store.upsert_note("a", _nodes(xxx=1, yyy=1))
-    refresh_edges(store, ["a"])
-    assert store.note_edges_for("a") == {}
-    assert store.note_edges_for("b") == {}, "the a-b edge must be gone after A diverged"
-    assert store.note_edges_for("c") == {"d": pytest.approx(0.6)}, "C-D is untouched by an A refresh"
-
-
-def test_refresh_is_idempotent() -> None:
-    store = CooccurStore()
-    store.upsert_note("a", _nodes(quick=1, sort=1, array=1, tree=1))
-    store.upsert_note("b", _nodes(quick=1, sort=1, array=1, heap=1))
-    refresh_edges(store, ["a", "b"])
-    once = store.note_edges_for("a")
-    refresh_edges(store, ["a", "b"])
-    assert store.note_edges_for("a") == once
-
-
-def test_recompute_all_builds_the_whole_graph() -> None:
-    store = CooccurStore()
-    store.upsert_note("a", _nodes(quick=1, sort=1, array=1, tree=1))
-    store.upsert_note("b", _nodes(quick=1, sort=1, array=1, heap=1))
-    store.upsert_note("c", _nodes(bread=1, flour=1, yeast=1))
-    recompute_all_edges(store)
-    assert store.note_edges_for("a") == {"b": pytest.approx(0.6)}
-    assert store.note_edges_for("c") == {}
+def test_compute_edges_is_a_pure_function_of_its_input() -> None:
+    nodes = {"a": _topk(quick=1, sort=1, array=1, tree=1),
+             "b": _topk(quick=1, sort=1, array=1, heap=1),
+             "c": _topk(bread=1, flour=1, yeast=1, water=1),
+             "d": _topk(bread=1, flour=1, yeast=1, salt=1)}
+    assert compute_edges(nodes) == compute_edges(dict(nodes))
+    nodes["a"] = _topk(xxx=1, yyy=1)   # a diverged: only its edges change
+    adj = compute_edges(nodes)
+    assert "a" not in adj and "b" not in adj
+    assert adj["c"] == {"d": pytest.approx(0.6)}

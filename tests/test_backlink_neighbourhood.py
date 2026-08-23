@@ -29,19 +29,6 @@ def _driver():
     return silica.driver.DRIVER
 
 
-def test_mention_index_is_blind_to_a_freshly_created_title(tmp_vault):
-    """The defect, pinned: the primitive the phase used cannot see the case."""
-    tmp_vault.note(
-        "Attention.md",
-        "# Attention\n\nSparse attention is a cheaper variant used in long-context models.\n",
-    )
-    drv = _driver()
-    drv.create("Sparse attention.md", "# Sparse attention\n\nA cheaper attention variant.\n")
-
-    # Only the new note itself; the pre-existing body that mentions it is invisible.
-    assert drv.mentions_of("Sparse attention") == ["Sparse attention.md"]
-
-
 def test_neighbourhood_finds_a_pre_existing_body_mentioning_a_new_title(tmp_vault):
     from silica.router.states.linking import _backlink_neighbourhood
 

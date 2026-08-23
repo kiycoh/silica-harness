@@ -82,8 +82,52 @@ def _link_targets(body: str) -> set[str]:
     return out
 
 
+# The title trie the driver used for its mention index (deleted from the product
+# 2026-08-23 with `mentions_of`, which had no caller). Kept here verbatim so the
+# probe still measures what it measured: a title matches when it occurs as a
+# substring starting at a word boundary.
+_TITLE = "\x00"
+
+
+def _is_word_char(c: str) -> bool:
+    return ("a" <= c <= "z") or ("0" <= c <= "9")
+
+
+def build_title_trie(title_lowers) -> dict:
+    root: dict = {}
+    for title_lower in title_lowers:
+        if len(title_lower) < 2:
+            continue
+        node = root
+        for ch in title_lower:
+            node = node.setdefault(ch, {})
+        node[_TITLE] = title_lower
+    return root
+
+
+def mentions_in(content_lower: str, trie: dict) -> set[str]:
+    found: set[str] = set()
+    n = len(content_lower)
+    for i in range(n):
+        if not _is_word_char(content_lower[i]):
+            continue
+        if i and _is_word_char(content_lower[i - 1]):
+            continue
+        node = trie
+        j = i
+        while j < n:
+            nxt = node.get(content_lower[j])
+            if nxt is None:
+                break
+            node = nxt
+            title = node.get(_TITLE)
+            if title is not None:
+                found.add(title)
+            j += 1
+    return found
+
+
 def run(vault: Path, *, limit: int | None = None, verbose: bool = False) -> dict:
-    from silica.driver.base import build_title_trie, mentions_in
     from silica.kernel.link.health import iter_notes
     from silica.kernel.recall.cooccurrence import cooccur_key
     from silica.kernel.recall.paths import is_inbox_path

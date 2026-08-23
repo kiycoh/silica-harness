@@ -69,7 +69,7 @@ def ranking() -> list[tuple[str, float]] | None:
     """Weighted paths, best-first, for the RRF `recall_rank` leg.
 
     None when the store is empty/missing/corrupt — `_fuse` treats this as an
-    abstaining leg, the same idiom as `cooc_rank`/`edges_rank`.
+    abstaining leg, the same idiom as `cooc_rank`.
     """
     weights = _load()
     if not weights:

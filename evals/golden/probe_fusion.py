@@ -55,7 +55,6 @@ def run_rerank_ab(vault, store, *, embed_store=None, reranker=None,
     degenerates to the unreranked pool. A high count means the A/B measured
     nothing, not that the reranker is neutral.
     """
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import related_notes
     from silica.kernel.recall.rerank import link_query, rerank_related
 
@@ -67,7 +66,6 @@ def run_rerank_ab(vault, store, *, embed_store=None, reranker=None,
     }
     if len(store) == 0:
         return empty
-    correlate.recompute_all_edges(store)
     eligible = eligible_pairs(wikilink_graph(vault, store))
     if not eligible:
         return empty

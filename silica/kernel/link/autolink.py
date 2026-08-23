@@ -31,6 +31,7 @@ linked title is in a skip region on the second pass.
 """
 from __future__ import annotations
 
+import functools
 import re
 from typing import Sequence
 
@@ -176,6 +177,48 @@ def _build_skip_mask(text: str) -> list[bool]:
 # Main autolink function
 # ---------------------------------------------------------------------------
 
+_WORD_RE = re.compile(r"\w+")
+
+
+@functools.lru_cache(maxsize=8)
+def _word_buckets(title_index: tuple[str, ...]) -> dict[str, list[str]]:
+    """first-word (lowercase) -> index titles containing that word.
+
+    A title can only contain a candidate as whole words if it contains the
+    candidate's first word as a whole word, so the containment test below walks
+    one bucket instead of the index. Keyed on the tuple (not id(): the index is
+    rebuilt per chunk from cached refs and an id can be reused after GC).
+    """
+    buckets: dict[str, list[str]] = {}
+    for t in title_index:
+        for w in set(_WORD_RE.findall(t.lower())):
+            buckets.setdefault(w, []).append(t)
+    return buckets
+
+
+def _containing_titles(title_index: tuple[str, ...], work_lower: frozenset[str]) -> list[str]:
+    """Non-candidate index titles that contain a candidate as whole words.
+
+    Was O(|index| x |candidates|) regex searches per note (705 titles x 183
+    candidates = 129k on the 709-note vault, which is why the cosine gate saved
+    only 20% of autolink's 67 ms/note: the gate shrank the candidates and this
+    scan still walked the index for each of them). Same predicate, same order
+    as the index, only the titles in a candidate's word bucket are tested.
+    """
+    buckets = _word_buckets(title_index)
+    hit: set[str] = set()
+    for w in work_lower:
+        first = _WORD_RE.search(w)
+        if first is None:
+            continue
+        rx = re.compile(r"(?<!\w)" + re.escape(w) + r"(?!\w)")
+        for t in buckets.get(first.group(0), ()):
+            tl = t.lower()
+            if tl not in work_lower and len(t) > len(w) and rx.search(tl):
+                hit.add(t)
+    return [t for t in title_index if t in hit]
+
+
 def autolink(
     body: str,
     title_index: Sequence[str],
@@ -258,14 +301,9 @@ def autolink(
     shadow_res: list[re.Pattern] = []
     if candidates is not None:
         work_lower = {t.lower() for t in work_titles}
-        checks = [
-            (w, re.compile(r"(?<!\w)" + re.escape(w) + r"(?!\w)")) for w in work_lower
-        ]
         shadow_res = [
             re.compile(r"(?<!\w)" + re.escape(t) + r"(?!\w)", re.IGNORECASE)
-            for t in title_index
-            if t.lower() not in work_lower
-            and any(len(t) > len(w) and rx.search(t.lower()) for w, rx in checks)
+            for t in _containing_titles(tuple(title_index), frozenset(work_lower))
         ]
 
     # Pre-scan: collect titles that are already wikilinked in the body.

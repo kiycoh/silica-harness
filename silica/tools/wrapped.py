@@ -21,6 +21,7 @@ discoverability only — the FSM bypasses it.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -316,11 +317,11 @@ def silica_restore(txn_id: str, inverses: list[dict]) -> dict[str, Any]:
 
 class CleanupArgs(BaseModel):
     inbox_file: str = Field(description="Vault-relative path of the inbox file to archive")
-    done_dir: str = Field(default="done", description="Destination folder for processed inbox files")
+    done_dir: str = Field(default="", description="Destination folder; empty resolves this vault's archive root")
 
 @tool(CleanupArgs, cls="wrapped", collapse="eager", internal=True)
-def silica_cleanup(inbox_file: str, done_dir: str = "done") -> dict[str, Any]:
-    """Move the inbox file to done/ after successful pipeline completion.
+def silica_cleanup(inbox_file: str, done_dir: str = "") -> dict[str, Any]:
+    """Archive the inbox file under Done/ after successful pipeline completion.
 
     C5: Only callable from DONE state — the orchestrator enforces this.
 
@@ -328,16 +329,31 @@ def silica_cleanup(inbox_file: str, done_dir: str = "done") -> dict[str, Any]:
     mode the run is a preview the user merges by pasting, and consuming the
     source would mutate the one tree the boundary exists to protect. It stays
     in the inbox, which is also where a re-run needs to find it.
+
+    The archive keeps the source's inbox folder structure — see
+    `archive_path_for`, which owns that rule. `done_dir` overrides the resolved
+    root; empty asks `active_done_dir`, which keeps a pre-2026-08-23 `done/`
+    where it is rather than renaming it.
     """
-    import os
-    from silica.kernel.vault_manifest import active_write_dir, in_write_dir, within
+    from silica.kernel.vault_manifest import archive_path_for, active_write_dir, within
 
     write_root = active_write_dir()
     if write_root and not within(inbox_file, write_root):
         return {"success": True, "skipped": inbox_file,
                 "reason": f"outside the write boundary '{write_root}/'"}
-    base_name = os.path.basename(inbox_file)
-    target = f"{in_write_dir(done_dir)}/{base_name}"
+    target = archive_path_for(inbox_file, done_dir)
+    # The fs backend creates the destination parents itself; the Obsidian one
+    # forwards to a plugin that does not, and every nested source now needs a
+    # subfolder under the archive that has never existed. Make it here, once,
+    # for both — an empty folder is inert if the move then fails.
+    try:
+        from silica.config import CONFIG
+
+        vault = (getattr(CONFIG, "vault_path", "") or "").strip()
+        if vault and "/" in target:
+            (Path(vault) / target).parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.debug("CLEANUP: archive folder pre-create skipped (%s)", exc)
     try:
         DRIVER.move(inbox_file, target)
         return {"success": True, "moved": inbox_file, "to": target}

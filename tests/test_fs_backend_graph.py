@@ -135,7 +135,7 @@ def test_vault_root_artifacts_excluded_from_index(tmp_path):
     """GRAPH_REPORT.md / log.md are Silica's own output, not knowledge notes.
 
     They must stay out of the driver index so they never reach any metric
-    (list_files → embed + cooccurrence, _mention_index → occurrence, graph).
+    (list_files → embed + cooccurrence, graph).
     A real note in a subfolder named log.md must NOT be excluded.
     """
     vault = tmp_path / "vault"
@@ -152,11 +152,8 @@ def test_vault_root_artifacts_excluded_from_index(tmp_path):
     assert "log.md" not in paths
     assert "notes/log.md" in paths  # subfolder note survives
     assert "Real.md" in paths
-
-    # Occurrence: the artifacts must not register as mentioners of "Real".
-    mentioners = backend._mention_index.get("real", set())
-    assert "GRAPH_REPORT.md" not in mentioners
-    assert "log.md" not in mentioners
+    # Graph: the artifacts' [[Real]] links must not count as backlinks either.
+    assert {r.path for r in backend.backlinks("Real.md")} == set()
 
 
 def test_links_resolve_every_ref_shape(tmp_path):
@@ -222,3 +219,26 @@ def test_search_context_caps_per_note_and_batch_agrees(temp_vault):
         [(h.ref.path, h.line) for h in hits]
     assert [(h.ref.path, h.line) for h in batch["line 3"]] == \
         [(h.ref.path, h.line) for h in backend.search_context("line 3")]
+
+
+def test_graph_edges_carry_the_scaffold_class(tmp_path):
+    """A frontmatter link is a scaffold edge; a prose link is not; two
+    spellings of one note resolve to one edge and prose wins (ADR-0029)."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    (vault / "Hub.md").write_text("# Hub\n\n## [[Spoke A]]\n\nProse about [[Spoke B]].\n", encoding="utf-8")
+    (vault / "Spoke A.md").write_text("---\nparent note: \"[[Hub]]\"\n---\n\n# Spoke A\n\nSee [[hub]] in prose.\n", encoding="utf-8")
+    (vault / "Spoke B.md").write_text("---\nparent note: \"[[Hub]]\"\n---\n\n# Spoke B\n\nNo prose link.\n", encoding="utf-8")
+    backend = ObsidianFSBackend(str(vault))
+    _notes, _unresolved, G = backend.graph_data()
+    assert G["Hub.md"]["Spoke A.md"]["scaffold"] is True      # heading line
+    assert G["Hub.md"]["Spoke B.md"]["scaffold"] is False     # prose
+    assert G["Spoke A.md"]["Hub.md"]["scaffold"] is False     # frontmatter + prose: prose wins
+    assert G["Spoke B.md"]["Hub.md"]["scaffold"] is True      # frontmatter only
+    # the incremental path keeps the class too
+    backend.create("Spoke C.md", "---\nparent note: \"[[Hub]]\"\n---\n\n# Spoke C\n", )
+    _notes, _unresolved, G = backend.graph_data()
+    assert G["Spoke C.md"]["Hub.md"]["scaffold"] is True
+    from silica.kernel.recall.graph_export import build_graph_data
+    import silica.driver as drv
+    drv.DRIVER  # noqa: B018 - the export reads the configured driver; exercised via the nx graph above

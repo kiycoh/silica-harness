@@ -144,7 +144,6 @@ def length_bias(store, groups: dict[str, list[tuple[str, str]]]) -> dict:
 def run(vault: Path, *, k1: float = K1, b: float = B) -> dict:
     from evals.golden.runner import _open_stores, vault_digest
     from silica.config import CONFIG
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import _POOL_MIN
 
     # Arm A is the frozen state whatever the operator's env says, and arm P below
@@ -159,7 +158,6 @@ def run(vault: Path, *, k1: float = K1, b: float = B) -> dict:
     pool = max(K * 3, _POOL_MIN)
     print(f"vault {vault}  ({notes} notes, {digest[:19]}…)  embed leg: {'live' if es else 'OFF'}")
 
-    correlate.recompute_all_edges(store)
     eligible = eligible_pairs(wikilink_graph(vault, store))
     endpoints = sorted({e for pr in eligible for e in pr})
 

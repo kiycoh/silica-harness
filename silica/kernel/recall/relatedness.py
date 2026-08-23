@@ -56,7 +56,10 @@ _NOISE_FLOOR = 1e-6
 # BM25 knobs for the cooccur tf term (CONFIG.cooccur_bm25, spec section 9.2).
 # Textbook defaults, DELIBERATELY UNTUNED: the +4.02pp gate is credible precisely
 # because they were not fitted to this vault, so they stay constants rather than
-# config knobs. A sweep, if ever, is pre-declared after phase 3.
+# config knobs. The pre-declared sweep ran 2026-08-23 (ADR-0030,
+# evals/probe_fusion_function): a 4x3 grid's held-out best (k1 0.9, b 0.5) is
+# +0.9pp recall@10 and -0.005 mrr, under the +2pp gate, so the textbook values
+# stay. Reopen only with a second vault that disagrees.
 BM25_K1 = 1.2
 BM25_B = 0.75
 
@@ -111,7 +114,6 @@ class RelatedNote:
     evidence: list[str]
     embed_score: float | None = None
     cooccur_weight: float | None = None
-    edge_score: float | None = None  # CORRELATE (ADR-0013): direct note_edges Jaccard
     # ADR-0019: "vault" = active vault, "memory" = personal-memory lane. A
     # memory result's `path` is relative to the MEMORY vault — consumers must
     # respect this marker (open the right note in the right vault) and never
@@ -415,23 +417,21 @@ def _fuse(
     cooc_rank: list[tuple[str, float]] | None,
     *,
     k: int,
-    edges_rank: list[tuple[str, float]] | None = None,
     mem_embed_rank: list[tuple[str, str, float]] | None = None,
     mem_cooc_rank: list[tuple[str, float]] | None = None,
     recall_rank: list[tuple[str, float]] | None = None,
     lexical_rank: list[tuple[str, float]] | None = None,
-    structural_rank: list[tuple[str, float]] | None = None,
-    coupling_rank: list[tuple[str, float]] | None = None,
-    structural_boost: dict[str, float] | None = None,
 ) -> list[RelatedNote]:
     """RRF-fuse the per-leg rankings into RelatedNotes with provenance.
 
     Shared by both facade entry points. A None ranking is an abstaining leg and
     contributes no terms; [] is returned only when all legs abstain.
 
-    `edges_rank` is the CORRELATE third leg — direct note_edges of the query,
-    ranked by Jaccard. Only related_notes(query_path) supplies it; the
-    fresh-query facade always abstains here (fresh text has no note_edges row).
+    Two legs carry production (ADR-0029): embed and cooccur, unweighted. The
+    CORRELATE note-edges leg was measured at 0 recovered pairs and -0.03 mrr on
+    the 709-note vault (2026-08-23) and is gone; the V1/V3 structural and
+    coupling legs never shipped (ADR-0027) and live in their probe, which
+    mounts them on the product legs the same way the PPR probe did.
 
     `mem_embed_rank` / `mem_cooc_rank` are the personal-memory lane (ADR-0019):
     same fusion, key-namespaced under `_MEM` so a memory note never collides
@@ -468,11 +468,6 @@ def _fuse(
         rankings.append([(_MEM + path, w) for path, w in mem_cooc_rank])
         cooc_scores.update({_MEM + path: w for path, w in mem_cooc_rank})
 
-    edge_scores: dict[str, float] = {}
-    if edges_rank is not None:
-        rankings.append(list(edges_rank))
-        edge_scores = dict(edges_rank)
-
     recall_scores: dict[str, float] = {}
     if recall_rank is not None:
         rankings.append(list(recall_rank))
@@ -483,32 +478,7 @@ def _fuse(
         rankings.append(list(lexical_rank))
         lexical_scores = dict(lexical_rank)
 
-    # V1/V3 (spec 2026-08-22-graph-variables-design): two more abstaining
-    # legs. `structural_rank` is Adamic-Adar over the wikilink graph (notes
-    # two hops away through shared neighbours), `coupling_rank` the shared
-    # transactions (sources cited, runs written). Store keyspace, like every
-    # other leg; None abstains and fusion is bit-identical to before.
-    structural_scores: dict[str, float] = {}
-    if structural_rank is not None:
-        rankings.append(list(structural_rank))
-        structural_scores = dict(structural_rank)
-    coupling_scores: dict[str, float] = {}
-    if coupling_rank is not None:
-        rankings.append(list(coupling_rank))
-        coupling_scores = dict(coupling_rank)
-
     fused = _rrf_fuse(rankings)
-    # V1 as corroboration rather than generation: a candidate the other legs
-    # already surfaced is lifted by its Adamic-Adar score with the query
-    # (aa/(1+aa), in [0,1)); a candidate no leg surfaced is never introduced.
-    # A leg introduces its whole pool, and measured 2026-08-22 that pushed the
-    # true counterpart down on every one of 481 and 845 golden pairs.
-    if structural_boost:
-        for p in list(fused):
-            aa = structural_boost.get(p)
-            if aa:
-                fused[p] *= 1.0 + aa / (1.0 + aa)
-                structural_scores.setdefault(p, aa)
     # Vault-root artifacts (log.md, GRAPH_REPORT.md) are excluded at index-build,
     # but a stale vector embedded before that exclusion outlives it: the store is
     # upsert-only and never prunes departed notes. Drop them here, before the
@@ -525,25 +495,16 @@ def _fuse(
         evidence: list[str] = []
         embed_score = embed_scores.get(path)
         cooc_weight = cooc_scores.get(path)
-        edge_score = edge_scores.get(path)
         if embed_score is not None:
             evidence.append(f"embed:{embed_score:.2f}")
         if cooc_weight is not None:
             evidence.append(f"cooccur:w{int(round(cooc_weight))}")
-        if edge_score is not None:
-            evidence.append(f"edge:{edge_score:.2f}")
         recall_weight = recall_scores.get(path)
         if recall_weight is not None:
             evidence.append(f"recall:{int(recall_weight)}")
         lexical_weight = lexical_scores.get(path)
         if lexical_weight is not None:
             evidence.append(f"lex:{lexical_weight:.2f}")
-        structural_score = structural_scores.get(path)
-        if structural_score is not None:
-            evidence.append(f"struct:{structural_score:.2f}")
-        coupling_score = coupling_scores.get(path)
-        if coupling_score is not None:
-            evidence.append(f"coupled:{coupling_score:.2f}")
         origin = "vault"
         if path.startswith(_MEM):
             origin = "memory"
@@ -556,7 +517,6 @@ def _fuse(
                 evidence=evidence,
                 embed_score=embed_score,
                 cooccur_weight=cooc_weight,
-                edge_score=edge_score,
                 origin=origin,
             )
         )
@@ -650,31 +610,6 @@ def neighbours_above(query_path: str, floor: float) -> list[str] | None:
     ]
 
 
-def _structural_ranking(
-    graph, query_path: str, *, k: int, exclude: set[str],
-) -> list[tuple[str, float]] | None:
-    """V1 leg: Adamic-Adar neighbours of `query_path` over the wikilink graph.
-
-    The graph carries driver node ids (with `.md`); the facade speaks store
-    keys. Bridged here, both ways, so the leg's output joins the other legs'
-    keyspace in `_fuse` — the same seam autolink/missing-links cross in the
-    report. None abstains: no graph, query not a node, or no two-hop candidate.
-    """
-    if graph is None:
-        return None
-    from silica.kernel.recall.signals import adamic_adar_ranking
-
-    key_of = {cooccur_key(n): n for n in graph.nodes}
-    gid = key_of.get(cooccur_key(query_path))
-    if gid is None:
-        return None
-    blocked_ids = {key_of[x] for x in exclude if x in key_of}
-    ranking = adamic_adar_ranking(graph, gid, k=k, exclude=blocked_ids)
-    if not ranking:
-        return None
-    return [(cooccur_key(n), s) for n, s in ranking]
-
-
 def related_notes(
     query_path: str,
     *,
@@ -686,9 +621,6 @@ def related_notes(
     scope: str | None = None,
     exclude: set[str] | None = None,
     expand: bool = False,
-    graph=None,
-    coupling_rank: list[tuple[str, float]] | None = None,
-    structural_mode: str = "boost",
 ) -> list[RelatedNote]:
     """Return the top-k notes related to an INDEXED note `query_path`.
 
@@ -704,21 +636,13 @@ def related_notes(
 
     `expand` (default off) adds associative co-occurrence neighbours to the
     concept profile. On a real vault this re-inflates hub concepts and buries
-    true matches even under IDF weighting, so it stays opt-in for the one caller
-    that wants pure associative reach (autolink candidate discovery).
+    true matches even under IDF weighting (-7.9pp, 48x cost, 2026-07-25), so
+    it stays opt-in for the report's convergence count.
 
-    `graph` (an nx.Graph over driver node ids, e.g. graph_export's cached
-    wikilink graph) switches on the structural signal (V1, Adamic-Adar) in
-    `structural_mode`: "boost" (default) lifts candidates the other legs
-    surfaced, "leg" adds the Adamic-Adar ranking as a fusion leg of its own.
-    `coupling_rank` is the coupling leg (V3) already ranked in store keyspace
-    (`VaultReport.coupling_map[key]`). Both default to abstaining.
-    Gate 2026-08-22 (evals/probe_graph_variables, ADR-0027): "leg" recovered
-    more masked links on a 1199-note vault (+5.7pp recall@10) but pushed every
-    golden eligible pair down (-18pp); "boost" kept +2.3/+6.3pp on masked
-    links and still lost 3.3/9.1pp on golden pairs; coupling as a leg lost
-    25pp. No production caller passes `graph` or `coupling_rank`; the probe
-    does, so the negative results stay reproducible.
+    Structural (V1) and coupling (V3) legs are not parameters any more: both
+    failed the ADR-0027 gate, and `evals/probe_graph_variables.py` mounts them
+    on `_embed_ranking`/`_cooccur_ranking` itself so the negative results stay
+    reproducible without a production seam nobody passes.
     """
     # Normalize to the STORE keyspace before anything is excluded. CooccurStore
     # normalizes at its own boundary (note_nodes -> cooccur_key); EmbedStore does
@@ -750,39 +674,56 @@ def related_notes(
         mem_cooc_rank = _rank_cooccur_from_profile(
             memory_cooccur_store, profile, k=pool, blocked=set(), scope=None
         )
-    # CORRELATE third leg: the query's direct note_edges row, ranked by Jaccard.
-    # Abstains (None) when the row is empty — 0.57 edges/note means most queries
-    # abstain and fusion is identical to before; when it fires, high precision.
-    edges_rank = None
-    if cooccur_store is not None:
-        row = cooccur_store.note_edges_for(query_path)
-        ranked = sorted(
-            ((p, s) for p, s in row.items() if p not in blocked),
-            key=lambda kv: (-kv[1], kv[0]),
-        )
-        edges_rank = ranked or None
-    structural_rank = None
-    structural_boost = None
-    if graph is not None:
-        ranked = _structural_ranking(graph, query_path, k=pool, exclude=blocked)
-        if structural_mode == "leg":
-            structural_rank = ranked
-        elif ranked:
-            structural_boost = dict(ranked)
-    coupling_leg = None
-    if coupling_rank:
-        coupling_leg = [(p, w) for p, w in coupling_rank if p not in blocked][:pool] or None
     return _fuse(
         embed_rank,
         cooc_rank,
         k=k,
-        edges_rank=edges_rank,
         mem_embed_rank=mem_embed_rank,
         mem_cooc_rank=mem_cooc_rank,
-        structural_rank=structural_rank,
-        coupling_rank=coupling_leg,
-        structural_boost=structural_boost,
     )
+
+
+def related_notes_many(
+    paths: list[str],
+    *,
+    embed_store: EmbedStore | None = None,
+    cooccur_store: CooccurStore | None = None,
+    k: int = 10,
+    scope: str | None = None,
+) -> dict[str, list[RelatedNote]]:
+    """`related_notes` for MANY indexed notes, keyed by the paths given.
+
+    Same legs, same fusion, same result per note as the single-note entry;
+    what changes is the embed leg's shape: one blocked `mat @ mat.T` for every
+    query (`cosine_top_k_batch`, BLAS-3) instead of one matvec per note that
+    re-reads the whole matrix. This is the entry for a pass that ranks the
+    vault against itself (the report's AUTOLINK proposer, ADR-0029), which
+    used to run the expanded cooccur ranking per note at 6.8 ms and 10% recall
+    on the 709-note vault where the facade scores 0.82 at 5 ms.
+
+    A key the embed index does not hold abstains on that leg, exactly as
+    `_embed_ranking` does when `get_vec` returns None. Memory lane not
+    offered: a vault-against-itself pass has nothing to ask of another vault.
+    """
+    keys = [cooccur_key(p) for p in paths]
+    pool = max(k * 3, _POOL_MIN)
+    batch: dict[str, list[dict]] = {}
+    if embed_store is not None and len(embed_store) and keys:
+        try:
+            batch = embed_store.cosine_top_k_batch(keys, k=pool)
+        except Exception:
+            batch = {}  # the leg abstains for every note, as the per-note path would on a search error
+    out: dict[str, list[RelatedNote]] = {}
+    for path, key in zip(paths, keys):
+        cands = batch.get(key)
+        embed_rank = None
+        if cands and max(c.get("score", 0.0) for c in cands) > _NOISE_FLOOR:
+            embed_rank = [(c["path"], c["name"], float(c.get("score", 0.0))) for c in cands]
+        cooc_rank = _cooccur_ranking(
+            cooccur_store, key, k=pool, exclude={key}, scope=scope, expand=False
+        )
+        out[path] = _fuse(embed_rank, cooc_rank, k=k)
+    return out
 
 
 def related_notes_for_query(
@@ -803,9 +744,12 @@ def related_notes_for_query(
     """Return the top-k notes related to a FRESH query (not an indexed note).
 
     The embed leg ranks against `query_vec`; the co-occurrence leg seeds its
-    concept profile from `query_text`. This is the fusion path for routing an
-    incoming concept (COLLISION) or autolinking a freshly-written note: either
-    input may be omitted, and that leg abstains. Returns [] when both abstain.
+    concept profile from `query_text`. This is the fusion path for a fresh
+    query (perception, the run substrate, the graph tools): either input may
+    be omitted, and that leg abstains. Returns [] when both abstain. COLLISION
+    routing left it for the plain cosine search (ADR-0030): its thresholds are
+    cosine thresholds, and the fused winner was the duplicate less often than
+    the cosine-best note.
 
     `memory_*_store` are the personal-memory lane (ADR-0019); see
     `related_notes`. The memory co-occurrence leg seeds from `query_text`

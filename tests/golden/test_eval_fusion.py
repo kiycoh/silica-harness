@@ -72,7 +72,7 @@ def test_recovers_text_similar_pair_cheap_tier(tmp_path):
     assert res["pairs_evaluated"] == 1
     assert res["recall_at_10"] == 1.0
     assert res["mrr"] > 0.0
-    assert res["legs"] == "cooccur+edges"
+    assert res["legs"] == "cooccur"
     assert res["embed_coverage"] == 0.0  # no embed store passed
 
 
@@ -91,7 +91,7 @@ def test_embed_only_pair_needs_the_embed_leg(tmp_path):
     full = health.fusion_probe(tmp_path, st, embed_store=fake)
     assert full["recall_at_10"] == 1.0
     assert full["mrr"] == 1.0  # rank 1 from at least one direction
-    assert full["legs"] == "embed+cooccur+edges"
+    assert full["legs"] == "embed+cooccur"
     assert full["embed_coverage"] == 1.0
 
 
@@ -165,4 +165,4 @@ def test_empty_embed_store_abstains_cleanly(tmp_path):
     })
     res = health.fusion_probe(tmp_path, st, embed_store=_FakeEmbedStore({}))
     assert res["recall_at_10"] == 1.0  # cooccur legs still carry the pair
-    assert res["legs"] == "cooccur+edges"  # empty store counts as absent
+    assert res["legs"] == "cooccur"  # empty store counts as absent

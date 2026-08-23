@@ -121,9 +121,6 @@ class StubPluginServer:
             for s, t in fs._unresolved_links:
                 unresolved.setdefault(s, {})[t] = 1
             return {"resolved": resolved, "unresolved": unresolved}
-        if method == "mention_index":
-            wanted = {t.lower() for t in params["titles"]}
-            return {tl: sorted(paths) for tl, paths in fs._mention_index.items() if tl in wanted}
         if method == "create":
             path = params["path"]
             if (fs.vault_path / path).exists():  # vault.create errors on existing files
@@ -287,12 +284,6 @@ def test_graph_snapshot_matches_fs(ws_backend, fs):
     assert ws_snap.link_counts == fs_snap.link_counts
     assert ws_snap.backlink_counts == fs_snap.backlink_counts
     assert {r.path for r in ws_snap.orphans} == {r.path for r in fs_snap.orphans}
-
-
-def test_mentions_of_matches_fs(ws_backend, fs):
-    # Every title the FS backend indexes must resolve identically over the wire.
-    for title in ("gradient", "perceptron", "concepts"):
-        assert set(ws_backend.mentions_of(title)) == set(fs.mentions_of(title))
 
 
 # ---------------------------------------------------------------------------

@@ -43,14 +43,14 @@ def _run_title_refs(fsm: "InjectorFSM") -> list[typing.Any]:
 def _backlink_neighbourhood(new_titles: list[str], touched_abs: set[str]) -> list[str]:
     """Pre-existing notes whose body mentions any of `new_titles`.
 
-    NOT `DRIVER.mentions_of`, which this phase used to call and which cannot
-    answer the question: the mention index is keyed by the titles that were in
-    the trie when each body was last indexed, and `_patch_index` re-scans only
-    the note just written. A title coined moments ago therefore has no postings
+    NOT a mention index (deleted 2026-08-23, it had no reader left): this phase
+    used to ask `DRIVER.mentions_of`, whose postings were keyed by the titles in
+    the trie when each body was last indexed, while `_patch_index` re-scans only
+    the note just written. A title coined moments ago therefore had no postings
     against pre-existing bodies, the neighbourhood came out empty, and the phase
-    was inert for exactly the case it exists for. (It answers correctly right
-    after a FULL rebuild, which is why a test that skips `list_files()` first
-    never sees the hole.)
+    was inert for exactly the case it exists for. A per-write index can never
+    answer for a title that did not exist when the bodies were indexed; the
+    sweep below is the primitive that can.
 
     `search_context_batch` is one vault sweep for every new title, over bodies
     the driver already caches. It is a substring match where the mention index

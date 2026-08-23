@@ -103,8 +103,7 @@ def _community_color(i: int, on_paper: bool = False) -> str:
     return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 
-# Zones walk the same brand arc — the mascot's hues are the only ones this
-# product paints — but never the same KEY: the phase shift puts zone i half an
+# Zones walk the same arc as communities but never the same KEY: the phase shift puts zone i half an
 # arc away from community i, so the two partitions cannot be read off one
 # swatch (ADR-0023: no shared colour key). Lightness bands are shared, because a
 # zone hue also lands on a node dot when the zone layer is on and the dot has to
@@ -121,19 +120,22 @@ def _zone_color(i: int, on_paper: bool = False) -> str:
     return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 # Edge colours. Only ONE layer is vivid, the inferred one; the written links are
-# the unlit blue-violet gray they have always been. They carry arrows, width and
-# the most opacity, so they never needed a hue to rank first, and two saturated
-# meshes stacked on one frame is how both stop being legible. Neutrals are unlit
-# blue-violet rather than gray: the mascot has no gray facet, and each replaces a
-# gray at its exact relative luminance, so nothing gets lighter or darker, only
-# warmer.
+# the unlit neutral they have always been. They carry arrows, width and the most
+# opacity, so they never needed a hue to rank first, and two saturated meshes
+# stacked on one frame is how both stop being legible.
+#
+# The neutrals were unlit blue-violet, keyed to the mascot. The substrate is
+# graphite now (docs/specs/visual-identity.md), so they are 214deg at 10%, each
+# holding its predecessor's relative luminance to four decimals. That invariant
+# is the one this block already committed to, and it is why the mesh ranking
+# below survives the recolour untouched.
 #
 # Ambiguous stays red on purpose — an alarm that matches the brand stops reading
 # as an alarm — but off the neon and into the same lightness band as its
 # neighbours.
-_EDGE_COLOR_EXTRACTED = "#8a8da6"   # unlit blue-violet — resolved links
+_EDGE_COLOR_EXTRACTED = "#868f9c"   # unlit graphite — resolved links
 _EDGE_COLOR_AMBIGUOUS = "#e2544f"   # alarm red, deliberately outside the arc
-_EDGE_COLOR_SIMILAR   = "#00a5e1"   # brand azure — embedding k-NN (semantic map)
+_EDGE_COLOR_SIMILAR   = "#22b4cc"   # the signal — embedding k-NN (semantic map)
 
 # The paper set. Every one of these is drawn ON the floor and read AGAINST it,
 # so a light floor needs its own values or the whole mesh disappears — an edge
@@ -143,21 +145,21 @@ _EDGE_COLOR_SIMILAR   = "#00a5e1"   # brand azure — embedding k-NN (semantic m
 # arc, and similar stays the one vivid layer. Each is the same hue walked down
 # into the range paper can hold, which for a hairline means roughly half the
 # lightness of its crystal twin.
-_EDGE_COLOR_EXTRACTED_PAPER = "#6f7287"
+_EDGE_COLOR_EXTRACTED_PAPER = "#7c7261"
 _EDGE_COLOR_AMBIGUOUS_PAPER = "#b3211b"
-_EDGE_COLOR_SIMILAR_PAPER   = "#0079a4"
+_EDGE_COLOR_SIMILAR_PAPER   = "#0a6070"
 
-_NODE_DEFAULT_COLOR = {"background": "#565a77", "border": "#8a8da6",
-                       "background_paper": "#6b6f8c",
-                       "highlight": {"background": "#8a8da6", "border": "#EBEFF8"}}
+_NODE_DEFAULT_COLOR = {"background": "#545d67", "border": "#868f9c",
+                       "background_paper": "#79705f",
+                       "highlight": {"background": "#868f9c", "border": "#F4F5F7"}}
 # Ghost is the one node that does not simply invert. On crystal it is the
 # darkest thing on screen — "unlit, never black" — and the paper equivalent of
 # unlit is not a dark dot but a pale one: 468 near-black dots on a white field
 # would read as the loudest layer in the view, which is the opposite of what a
 # ghost is. So it goes the other way, to the faintest thing the floor can hold.
-_NODE_GHOST_COLOR   = {"background": "#171424", "border": "#565a77",
-                       "background_paper": "#c9c4d6",
-                       "highlight": {"background": "#26223d", "border": "#8a8da6"}}
+_NODE_GHOST_COLOR   = {"background": "#141619", "border": "#545d67",
+                       "background_paper": "#cbc6bd",
+                       "highlight": {"background": "#22262a", "border": "#868f9c"}}
 
 
 def _infer_type(path: str) -> str:
@@ -234,7 +236,7 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
             "group": -1,
             "color": dict(_NODE_DEFAULT_COLOR),
             "path":  path,
-            "font":  {"color": "#EBEFF8", "size": 13},
+            "font":  {"color": "#F4F5F7", "size": 13},
             "size":  16,
         }
         sources = by_note.get(note_key(path))
@@ -248,7 +250,7 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
     edge_set: set[tuple[str, str]] = set()
     edge_idx = 0
 
-    for src_raw, tgt_raw in internal_graph.edges():
+    for src_raw, tgt_raw, attrs in internal_graph.edges(data=True):
         src = src_raw.replace("\\", "/")
         tgt = tgt_raw.replace("\\", "/")
         if src not in node_ids or tgt not in node_ids:
@@ -257,7 +259,10 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
         if key in edge_set:
             continue
         edge_set.add(key)
+        # Only the scaffold class is stamped: a prose link is the payload every
+        # consumer already reads, and the viewer ignores keys it does not know.
         edges.append({
+            **({"scaffold": True} if attrs.get("scaffold") else {}),
             "id":     f"e{edge_idx}",
             "from":   src,
             "to":     tgt,
@@ -289,7 +294,7 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
                 "group":        -1,
                 "color":        dict(_NODE_GHOST_COLOR),
                 "path":         "",
-                "font":         {"color": "#8E99B0", "size": 11},
+                "font":         {"color": "#AEB4BE", "size": 11},
                 "size":         10,
                 "borderWidth":  2,
                 "borderDashes": True,
@@ -494,7 +499,7 @@ def detect_communities(nodes: list[dict], edges: list[dict]) -> list[Community]:
                 "border":     color,
                 # the same community, at the lightness the light floor holds
                 "background_paper": paper,
-                "highlight":  {"background": color, "border": "#EBEFF8"},
+                "highlight":  {"background": color, "border": "#F4F5F7"},
             }
 
     # Fetch community labels from the co-occurrence index; degrade to {} on any failure.

@@ -141,7 +141,9 @@ class ReconArgs(BaseModel):
 @tool(ReconArgs, cls="composed", internal=True)
 def silica_recon(inbox_file: str, limit: int = 0) -> dict[str, Any]:
     """Mechanical extraction of concepts from an inbox file and searching for collisions in the vault."""
-    from silica.kernel.text.recon import is_title_match, rank_hits, collision_priority
+    from silica.kernel.text.recon import (
+        collision_priority, is_title_match, mentions_whole_word, rank_hits,
+    )
     from silica.kernel.text.keyphrase import extract_keyphrases
     from silica.config import CONFIG
 
@@ -174,7 +176,11 @@ def silica_recon(inbox_file: str, limit: int = 0) -> dict[str, Any]:
         from silica.kernel.recall.paths import is_inbox_path
         grouped = {}
         for h in hits:
-            if h.ref.path and ('/done/' in h.ref.path or h.ref.path.startswith('done/')):
+            # Casefolded: the archive is `Done` since 2026-08-23 while a vault
+            # that predates the rename keeps its `done`, and an archived source
+            # registered as a collision target dooms every downstream op.
+            _p = (h.ref.path or '').replace('\\', '/').casefold()
+            if '/done/' in _p or _p.startswith('done/'):
                 continue
             # Inbox notes are staging, never collision targets: registering one
             # as vault_collision dooms every downstream op (patch-the-inbox is
@@ -183,7 +189,15 @@ def silica_recon(inbox_file: str, limit: int = 0) -> dict[str, Any]:
                 continue
             if _same_note(h.ref, nc.ref):
                 continue
-                
+            # Whole-word only (see mentions_whole_word): the driver matched a
+            # substring, which is its contract, not this one's. ponytail: the
+            # driver caps materialized hits at 20 per note BEFORE this filter,
+            # so a note whose first 20 matching lines are all fragments hides a
+            # later whole-word line; reopen if a recon run misses a collision
+            # that `silica_search_context` shows on line 21 or beyond.
+            if not mentions_whole_word(c, h.snippet):
+                continue
+
             name = h.ref.name
             if name not in grouped:
                 grouped[name] = {"ref": h.ref, "count": 0}

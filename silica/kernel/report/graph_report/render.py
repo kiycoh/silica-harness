@@ -49,7 +49,6 @@ def _short(p: str | None) -> str:
 
 _TOTAL_LABELS = {
     "dangling_links": "Broken links (point nowhere)",
-    "missing_links": "Missing links (proposed)",
     "duplicate_pairs": "Related pairs (borderline — link, not merge)",
     "confirmed_duplicates": "Likely duplicates (merge candidates)",
     "autolink_candidates": "Autolink candidates",
@@ -293,17 +292,6 @@ def to_markdown(r: VaultReport, title: str = "Silica Vault Report") -> str:
         _fold(add, "warning", f"{len(r.source_drift)} drifted notes", r.source_drift,
               lambda d: f"[[{_short(d.note)}]] — derived from a superseded version of {d.source}")
 
-    # Missing links (proposed)
-    if r.missing_links:
-        add("## Proposed Missing Links _(embedding candidates — not authoritative)_")
-        add("| Source | Target | Cosine | d_prev | Novelty |")
-        add("|---|---|---|---|---|")
-        for ml in r.missing_links[:_LIST_CAP]:
-            novelty = "🔴 novel" if ml.d_prev == 0 or ml.d_prev >= 3 else "🟡 likely"
-            d_str = str(ml.d_prev) if ml.d_prev > 0 else "∞"
-            add(f"| [[{_short(ml.source)}]] | [[{_short(ml.target)}]] | {ml.cosine} | {d_str} | {novelty} |")
-        add("")
-
     # Likely duplicates (≥ τ_high — genuine merge candidates)
     if r.confirmed_duplicate_pairs:
         add(f"### Likely Duplicates ({len(r.confirmed_duplicate_pairs)}) _(≥ τ_high — review for merge)_")
@@ -318,7 +306,7 @@ def to_markdown(r: VaultReport, title: str = "Silica Vault Report") -> str:
 
     # Co-occurrence delta (proposed, embedder-free)
     if r.autolink_candidates:
-        add("\n## Autolink Candidates _(co-occurrence − wikilink — not authoritative)_")
+        add("\n## Autolink Candidates _(relatedness − wikilink — not authoritative)_")
         add("| Source | Target | Via | Weight | Hubs | Shared Concepts |")
         add("|---|---|---|---|---|---|")
         for cand in r.autolink_candidates:
@@ -499,8 +487,6 @@ def to_digest(report: VaultReport, *, max_items: int = 8) -> str:
     row("MISSING HUBS", report.missing_hubs, lambda h: f"{h.concept}(cent={h.centrality})")
     row("INTEGRATION DEFICIT", report.integration_deficits,
         lambda i: f"{_short(i.path)}(concepts={i.concepts},deg={i.degree})")
-    row("PROPOSED", report.missing_links,
-        lambda m: f"{_short(m.source)}→{_short(m.target)}(cos={m.cosine},d={m.d_prev})")
     row("DUPS", report.confirmed_duplicate_pairs, pair)
     row("RELATED", report.duplicate_pairs, pair)
     row("LOAD-BEARING", report.load_bearing,

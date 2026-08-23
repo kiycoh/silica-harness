@@ -7,6 +7,13 @@ You are given:
   - CANDIDATE NOTE: an existing note in the vault (the larger note).
   - INCOMING CONCEPT: a name plus a short excerpt distilled from new source material.
 
+The candidate was chosen by similarity of wording to the incoming concept: it is
+the closest note the vault has, which is not evidence that it is the same
+concept. Most candidates are neighbours (a parent topic, a sibling, a special
+case, the same subject at another level), and "distinct" is the normal answer
+for them, not a failure. Judge the claims, never the layout: two texts that read
+alike can be about different things.
+
 Decide the relationship between the INCOMING CONCEPT and the CANDIDATE NOTE.
 Exactly one verdict:
 

@@ -485,14 +485,21 @@ def validate_operations(
     _source_text_cache: dict[str, str] = {}
 
     def _full_source_text(basename: str) -> str:
-        """The whole source document, "" when unreadable. A finished source
-        moves to <write_dir>/done/<basename> at CLEANUP, and RETRY/steer
-        validates after the move — so look there too."""
+        """The whole source document, "" when unreadable. A finished source is
+        archived at CLEANUP and RETRY/steer validates after the move — so look
+        there too, at the path `archive_path_for` would have produced. The flat
+        `<archive>/<basename>` stays last in line: sources archived before
+        2026-08-23 kept no folder structure and still have to be readable."""
         if basename not in _source_text_cache:
-            from silica.kernel.vault_manifest import in_write_dir
+            from silica.kernel.vault_manifest import active_done_dir, archive_path_for
 
             text = ""
-            candidates = [source_files.get(basename), f"{in_write_dir('done')}/{basename}"]
+            inbox_path = source_files.get(basename)
+            candidates = [
+                inbox_path,
+                archive_path_for(inbox_path) if inbox_path else "",
+                f"{active_done_dir()}/{basename}",
+            ]
             for cand in candidates:
                 if not cand:
                     continue

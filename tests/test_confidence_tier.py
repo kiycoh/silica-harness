@@ -1,36 +1,21 @@
 """Confidence → tier: the tier follows an edge's provenance, not a flat default.
 
 Vocabulary ported from Graphify (MIT): EXTRACTED / INFERRED / AMBIGUOUS. Applied
-to embedding-proposed missing links — "embeddings propose, the graph disposes":
-a proposal the graph also corroborates (shares a neighbour) is EXTRACTED → auto;
-a strong-but-uncorroborated cosine is INFERRED → propose.
+to the autolink candidates the relatedness facade proposes (ADR-0029): a shared
+concept is textual evidence (INFERRED → propose); an associative-only pair needs
+a human (AMBIGUOUS → escalate). Never EXTRACTED: >2 hops by construction.
 """
 from __future__ import annotations
 
-from silica.kernel.report.graph_report import AutolinkCandidate, MissingLink
+from silica.kernel.report.graph_report import AutolinkCandidate
 from silica.kernel.report.graph_report.compute import _empty_report
 from silica.kernel.analyst_plan import (
     build_task_plan,
     classify_autolink,
-    classify_missing_link,
 )
 
 
-def test_classify_missing_link_extracted_when_graph_corroborates() -> None:
-    # d_prev == 2 → source and target share a neighbour → structural corroboration.
-    ml = MissingLink(source="A", target="B", cosine=0.90, d_prev=2)
-    assert classify_missing_link(ml, tau_high=0.85) == "EXTRACTED"
 
-
-def test_classify_missing_link_inferred_when_embedding_only() -> None:
-    # d_prev == 0 → unreachable → embedding signal only, no graph corroboration.
-    ml = MissingLink(source="A", target="B", cosine=0.90, d_prev=0)
-    assert classify_missing_link(ml, tau_high=0.85) == "INFERRED"
-
-
-def test_classify_missing_link_inferred_when_cosine_below_tau_high() -> None:
-    ml = MissingLink(source="A", target="B", cosine=0.70, d_prev=2)
-    assert classify_missing_link(ml, tau_high=0.85) == "INFERRED"
 
 
 def test_classify_autolink_inferred_when_concepts_shared() -> None:
@@ -70,16 +55,3 @@ def test_associative_autolink_candidate_is_escalated() -> None:
     # AMBIGUOUS is review-only: it must not auto-link.
     auto_sources = [p for c in plan.auto for p in c.payload.get("note_paths", [])]
     assert "A" not in auto_sources
-
-
-def test_corroborated_missing_link_is_auto_not_propose() -> None:
-    r = _empty_report()
-    r.missing_links = [MissingLink(source="A", target="B", cosine=0.90, d_prev=2)]
-    plan = build_task_plan(r)
-
-    auto_sources = [p for c in plan.auto for p in c.payload.get("note_paths", [])]
-    propose_sources = [p for c in plan.propose for p in c.payload.get("note_paths", [])]
-    assert "A" in auto_sources
-    assert "A" not in propose_sources
-    # The candidate carries the provenance that drove the tier.
-    assert any(c.confidence == "EXTRACTED" for c in plan.auto if "A" in c.payload.get("note_paths", []))

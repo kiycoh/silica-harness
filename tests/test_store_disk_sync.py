@@ -264,26 +264,6 @@ def test_stamp_is_taken_before_the_read(
     assert value(mine, "Z") == 3.0
 
 
-def test_cooccur_local_edges_survive_a_reload(index_path):
-    """note_edges are a second structure in the same file (CORRELATE's
-    output): the overlay has to carry local edge writes AND local clears."""
-    mine = cooc.get_cooccur_store()
-    for k in ("p", "q", "r"):
-        _cooc_put(mine, k, 1.0)
-    mine.save()
-
-    other = cooc.CooccurStore(index_path)
-    other.set_note_edge("p", "r", 0.4)   # the other process derived (p, r)
-    other.save()
-
-    mine.set_note_edge("p", "q", 0.9)    # local, unsaved
-    mine.clear_note_edges("r")           # local, unsaved: drops (p, r)
-    synced = cooc.get_cooccur_store()
-    assert synced.note_edges_for("p") == {"q": 0.9}
-
-    mine.save()
-    assert cooc.CooccurStore(index_path).note_edges_for("p") == {"q": 0.9}
-
 
 def test_sweep_save_does_not_clobber_the_other_process(index_path, monkeypatch):
     """The caller that bit: the GUI's index sweep prunes and saves while a

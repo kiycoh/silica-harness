@@ -208,10 +208,6 @@ class CooccurStore(DiskSynced):
     def __init__(self, path: Path | None = None, lang: str = "english"):
         self._path = path if path is not None else _index_path()
         self._notes: dict[str, dict[str, Any]] = {}
-        # note_edges: derived note-to-note edges (CORRELATE / ADR-0013). Stored
-        # ONCE under the ordered pair (min, max) -> {max: score}. Never source of
-        # truth; written only by kernel/correlate.py, pruned by this store.
-        self._note_edges: dict[str, dict[str, float]] = {}
         self.lang = lang
         # lazy aggregated graph caches (scope=None only)
         self._adj: dict[str, dict[str, float]] | None = None
@@ -228,18 +224,16 @@ class CooccurStore(DiskSynced):
         self._stem_postings: dict[str, dict[str, int]] | None = None
         # ({path: total stem count}, mean) for the BM25 length term
         self._doc_lengths: tuple[dict[str, int], float] | None = None
-        # two-way note_edges adjacency (mirrors the _adj cache); also reset
-        # by the note-edge writers, which skip _invalidate on purpose
-        self._note_edges_adj: dict[str, dict[str, float]] | None = None
-        # DiskSynced bookkeeping: keys upserted / deleted, edge pairs set, and
-        # keys whose edges were cleared, all since the last sync with the
-        # file. The lock guards only the sync/save skeleton; this store's
-        # mutators were never thread-safe and that is unchanged here.
+        # note-to-note edges (CORRELATE, ADR-0029): a memo of
+        # correlate.compute_edges over the contributions, dropped with every
+        # other derived cache. Never persisted - see note_adjacency().
+        self._note_adj: dict[str, dict[str, float]] | None = None
+        # DiskSynced bookkeeping: keys upserted / deleted since the last sync
+        # with the file. The lock guards only the sync/save skeleton; this
+        # store's mutators were never thread-safe and that is unchanged here.
         self._lock = threading.RLock()
         self._dirty: set[str] = set()
         self._gone: set[str] = set()
-        self._dirty_edges: set[tuple[str, str]] = set()
-        self._cleared: set[str] = set()
         self._load()
 
     # --- caches ---
@@ -251,7 +245,7 @@ class CooccurStore(DiskSynced):
         self._note_nodes_cache = {}
         self._stem_postings = None
         self._doc_lengths = None
-        self._note_edges_adj = None
+        self._note_adj = None
 
     # --- I/O ---
     def _read_disk(self) -> dict[str, Any]:
@@ -272,7 +266,10 @@ class CooccurStore(DiskSynced):
 
     def _take_disk(self, data: dict[str, Any]) -> None:
         notes = data.get("notes", {})
-        edges = data.get("note_edges", {})
+        # Files written before ADR-0029 carry a "note_edges" section. It is
+        # read by nobody and never written again: the edges are derived from
+        # the contributions on demand (note_adjacency), so a stale section is
+        # simply ignored rather than migrated.
         # The frozen language follows the file unless this process has
         # already stemmed contributions under its own: mixing them is the
         # cross-language node-splitting build_index guards against.
@@ -282,38 +279,22 @@ class CooccurStore(DiskSynced):
         for k in self._gone:
             notes.pop(k, None)
         notes.update(mine)
-        # Edges: replay local clears, then local verdicts per pair. A pair
-        # set locally and cleared since is absent from _note_edges, and
-        # "absent" is the verdict carried over.
-        for key in self._cleared:
-            self._drop_edges_touching(edges, key)
-        for lo, hi in self._dirty_edges:
-            score = self._note_edges.get(lo, {}).get(hi)
-            if score is None:
-                edges.get(lo, {}).pop(hi, None)
-            else:
-                edges.setdefault(lo, {})[hi] = score
         self._notes = notes
-        self._note_edges = edges
-        self._prune_orphan_edges()
         self._invalidate()
 
-    def _snapshot(self) -> tuple[str, dict[str, Any], dict[str, dict[str, float]]]:
+    def _snapshot(self) -> tuple[str, dict[str, Any]]:
         # Contributions are replaced wholesale, so one level of copy is a
-        # consistent view; edge rows are mutated in place, so they get two.
-        return (self.lang, dict(self._notes),
-                {lo: dict(nbrs) for lo, nbrs in self._note_edges.items()})
+        # consistent view.
+        return (self.lang, dict(self._notes))
 
     def _serialize(self, snapshot) -> bytes:
-        lang, notes, edges = snapshot
+        lang, notes = snapshot
         # No OPT_INDENT_2: machine-only derived index, pretty-printing is pure
         # I/O tax (Fix 2A). orjson defaults to compact output.
-        return orjson.dumps(
-            {"version": 1, "lang": lang, "notes": notes, "note_edges": edges},
-        )
+        return orjson.dumps({"version": 1, "lang": lang, "notes": notes})
 
     def _dirty_sets(self) -> tuple[set, ...]:
-        return (self._dirty, self._gone, self._dirty_edges, self._cleared)
+        return (self._dirty, self._gone)
 
     # --- mutation ---
     def upsert_note(self, path: str, contribution: dict[str, Any]) -> None:
@@ -328,66 +309,37 @@ class CooccurStore(DiskSynced):
         self._notes.pop(key, None)
         self._gone.add(key)
         self._dirty.discard(key)
-        self.clear_note_edges(path)
         self._invalidate()
 
-    # --- note_edges (derived; written only by kernel/correlate.py) ---
-    def set_note_edge(self, a: str, b: str, score: float) -> None:
-        """Record one derived edge under its ordered pair (min, max)."""
-        lo, hi = sorted((cooccur_key(a), cooccur_key(b)))
-        self._note_edges.setdefault(lo, {})[hi] = score
-        self._dirty_edges.add((lo, hi))
-        self._note_edges_adj = None
+    # --- note edges (derived at read; CORRELATE, ADR-0029) ---
+    def note_adjacency(self) -> dict[str, dict[str, float]]:
+        """Symmetric {path: {neighbour: jaccard}} over the whole store, memoized.
 
-    @staticmethod
-    def _drop_edges_touching(edges: dict[str, dict[str, float]], key: str) -> None:
-        edges.pop(key, None)  # edges where key is the min endpoint
-        for lo, nbrs in list(edges.items()):
-            nbrs.pop(key, None)  # edges where key is the max endpoint
-            if not nbrs:
-                edges.pop(lo, None)
-
-    def clear_note_edges(self, path: str) -> None:
-        """Drop every edge that touches `path` (both directions)."""
-        key = cooccur_key(path)
-        self._drop_edges_touching(self._note_edges, key)
-        self._cleared.add(key)
-        self._note_edges_adj = None
-
-    def _prune_orphan_edges(self) -> None:
-        """Drop edges whose endpoint has no contribution (integrity, on load).
-
-        note_edges is derived: an endpoint absent from `notes` is stale (the note
-        was deleted by a writer that never touched edges). Recomputation, never
-        repair — so we simply forget the dangling row.
+        A pure function of the contributions, so it lives in the same cache
+        family as `_stem_postings` and `doc_lengths` and is dropped by
+        `_invalidate()` on any mutation or reload. Not persisted: the section
+        this replaces needed prune-on-delete, orphan-prune-on-load and a
+        dirty-edge overlay in the disk sync, and every one of those was a seam
+        where the file and the contributions could disagree. Recomputing is
+        well under a second on 709 notes (correlate.compute_edges), paid once
+        per vault mutation by the first reader.
         """
-        live = set(self._notes)
-        pruned: dict[str, dict[str, float]] = {}
-        for lo, nbrs in self._note_edges.items():
-            if lo not in live:
-                continue
-            kept = {hi: s for hi, s in nbrs.items() if hi in live}
-            if kept:
-                pruned[lo] = kept
-        self._note_edges = pruned
+        if self._note_adj is None:
+            from silica.kernel.link.correlate import compute_edges
+
+            self._note_adj = compute_edges(
+                {path: self.note_nodes(path) for path in self._notes},
+            )
+        return self._note_adj
 
     def note_edges_for(self, path: str) -> dict[str, float]:
-        """All derived neighbours of `path` -> score, both directions.
+        """Derived neighbours of `path` -> score, both directions.
 
-        Served from a two-way adjacency built once per mutation (one O(E)
-        pass) instead of an O(E) reverse scan per call: path walks hot-loop
-        this (mindmap.reading_path calls it per visited node), which made
-        them O(V*E). Fresh dict per call, like note_nodes: callers may
-        mutate their result without corrupting the cache.
+        O(deg) per call off the memoized adjacency, so a path walk that asks
+        per visited node (mindmap.reading_path) stays O(V+E). Fresh dict per
+        call, like note_nodes: callers may mutate their result.
         """
-        if self._note_edges_adj is None:
-            adj: dict[str, dict[str, float]] = {}
-            for lo, nbrs in self._note_edges.items():
-                for hi, score in nbrs.items():
-                    adj.setdefault(lo, {})[hi] = score
-                    adj.setdefault(hi, {})[lo] = score
-            self._note_edges_adj = adj
-        return dict(self._note_edges_adj.get(cooccur_key(path), {}))
+        return dict(self.note_adjacency().get(cooccur_key(path), {}))
 
     # --- lookup ---
     def paths(self) -> list[str]:
@@ -508,19 +460,6 @@ class CooccurStore(DiskSynced):
             cached = [p for p in self._notes if in_folder(p, scope)]
             self._scope_paths_cache[scope] = cached
         return list(cached)
-
-    def note_adjacency(self) -> dict[str, dict[str, float]]:
-        """Symmetric note-edge adjacency {path: {neighbour: score}}, one O(E) pass.
-
-        Uncached: a hot loop over note_edges_for() pays an O(E) reverse scan per
-        note (O(N*E)); build this once and index it instead.
-        """
-        adj: dict[str, dict[str, float]] = {}
-        for lo, nbrs in self._note_edges.items():
-            for hi, s in nbrs.items():
-                adj.setdefault(lo, {})[hi] = s
-                adj.setdefault(hi, {})[lo] = s
-        return adj
 
     def node_label(self, stem: str) -> str:
         _adj, labels = self._aggregate()

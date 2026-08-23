@@ -474,6 +474,84 @@ def active_inbox_dir() -> str:
     )
 
 
+DONE_DIR = "Done"
+
+
+def resolve_done_dir(vault_root: str | Path, write_dir: str) -> str:
+    """Where the archive IS, given a declared boundary.
+
+    `resolve_inbox_dir` for the archive, plus the one axis it has no reason to
+    carry: the folder was named `done` until 2026-08-23, and an archive that
+    already exists keeps whatever casing it has. Renaming it under the user
+    forks the archive in two on a case-sensitive filesystem and strands every
+    path already filed there.
+
+    The match is by casefold rather than by `is_dir`, because a case-insensitive
+    filesystem answers `is_dir()` for `done` in a vault whose folder is really
+    `Done` — probing alone would keep writing the wrong name forever. Both roots
+    are probed for the same reason `resolve_inbox_dir` probes two: a vault that
+    archived before the write boundary existed keeps its `done/` at the root.
+    """
+    target = resolve_inbox_dir(vault_root, write_dir, DONE_DIR)
+    if not vault_root:
+        return target
+    root = Path(vault_root)
+    for rel in (target, resolve_inbox_dir(vault_root, write_dir, DONE_DIR.lower())):
+        if not rel:
+            continue
+        parent, _, name = rel.rpartition("/")
+        base = root / parent if parent else root
+        try:
+            found = next((c.name for c in base.iterdir()
+                          if c.is_dir() and c.name.casefold() == name.casefold()), "")
+        except OSError:
+            continue
+        if found:
+            return f"{parent}/{found}" if parent else found
+    return target
+
+
+def active_done_dir() -> str:
+    """Vault-relative archive root for the active vault.
+
+    The `active_inbox_dir` of the archive: composed here, never read off a bare
+    constant, so it lands inside the write boundary like everything else Silica
+    creates.
+    """
+    from silica.config import CONFIG
+
+    return resolve_done_dir(
+        getattr(CONFIG, "vault_path", "") or "",
+        active_write_dir(),
+    )
+
+
+def archive_path_for(inbox_file: str, done_dir: str = "") -> str:
+    """Where `inbox_file` lands once archived: the archive root + its inbox tree.
+
+    The archive MIRRORS the inbox rather than flattening onto a basename. This
+    move is the one write of a run that `/revert` cannot undo — it records no
+    `InverseOpKind.move_back`, unlike every move `/organize` makes — so the
+    preserved structure IS the undo: the user drags `Done/<folder>/` back into
+    the inbox and is exactly where they started. Flattening also collided every
+    `notes.md` of every source folder onto one name in one directory.
+
+    Named here rather than inlined at CLEANUP because validate.py has to find a
+    source AFTER the move (RETRY/steer validates post-archive) and would
+    otherwise carry a second, drifting copy of the same rule.
+
+    A source reached by an absolute path or filed outside the inbox has no tree
+    to preserve and keeps its bare name: echoing its full path would rebuild
+    the vault under the archive.
+    """
+    root = in_write_dir(done_dir) if done_dir else active_done_dir()
+    rel = (inbox_file or "").replace("\\", "/").strip("/")
+    inbox = active_inbox_dir()
+    under = rel[len(inbox) + 1:] if inbox and within(rel, inbox) else ""
+    rel = under or rel.rsplit("/", 1)[-1]
+    return f"{root}/{rel}" if root else rel
+
+
 def in_write_dir(rel_path: str) -> str:
     """`rel_path` composed into the write boundary; unchanged when already inside.
 

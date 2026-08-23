@@ -1,24 +1,24 @@
-/* Palette mirrors the app shell: crystal substrate travelling blue to
-   violet the way the mascot is shaded, iced cyan accent, amber for
-   caution. Community hues stay data-driven. Type: Lexend, inlined
+/* Palette mirrors the app shell: graphite substrate, one signal hue at 189deg,
+   amber for caution. Community hues stay data-driven. Type: Archivo, inlined
    as a data: URI because this file must stay self-contained for file:// use.
-   Keep these tokens in sync with static/app.css — this block had already
-   drifted a generation behind it (--ash-dim was still #757F99, which fails
-   4.5:1 on --slate-2). */
+   Keep these tokens in sync with static/app.css: this block had already
+   drifted a generation behind it once (--ash-dim was still #757F99, which
+   fails 4.5:1 on --slate-2), so drift here is not hypothetical.
+   --violet is deleted, see docs/specs/visual-identity.md. */
 :root{
   color-scheme:dark;
-  --void:#0D0917;--slate:#120E21;--slate-2:#1F243A;
-  --line:#292F45;--line-2:#3B4662;
-  --frost:#EBEFF8;--text:#BAC4D8;--ash:#8E99B0;--ash-dim:#838DA7;
-  --accent:#35C6E8;--violet:#5B4BD6;--warn:#E0A93B;
-  --sans:"Lexend",system-ui,sans-serif;
+  --void:#0D0E0F;--slate:#141518;--slate-2:#24272B;
+  --line:#2F343A;--line-2:#3F454D;
+  --frost:#F4F5F7;--text:#C5CAD2;--ash:#AEB4BE;--ash-dim:#969CA6;
+  --accent:#22B4CC;--warn:#E0A93B;
+  --sans:"Archivo",ui-sans-serif,system-ui,sans-serif;
   --lift:0 10px 28px -12px rgba(0,0,0,.7);
   /* HUD and focus bar float over the canvas, so their fill is the floor at
      near-opacity, not a surface step: whatever the graph paints has to stop
      at their edge. --g-* are the canvas's own neutrals, declared here so
      the legend swatches and the renderer read one source. */
-  --hud-fill:rgba(10,13,20,.92);
-  --g-ghost:#484867;--g-fallback:#565a77;
+  --hud-fill:rgba(13,14,15,.92);
+  --g-ghost:#454b54;--g-fallback:#545d67;
 }
 /* Light: same ramp as the app shell, same warm paper, same reasoning — see
    static/app.css. Kept in sync by hand because this file must stay
@@ -27,11 +27,11 @@
   color-scheme:light;
   --void:#EFEAE0;--slate:#F5F1E9;--slate-2:#E9E2D4;
   --line:#D9D1C0;--line-2:#C6BCA8;
-  --frost:#1A1815;--text:#3A362F;--ash:#5B554B;--ash-dim:#615B4F;
-  --accent:#096275;--violet:#4B3BC0;--warn:#7A5305;
+  --frost:#1A1815;--text:#3A362F;--ash:#5B554B;--ash-dim:#655D4F;
+  --accent:#0A6070;--warn:#7A4F03;
   --lift:0 8px 20px -12px rgba(58,44,20,.34);
   --hud-fill:rgba(245,241,233,.95);
-  --g-ghost:#C9C4D6;--g-fallback:#6B6F8C;
+  --g-ghost:#cbc6bd;--g-fallback:#79705f;
 }
 *{box-sizing:border-box;margin:0;padding:0;border-radius:0}
 html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}

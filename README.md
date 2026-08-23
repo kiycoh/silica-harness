@@ -7,8 +7,6 @@
 
 <p align="center">
   <a href="https://deepwiki.com/kiycoh/silica-harness"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
-  <a href="https://pypi.org/project/silica-harness/"><img src="https://img.shields.io/pypi/v/silica-harness.svg" alt="PyPI" /></a>
-  <a href="https://pypi.org/project/silica-harness/"><img src="https://img.shields.io/pypi/dm/silica-harness.svg" alt="PyPI Downloads" /></a>
   <a href="https://github.com/kiycoh/silica-harness/blob/main/pyproject.toml#L13"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >=3.11" /></a>
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-Native-7a46e6" alt="Obsidian Native" /></a>
   <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md"><img src="https://img.shields.io/badge/OKF-v0.2-4285f4" alt="Open Knowledge Format v0.2" /></a>
@@ -18,21 +16,21 @@
 
 
 <h3 align="center">
-Silica gives any LLM the documents you actually keep.<br/>
-Answers grounded in your own notes, and connections between them you would not have found.
+Silica is a multi-agent framework that allows one and more agents (human or artificial ) to autonomously access and manage a knowledge base of information.
 </h3>
 
-<p align="left">
-On facts absent from its training data, hallucination has a statistical floor (<a href="https://arxiv.org/abs/2509.04664">OpenAI</a>), and a personal vault is made of exactly those facts.<br/>
-Left editing over long workflows, even frontier models corrupt a quarter of a document (<a href="https://arxiv.org/abs/2604.15597">Microsoft</a>).<br/>
-And in a growing knowledge base, the damage compounds: today's unchecked edit is retrieved as tomorrow's ground truth.
-</p>
+<p align="center">
+  <sub>
+  An LLM harness to safely govern your digital notes. Auto-connections, custom 
+  BSM-25, optional embedding with ~6% accuracy difference from CPU only fallback.
+  <b>82.1%</b> answerable accuracy and <b>~90%</b> correct refusals on LoCoMo
+  &nbsp;·&nbsp;
+  <b>100%</b> write integrity across a real 758-note vault <a href="#measured">(how these were measured)</a>
+  Silica act as a transactional write path for a folder of markdown: the harness guides (e.g. ingestion, report..), the LLM proposes, a parser
+  and an FSM verify and execute, and every write is verified against a source, reverted if corrupted. Codebases docs, Obsidian Vaults, Research material and more to come. Supports local inference.
+  <sub>
+<p>
 
-<p align="left">
-Silica is the transactional write path for a folder of markdown: the model proposes, a parser<br/>
-and an FSM verify and execute, and every write is re-read after it lands, reverted if it broke<br/>
-something. Notes or a codebase, one vault holds both. Local-first, readable with or without it.
-</p>
 
 <p align="center">
   <a href="https://youtu.be/nYLiKTtMZuY">
@@ -42,14 +40,10 @@ something. Notes or a codebase, one vault holds both. Local-first, readable with
 
 <p align="center">
   <sub><a href="https://youtu.be/nYLiKTtMZuY">▶ Watch the walkthrough</a> &nbsp;·&nbsp;
-  a real vault nucleated, read, and mapped, in three minutes.</sub>
+  a real vault nucleated, read, and mapped, in three minutes. <i>A "vault" is just a folder of markdown (<code>.md</code>) files.</i></sub>
 </p>
 
-<p align="center">
-  <b>82.1%</b> answerable accuracy and <b>~90%</b> correct refusals on LoCoMo &nbsp;·&nbsp;
-  <b>100%</b> write integrity across a real 758-note vault<br/>
-  <sub><a href="#measured">how these were measured</a></sub>
-</p>
+
 
 ---
 
@@ -57,95 +51,18 @@ something. Notes or a codebase, one vault holds both. Local-first, readable with
 
 ### The problem
 
-**Errors enter by construction.** A personal vault is the limiting case of that hallucination floor. Your decisions, your meetings, your half-finished ideas are not rare in the training data, they are absent from it, and the bound is not on facts the model saw once, it is on facts it never saw ([Kalai et al., 2025](https://arxiv.org/abs/2509.04664)). This is not a bug the next model release fixes.
+> On facts absent from its training data, hallucination has a statistical floor (<a href="https://arxiv.org/abs/2509.04664">Arxiv 2509.04664</a>), and a personal vault is made of exactly those facts.
 
-**Errors compound.** What Microsoft's 25% is made of matters more than the number: sparse, severe errors that land silently, growing with document size, interaction length, and the count of distractor files in the folder ([Laban et al., 2026](https://arxiv.org/abs/2604.15597)). A vault is large, long-lived, and made almost entirely of distractors.
+> Left editing over long workflows, even frontier models corrupt a quarter of a document (<a href="https://arxiv.org/abs/2604.15597">Arxiv 2604.15597</a>).
+> And in a growing knowledge base, the damage compounds: today's unchecked edit is retrieved as tomorrow's ground truth.
 
-**Errors propagate.** A vault is not a pile of independent files, it is a linked graph that gets retrieved from, which is why corruption does not stay where it landed: the model links to the bad note, derives notes from it, answers out of it.
+- **Errors enter by construction.** A personal vault is the limiting case of that hallucination floor. Your decisions, your meetings, your ideas are not rare in the training data, they are absent from it. The confidence is low facts it never saw ([Kalai et al., 2025](https://arxiv.org/abs/2509.04664)).
 
-**And the two obvious outs are not outs.** Keep the assistant read-only and the vault rots on its own: the same idea captured five times, notes nothing points at any more, links to a file that moved, a subsystem documented against a commit from three months ago. Read-only also leaves the answering problem intact, the model still answers from its own memory or a stale note, and the answer reads the same either way. Or take the usual remedy, a tool that copies your notes into a store of its own: now the corpus being corrupted is one you cannot even open to check.
+- **Errors compound.** What Microsoft's 25% is made of matters more than the number: sparse, severe errors that land silently, growing with document size, interaction length, and the count of distractor files in the folder ([Laban et al., 2026](https://arxiv.org/abs/2604.15597)). A vault is large, long-lived, and made almost entirely of distractors.
 
-Silica takes the opposite position. **The vault is the product, not the transcript.** Your folder is the database, Silica is answerable for the state it is in, and every write it makes passes a gate that re-reads what it just wrote. Tested with local models (LM Studio, ollama-server) but it needs further testing on small models.
+- **Errors propagate.** A vault is not a pile of independent files, it is a linked graph that gets retrieved from, which is why corruption does not stay where it landed: the model links to the bad note, derives notes from it, answers out of it.
 
-<sub><b>New to this?</b> A "vault" is just a folder of markdown (<code>.md</code>) files. If you already use Obsidian, that folder is your Obsidian vault, and Silica works on it directly.</sub>
-
-**Try it before reading the rest.** Reading a vault needs no model and no API key, so one line hands your notes to an agent you already run:
-
-```bash
-silica setup claude             # or: setup codex, setup opencode
-```
-
-Nothing is asked, nothing else is configured, and nothing is written. Full [install](#install) below.
-
----
-
-## How the guardrail works
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/gate.svg" alt="An edit proposed by the model passes parse, structure and link checks, lands in the note and is read back after it lands. A second edit fails the structure check and is sent back, leaving the note unchanged." width="880" />
-</p>
-
-Code already survived this exact failure mode: software absorbs model-written changes because nothing lands unparsed. Compilers, type checkers, and test gates mechanically check what the model writes, and you let them reject and rewrite your work every day. Vaults had no equivalent. Silica puts an LLM's edits behind the same kind of guardrail:
-
-| You already let a tool… | to guard against… | Silica does the same by… |
-| :--- | :--- | :--- |
-| a **compiler** reject source that will not build | syntax and type errors | an FSM refusing to commit a note that fails its structural checks |
-| a **test suite** block a merge that breaks behavior | regressions | a post-write verify gate that reverts any edit which breaks vault coherence |
-| **git** roll back a bad commit | losing history | `/undo` and `/revert` rolling back per note or per run |
-| a **formatter** rewrite your code without asking | drift and inconsistency | graph-safe refactors that redirect links so a merge never orphans a note |
-
-### Design contracts
-
-Silica is not a free-form agent. Every vault mutation passes through a finite-state machine, and these are the invariants it enforces:
-
-- **Single entry point.** All nucleation flows through the Injector FSM. There is no side channel that writes to the vault.
-- **Verify or revert.** A post-write mismatch raises `VerifyMismatchError` and rolls the write back.
-- **Graph-safe moves.** Renames, merges, and splits redirect incoming links atomically.
-- **Zero-trust ingress.** External content such as web search results can only land in `Inbox/`, and reaches the vault only through explicit staging and FSM review.
-- **Machine memory only by promotion.** What Silica learns from its own sessions becomes episodic facts outside the vault, never notes. It enters the vault only when you promote it, through the same gate as everything else.
-- **Layered rollback.** `/undo` (per note), `/revert` (per run), and optional `SILICA_GIT_COMMIT=auto` stack as independent safety nets.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/architecture.svg" alt="Silica architectural schematic" width="880" />
-</p>
-
-> **Scope of the claim.** The guardrail is enforced today on the normal write path. It is not yet crash-verified: a harness that kills the process mid-write to prove the invariants survive failure is [in progress](#status). Read it as enforced control flow, not as a proof under adversarial faults. Back your vault up before letting any tool rewrite it, and keep git as the byte-level backstop.
-
----
-
-## The pattern, and the format
-
-Silica did not invent the artifact it curates. In April 2026 Andrej Karpathy wrote down the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: keep the raw sources immutable, have the model compile them into a cross-linked markdown wiki, and have it maintain that wiki instead of rediscovering everything on every question. What a retrieval system would go looking for at query time is already synthesized, and the model does the bookkeeping a person will not: *"LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass."*
-
-Two months later Google Cloud published the [Open Knowledge Format](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing), "an open specification that formalizes the LLM-wiki pattern into a portable, interoperable format": a directory of markdown files with YAML frontmatter, with no schema registry, no central authority, and no required tooling. [v0.2](https://cloud.google.com/blog/products/data-analytics/okf-v0-2-adds-trust-signals) added what an agent-maintained corpus needs before anyone can trust it: provenance, trust, lifecycle, and attestation.
-
-Silica is that pattern with a gate in front of it, and the vault it curates is an OKF bundle as it stands:
-
-- **[§11](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md#11-conformance) conformance by construction, not by export.** Every note declares a `type`. Silica derives it from signals the kernel already keys on (a path under `sources/`, a code binding, a plan status) and stamps it at the single write seam, so there is no export step and no second copy of your notes. A `type` you wrote yourself is never overwritten, and §4.1 tolerates a vocabulary the spec has never heard of, so your own stays conformant. `silica doctor` censuses the vault against the three §11 clauses, and a one-shot backfill closes the gap on notes that predate the field.
-- **§5.2 `verified`, the way back to the human tier.** Silica flags what it wrote, and a note it once touched used to rank as agent-authored forever after. A `verified:` entry naming a person restores the human trust tier. A machine actor does not qualify: a pipeline re-reading its own output is not a second opinion, and letting one count would hand the agent a lever on its own authority.
-
-**What conformance covers.** The notes the vault owns. Silica does not force frontmatter onto markdown it did not write, because in a repository a `README` is markdown by right, and it does not generate the optional `index.md` bundle file. It does write the bundle-root `log.md`, the journal every run appends a line to, but flat and oldest-first rather than the newest-first date-grouped shape [§9](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md#9-log-files) describes: the path is the spec's, the layout is not yet.
-
----
-
-## Compared to the alternatives
-
-The two nearest neighbors are worth naming. [Basic Memory](https://github.com/basicmachines-co/basic-memory) is the substrate twin: markdown on your disk, wikilinks, MCP, same AGPL license. [LLM Wiki](https://github.com/nashsu/llm_wiki) is the closest in ambition: a desktop app built on [the same pattern](#the-pattern-and-the-format), which compiles your documents into a wiki and keeps it current.
-
-| | **Silica** | **Basic Memory** | **LLM Wiki** |
-| :--- | :--- | :--- | :--- |
-| Where the knowledge lives | your folder of `.md` | your folder of `.md` | a generated `wiki/` of markdown, beside sources kept immutable |
-| After a write lands | re-read and checked, reverted on mismatch | written, then indexed | a `Lint` pass on demand, plus a review queue for what the model flagged |
-| Undoing a bad edit | `/undo` per note, `/revert` per run, optional git commit per write | your own version control; point-in-time restore is a paid cloud tier | not a documented feature; deleting a source cascades cleanup of the pages it produced |
-| Merge, split, rename | incoming wikilinks redirected atomically, no orphan left behind | the file moves, the links pointing at it are yours to fix | dead wikilinks pruned when a source is deleted |
-| With no model available | retrieval degrades to deterministic legs and keeps answering | keyword search stays, semantic needs an embedder | keyword and graph search stay, ingest needs an LLM |
-| Codebases | same vault, same gate, staleness checked against git | notes only | documents only |
-| Refusal rate published | yes, 94.4% and 89.7% correct abstention next to 82.1% and 83.2% accuracy | not published | not published |
-| Hosting | local, AGPL, nothing above it | local AGPL, plus a paid cloud tier | local, GPL-3.0 desktop app |
-
-**The rest of the field.** Memory agents (Mem0, Zep, Letta, Cognee, Supermemory) ingest your material into a store of their own; Letta is the only one with rollback, and none of them verifies a write after it lands. Repo wiki agents (DeepWiki, OpenWiki, GitNexus, [Graphify](https://github.com/safishamsi/graphify)) read a codebase and emit an artifact next to it: good maps, read-only by design, and they never curate a human's notes. Graph frameworks (GraphRAG, LightRAG, HippoRAG, Graphiti) build an index, not a folder you can still open in a text editor.
-
-### What only Silica does
+### Silica's answer
 
 - **Verify or revert on the memory substrate itself.** 2026 produced an entire memory-poisoning literature proposing exactly [the loop above](#how-the-guardrail-works), stage the write, validate it, commit or roll back: Cordon, MOSS, MemLineage, MemAudit, SMSR. Every one of them is a research prototype. Silica ships it, scope of the claim included.
 - **A core that survives with no models at all.** The co-occurrence concept graph, the BM25 leg, and MinHash dedup need no embedder. Competitor cores are LLM-mandatory by construction, and the incentive runs that way: their business is the model call.
@@ -153,17 +70,37 @@ The two nearest neighbors are worth naming. [Basic Memory](https://github.com/ba
 - **Graph-safe mutation of links a human wrote.** Obsidian redirects links but has no agent driving it. Agents have no human link graph to keep intact. Silica has both.
 - **Abstention as a published number.** Mem0's own 2026 benchmark write-up concedes the market underreports it. Silica prints correct refusals next to accuracy, and ships the [unflattering rows](#measured) unedited.
 
-### What Silica did not invent
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/gate.svg" alt="An edit proposed by the model passes parse, structure and link checks, lands in the note and is read back after it lands. A second edit fails the structure check and is sent back, leaving the note unchanged." width="880" />
+  <sub>Compilers, type checkers, and test gates mechanically check what the model writes, and you let them reject and rewrite your work every day. Vaults had no equivalent. Silica puts an LLM's edits behind the same kind of guardrail:</sub>
+</p>
 
-Credit where it is owed.
+#### How an answer is grounded
 
-- **The wiki pattern itself** is Karpathy's and **the format that carries it** is Google's OKF, as [above](#the-pattern-and-the-format). What Silica adds is the gate in front of both, and it is the only part of this section it claims.
-- **Plain markdown, local-first, AGPL** is the entry ticket to this category and Basic Memory got there too. Silica pays it in full, with no tier above the local one.
-- **A graph with community detection and an interactive view** ships in Graphify, GitNexus, LLM Wiki, and GraphRAG. What Silica adds is that the same co-occurrence structure is also a retrieval leg.
-- **Self-linking atomic notes** are A-MEM's thesis, and old news in Obsidian plugins. Silica's part is that those links survive a merge, a split, and a rename.
-- **Staleness against the code** is Fiberplane Drift's reformat-immune AST fingerprint, Swimm sells it, OpenWiki schedules it. Silica runs it inside the vault that also holds your notes, and `/impact`, from a diff back to the notes it invalidates, is the piece almost nobody replicates.
-- **Typed relations** are Graphiti's, with per-edge validity intervals Silica does not model, computed here on demand rather than frozen at ingest.
-- **An MCP server and local models** are table stakes: four drivers, one gate, no privileged client.
+A question is not handed to one index and hoped for. It runs down independent legs, and the results are fused by rank:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/grounding.svg" alt="A question runs down three legs: embeddings, co-occurrence, and the opt-in lexical leg. The lexical leg abstains. The other two return their own rankings, fused by rank, so a note both legs found outranks a note only one of them found." width="880" />
+</p>
+
+Fusing by rank is what lets legs that measure nothing comparable sit in the same pool: a cosine and an unbounded BM25 score never have to agree on a scale. And a leg with nothing useful to say **abstains** rather than emitting a flat ranking that would poison the pool, so fusion degrades to whichever legs survived.
+
+That is the whole reason the two legs marked *no model* matter. They are deterministic and embedder-free, so with no embedding model at all, retrieval keeps working instead of failing. Each hit records its provenance, so an answer can name the note it came from.
+
+The lexical leg is dotted because it is exactly that: optional. Build it with `/lexical` and it joins the same fusion, strong on the rare tokens, proper nouns, and dates that a semantic index is weakest on.
+
+[Full install](#install) below.
+
+---
+
+## How the guardrail works
+
+| You already let a tool… | to guard against… | Silica does the same by… |
+| :--- | :--- | :--- |
+| a **compiler** reject source that will not build | syntax and type errors | an FSM refusing to commit a note that fails its structural checks |
+| a **test suite** block a merge that breaks behavior | regressions | a post-write verify gate that reverts any edit which breaks vault coherence |
+| **git** roll back a bad commit | losing history | `/undo` and `/revert` rolling back per note or per run |
+| a **formatter** rewrite your code without asking | drift and inconsistency | graph-safe refactors that redirect links so a merge never orphans a note |
 
 ---
 
@@ -355,19 +292,7 @@ Add `SILICA_VAULT` to the entry (an `env` table for Codex, `env` under `config` 
 
 ---
 
-## How an answer is grounded
 
-A question is not handed to one index and hoped for. It runs down independent legs, and the results are fused by rank:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/grounding.svg" alt="A question runs down three legs: embeddings, co-occurrence, and the opt-in lexical leg. The lexical leg abstains. The other two return their own rankings, fused by rank, so a note both legs found outranks a note only one of them found." width="880" />
-</p>
-
-Fusing by rank is what lets legs that measure nothing comparable sit in the same pool: a cosine and an unbounded BM25 score never have to agree on a scale. And a leg with nothing useful to say **abstains** rather than emitting a flat ranking that would poison the pool, so fusion degrades to whichever legs survived.
-
-That is the whole reason the two legs marked *no model* matter. They are deterministic and embedder-free, so with no embedding model at all, retrieval keeps working instead of failing. Each hit records its provenance, so an answer can name the note it came from.
-
-The lexical leg is dotted because it is exactly that: optional. Build it with `/lexical` and it joins the same fusion, strong on the rare tokens, proper nouns, and dates that a semantic index is weakest on.
 
 ---
 
@@ -426,73 +351,6 @@ One artifact, two readers: a human reads it as a current map of the repository, 
 
 ---
 
-## Command reference
-
-**Ask and audit** (read-only)
-
-| Command | What it does |
-| :--- | :--- |
-| `/report [folder] [--embeddings] [--cooccurrence]` | Structural audit: hubs, bridges, orphans, autolink candidates |
-| `/explain "<concept>" [--level=intro\|expert]` | Explain a concept grounded in the vault at the chosen register |
-| `/summarize <note\|folder...>` | Read-only digest of one or more notes in chat |
-| `/compare "A" "B"` | Comparison table; surfaces contradictions and contested notes |
-| `/quiz [note\|folder] [--n=10]` | Active-recall quiz; misses resurface. No target = review queue (decaying + never-measured notes) |
-| `/learn <area\|folder\|note\|topic>` | Guided re-learning: builds or resumes a syllabus note calibrated on what you still retain, teaches step by step with quiz gates |
-| `/relate <note> [--n=8]` | Typed relationship map (prerequisite, elaborates, contradicts, etc.) |
-| `/path <noteA> <noteB>` | Shortest reading path between two notes (wikilinks + co-occurrence) |
-| `/schematize <target> [--save=<path>]` | Breakdown table of a note, folder, or topic (optional note save) |
-| `/diagram <target> [--save=<path>]` | Mermaid diagram (flowchart, mindmap, sequence, class, timeline) |
-| `/contested` | List notes flagged `contested: true` with unresolved contradictions |
-| `/find <query>` | Semantic search |
-
-**Bring in and reshape**
-
-| Command | What it does |
-| :--- | :--- |
-| `/nucleate <file...> [--target=DIR]` | Notes/PDFs/Notebooks via the gate; code as skeletons |
-| `/organize "<intent>" [--scope=DIR] [--file=tax.yaml] [--apply]` | Classify and move notes into a taxonomy |
-| `/curate [--apply]` · `/dedup` · `/refine` · `/enrich` | Plan and run autolink, MinHash LSH dedup, and enrichment |
-| `/aliases [folder] [--apply]` | Propose frontmatter aliases for note titles (abbreviations, spellings); autolink then resolves them |
-| `/web [keywords]` | Answer from the web, cited from the pages opened; writes nothing. Bare `/web` re-asks your last question |
-| `/keep` | Save the last `/web` answer as a cited note in the Inbox |
-| `/web-search "<topic>" [--max-searches=N]` | Research on the web → cited findings note in Inbox |
-| `/fetch <url>` | Read one page or YouTube transcript → verbatim note in Inbox |
-| `/convert <file...>` | Transcode non-markdown files (PDFs) into markdown drafts |
-| `/promote [<key>]` | List what session memory keeps repeating, promote one chain into a note through the gate |
-| `/episodes [--save=<path>]` | Show what session memory holds, dated and grouped by key; writes nothing unless you name a path |
-| `/agenda [today\|week\|YYYY-MM-DD]` | Per-day merge of events, dated notes, agent activity and review due; events live as calendar notes, reminders arrive in-app |
-
-**Indexes** `/embed` · `/cooccur` (embedder-free) · `/lexical` (BM25 and fuzzy)
-
-**Visualize** `/graph [out.html]` · `/map <note>` (radial mind-map canvas)
-
-**Codebase** `/wiki` · `/stale` · `/impact [<range>]`
-
-**Undo, inspect, and queue**
-
-| Command | What it does |
-| :--- | :--- |
-| `/changes` | Every note this session wrote to, with added/removed line counts |
-| `/undo [note]` | Undo the last patch on a note |
-| `/revert [run-id]` | Revert a whole injection (per-run, LIFO) |
-| `/status [run-id]` | Progress digest of the current/last batch run |
-| `/review [--flush=HASH]` | Inspect or flush the async review queue (deferred operations) |
-| `/plans` | List `plans/` notes grouped by status (`todo\|in-progress\|blocked\|done`) |
-
-**System & Settings**
-
-| Command | What it does |
-| :--- | :--- |
-| `/settings [<key> <value\|none>]` | View or edit `vault.yaml` settings without the wizard |
-| `/vault [path]` | Show active vault or switch to another path for this session |
-| `/help` · `/model` · `/tools` | Display help, current LLM model limits, or registered toolset |
-| `/verbose` · `/thinking` · `/clear` · `/exit` | Cycle tool progress, toggle CoT reasoning, clear history, or exit |
-| `/sessions [prune <days>d]` | List saved conversations for this vault (newest first); `prune` deletes narration sessions older than the given age |
-| `/resume <n\|id>` | Reopen a saved conversation and continue it (`/new` starts a fresh one) |
-| `/incognito` | Stop capturing the session you are in (capture is opt-in to begin with) |
-
----
-
 ## Configuration
 
 `silica init` writes the essentials. The full list with defaults is in [`.env.example`](.env.example).
@@ -511,17 +369,13 @@ One artifact, two readers: a human reads it as a current map of the repository, 
 
 ---
 
-## Status
+## LLM Wiki and OKF aknowledgments
 
-Everything under **Available now** ships in the current release. Everything below it does not.
+In April 2026 Andrej Karpathy wrote down the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: keep the raw sources immutable, have the model compile them into a cross-linked markdown wiki, and have it maintain that wiki instead of rediscovering everything on every question. What a retrieval system would go looking for at query time is already synthesized, and the model does the bookkeeping a person will not: *"LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass."*
 
-**Available now.** Note nucleation, structural audit, semantic and embedder-free search, graph-safe refactor / dedup / merge, graph and mind-map export, codebase skeletons with git-backed `/stale` and `/impact`, the code wiki, layered `/undo` and `/revert`, the git safety net, the MCP server, and the Claude Code / Codex plugin with its session hooks.
+Two months later Google Cloud published the [Open Knowledge Format](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing), "an open specification that formalizes the LLM-wiki pattern into a portable, interoperable format": a directory of markdown files with YAML frontmatter, with no schema registry, no central authority, and no required tooling. [v0.2](https://cloud.google.com/blog/products/data-analytics/okf-v0-2-adds-trust-signals) added what an agent-maintained corpus needs before anyone can trust it: provenance, trust, lifecycle, and attestation.
 
-**Next, and it is the one that decides the rest.** Upkeep runs when you ask for it (`/curate`, `/organize`, `/stale`, `/report`). Being answerable for a folder means noticing without being asked, so the next work is scheduled upkeep: a folder watch, an audit that runs on its own, and a queue of changes waiting for your yes. Until it ships, Silica keeps the vault from rotting on demand, not on its own.
-
-**In progress.** Richer codebase coverage across more languages, PDF/DOCX/TXT nucleation, the live Obsidian bridge, and the crash harness backing the guardrail.
-
-**Planned.** Image nucleation.
+**Silica is that pattern with a gate in front of it, and the vault it curates is an OKF bundle as it stands.**
 
 ---
 

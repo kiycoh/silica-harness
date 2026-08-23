@@ -511,3 +511,23 @@ def test_aliases_of_reads_the_obsidian_spellings():
     assert aliases_of("---\ntags: [x]\n---\n\nbody\n") == []
     assert aliases_of("no frontmatter here") == []
     assert aliases_of("---\naliases: [\n---\n\nbroken yaml\n") == []
+
+
+def test_containing_titles_matches_the_brute_force_predicate():
+    """The bucketed scan must equal the index-wide regex it replaced, on a
+    vocabulary built to produce shared words, punctuation and case noise."""
+    import random
+    import re as _re
+    from silica.kernel.link.autolink import _containing_titles
+
+    rng = random.Random(7)
+    words = ["Statistica", "descrittiva", "rete", "neurale", "Deep", "learning", "K", "mean", "A-B", "tipo"]
+    index = sorted({" ".join(rng.sample(words, rng.randint(1, 3))) for _ in range(120)})
+    cands = frozenset(t.lower() for t in rng.sample(index, 25))
+    brute = [
+        t for t in index
+        if t.lower() not in cands
+        and any(len(t) > len(w) and _re.search(r"(?<!\w)" + _re.escape(w) + r"(?!\w)", t.lower()) for w in cands)
+    ]
+    assert _containing_titles(tuple(index), cands) == brute
+    assert brute, "fixture must exercise at least one shadow"

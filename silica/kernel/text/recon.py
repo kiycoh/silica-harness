@@ -118,6 +118,27 @@ def _dangles(s: str) -> bool:
     return last.lower() in _TRAILING_FUNCTION_WORDS
 
 
+def mentions_whole_word(phrase: str, line: str) -> bool:
+    """True when *line* contains *phrase* as whole words, case-insensitively.
+
+    The driver's body search is a substring scan and stays one: the agent's
+    `silica_search_context` is a grep, and a prefix query is a feature there.
+    Collision evidence is not a grep. Measured 2026-08-23 on the OpenAlex
+    payload: 6 of 15 reported collisions had zero whole-word matches in the
+    note they named (posi in position, gui in guide, MAG in image, ror in
+    error), and `doi` counted 28 lines where 8 mention it. Each one was shown
+    to the distiller as a vault collision to reason away.
+
+    `\\w` is Unicode-aware on str patterns, so an accented letter is a word
+    character and `rete` does not match inside `retè`.
+    """
+    words = phrase.casefold().split()
+    if not words:
+        return False
+    pattern = r"(?<!\w)" + r"\s+".join(re.escape(w) for w in words) + r"(?!\w)"
+    return re.search(pattern, line.casefold()) is not None
+
+
 def is_title_match(c: str, stem: str) -> bool:
     c_lower, stem_lower = c.lower(), stem.lower()
     if c_lower == stem_lower: return True

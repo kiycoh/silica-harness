@@ -40,15 +40,13 @@ _EMPTY = {
 
 
 def run(vault, store, *, verbose: bool = False) -> dict:
-    from silica.kernel.link import correlate
     from silica.kernel.recall.relatedness import _cooccur_ranking
 
     if len(store) == 0:
         return dict(_EMPTY)
 
-    # Derive note_edges in memory from the current contributions (self-contained:
+    # note_edges derive from the current contributions on read (self-contained:
     # the measurement never depends on whether the persisted store was reindexed).
-    correlate.recompute_all_edges(store)
 
     # Candidate populations — text-derived, no hop filter (applied per pair below).
     expanded_pairs: set[tuple[str, str]] = set()

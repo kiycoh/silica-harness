@@ -349,11 +349,15 @@ def handle_collision(fsm: "InjectorFSM") -> None:
 def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
     """Dedup/collision routing — Phase 5.
 
-    Candidates come from the relatedness facade (RRF fusion of embeddings +
-    co-occurrence), so an existing note the author co-mentions heavily can
-    outrank a merely cosine-close one. Routing stays embedding-anchored: the
-    thresholds below apply to the candidate's cosine (embed_score), and a
-    candidate the embed leg did not propose is never auto-routed.
+    The candidate is the cosine-best vault note, from the embedding index
+    alone. Until ADR-0030 it was the winner of the relatedness facade (RRF of
+    embeddings + co-occurrence), on the idea that a note the author co-mentions
+    heavily should outrank a merely cosine-close one; the thresholds below are
+    cosine thresholds, and measured on 60 duplicates (2026-08-23) the
+    cosine-best note WAS the duplicate 98% of the time against 87% for the
+    fused winner, while a duplicate handed to the judge under any other
+    candidate is lost whatever the judge says. The co-occurrence pull is an
+    associative signal; sameness is a similarity question.
 
     For each concept in the current chunk (see route_concept for the decision):
     - score ≥ τ_high & names agree → pre-route as a 'patch' op (graph check)
@@ -396,18 +400,6 @@ def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
     if embedder is None:
         _minhash_fallback()
         return
-
-    # Co-occurrence leg for the relatedness facade — embedder-free, best-effort:
-    # an unavailable or empty index means the leg abstains and fusion degrades
-    # to the embedding ranking alone.
-    cooccur_store = None
-    try:
-        from silica.kernel.recall.cooccurrence import get_cooccur_store
-        cooccur_store = get_cooccur_store(lang=orch.CONFIG.cooccurrence_lang)
-        if len(cooccur_store) == 0:
-            cooccur_store = None
-    except Exception:
-        cooccur_store = None
 
     fsm._get_chunks_from_context_if_empty()
     chunk = fsm._chunks[idx]
@@ -499,17 +491,9 @@ def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
                 kept.append(concept)
                 continue
             try:
-                from silica.kernel.recall.relatedness import related_notes_for_query
-                excerpt_text = concept.get("inbox_excerpt", "") if isinstance(concept, dict) else ""
-                related = related_notes_for_query(
-                    query_vec=vec,
-                    query_text=f"{concept_text}\n{excerpt_text}".strip(),
-                    embed_store=store,
-                    cooccur_store=cooccur_store,
-                    k=5,  # a few extra so the inbox filter below still leaves a candidate
-                )
+                hits = store.cosine_top_k(vec, k=5)  # a few extra so the inbox filter below still leaves a candidate
             except Exception as _search_err:
-                logger.debug("COLLISION: relatedness lookup failed for '%s': %s", concept_text, _search_err)
+                logger.debug("COLLISION: cosine lookup failed for '%s': %s", concept_text, _search_err)
                 kept.append(concept)
                 continue
 
@@ -517,27 +501,16 @@ def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
             # targets — validate rejects every Inbox path, so surfacing one as
             # the collision candidate guarantees a rejected op + steer churn.
             from silica.kernel.recall.paths import is_inbox_path
-            related = [r for r in related if not is_inbox_path(r.path)]
+            hits = [h for h in hits if not is_inbox_path(h["path"])]
 
-            if not related:
+            if not hits:
                 kept.append(concept)
                 continue
 
-            best = related[0]
-            if best.embed_score is None:
-                # Co-occurrence-only candidate: there is no cosine to hold the
-                # thresholds against, so it is never auto-routed — the concept
-                # flows to normal distillation.
-                logger.debug(
-                    "COLLISION: '%s' top candidate '%s' lacks an embed score (%s) — keeping",
-                    concept_text, best.path, ", ".join(best.evidence),
-                )
-                kept.append(concept)
-                continue
-
-            top = {"path": best.path, "name": best.name, "score": best.embed_score}
-            score: float = best.embed_score
-            existing_path = best.path
+            best = hits[0]
+            top = {"path": best["path"], "name": best["name"], "score": float(best["score"])}
+            score: float = top["score"]
+            existing_path = top["path"]
 
             # Lower effective threshold for cluster hubs: merging into an
             # anchor note is safer than creating a competing shadow note.

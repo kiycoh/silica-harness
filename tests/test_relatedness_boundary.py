@@ -36,7 +36,6 @@ LEGS = {"kernel/recall/embed.py", "kernel/recall/cooccurrence.py"}
 # module (relative to silica/) → why direct leg access is legitimate
 ALLOWED = {
     "kernel/recall/relatedness.py":        "the facade itself",
-    "kernel/link/correlate.py":          "owns note_edges computation; needs cooccur_key for keyspace normalization, not relatedness ranking",
     "kernel/recall/recall_weights.py":     "constructs recall-outcome weight store to inject into the facade; needs cooccur_key for keyspace normalization",
     "kernel/recall/run_substrate.py":      "constructs stores to inject into the facade",
     "kernel/recall/perception.py":         "constructs stores to inject into the facade (facade_retrieve, the shared fresh-query wiring)",

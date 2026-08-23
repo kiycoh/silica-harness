@@ -345,3 +345,55 @@ def test_self_reference_guard_leaves_real_hubs_alone():
     f = prepare_fields(title="Slow start", body="x", hub="appunti")
     assert f["parent"] == '"[[appunti]]"'
     assert '"[[appunti]]"' in f["related"]
+
+
+def test_stamp_sources_after_a_frontmatter_dump_round_trip():
+    """The list `yaml.safe_dump` writes is UNINDENTED, and the splice must find
+    it. A note whose frontmatter has been re-emitted by `frontmatter.dump` (any
+    property edit does that) reaches the second source with `sources:` followed
+    by flush-left items; when the removal regex misses them the key line goes
+    and the items stay, which is not YAML at all. Measured 2026-08-23 on a real
+    nucleate batch: 2 of 52 notes unparseable, both patched by a second source.
+    """
+    import yaml
+
+    from silica.kernel.write import frontmatter
+
+    note = frontmatter.dump({"type": "Note", "sources": ["a.md"]}, "body\n")
+    assert "\nsources:\n- a.md\n" in note, "safe_dump stopped writing flush-left"
+
+    out = stamp_sources(note, "b.md")
+    data, raw, _ = frontmatter.split(out)
+    yaml.safe_load(raw)
+    assert data["sources"] == ["a.md", "b.md"]
+    assert raw.count("sources:") == 1
+
+
+def test_stamp_documents_after_a_frontmatter_dump_round_trip():
+    """`documents:` splices with the same regex, so it fails the same way."""
+    import yaml
+
+    from silica.kernel.write import frontmatter
+    from silica.kernel.write.templates import stamp_documents
+
+    note = frontmatter.dump({"type": "Note", "documents": ["a.pdf"]}, "body\n")
+    out = stamp_documents(note, ["b.pdf"])
+    data, raw, _ = frontmatter.split(out)
+    yaml.safe_load(raw)
+    assert data["documents"] == ["a.pdf", "b.pdf"]
+    assert raw.count("documents:") == 1
+
+
+def test_stamp_citation_does_not_duplicate_keys_after_a_sources_splice():
+    """The cascade the corruption caused: `stamp_citation` skips keys already
+    present, but reads them through `frontmatter.split`, which returns None on
+    broken YAML. A note the sources splice had just broken therefore had every
+    citation key appended a second time (`source_title` twice, 2026-08-23)."""
+    from silica.kernel.write import frontmatter
+    from silica.kernel.write.templates import stamp_citation
+
+    note = frontmatter.dump(
+        {"type": "Note", "sources": ["a.md"], "source_title": "Paper"}, "body\n")
+    out = stamp_citation(stamp_sources(note, "b.md"), {"title": "Paper"})
+    _, raw, _ = frontmatter.split(out)
+    assert raw.count("source_title:") == 1

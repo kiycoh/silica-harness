@@ -89,13 +89,18 @@ def retry_transient(fn, exceptions: tuple, attempts: int = 3, base_delay: float 
             if cancel is not None and cancel.is_set():
                 logger.info("Call abandoned; dropping retries: %s", e)
                 raise
+            # Thread name, because these lines are the only trace a concurrent
+            # lane leaves: distill prefetch runs k=3 calls (SILICA_DISTILL_CONCURRENCY)
+            # that start and time out in the same second, so three identical
+            # warnings read as one call retried three times unless they are named.
+            who = threading.current_thread().name
             if attempt >= ceiling:
-                logger.error("Transient error, %d attempts exhausted: %s", attempt, e)
+                logger.error("[%s] Transient error, %d attempts exhausted: %s", who, attempt, e)
                 raise
             delay = base_delay * (2 ** attempt) + (random.uniform(0, jitter) if jitter else 0.0)
             logger.warning(
-                "Transient error (attempt %d/%d): %s. Retrying in %.1fs...",
-                attempt, ceiling, e, delay,
+                "[%s] Transient error (attempt %d/%d): %s. Retrying in %.1fs...",
+                who, attempt, ceiling, e, delay,
             )
             if cancel is not None:
                 if cancel.wait(delay):  # backoff sleep that wakes on abandonment
@@ -105,12 +110,22 @@ def retry_transient(fn, exceptions: tuple, attempts: int = 3, base_delay: float 
                 time.sleep(delay)
 
 
-_LOCAL_LLM_TIMEOUT = 130.0  # wall-clock backstop we enforce ourselves (> the litellm
-# timeout below, so litellm's own timeout wins if it ever fires). litellm's `timeout`
-# kwarg does NOT fire on a provider that accepts the request then never sends a body
-# — observed: OpenRouter holding an ESTAB socket idle ~58min, zero retries, the whole
-# process wedged on one call. Kept 10s above the 120s litellm timeout so litellm fires
-# first on a normal timeout and this only catches the silent-hang case.
+_LOCAL_LLM_TIMEOUT = float(os.getenv("SILICA_LLM_TIMEOUT", "130"))
+# Wall-clock backstop we enforce ourselves (> the litellm timeout below, so litellm's
+# own timeout wins if it ever fires). litellm's `timeout` kwarg does NOT fire on a
+# provider that accepts the request then never sends a body: observed, OpenRouter
+# holding an ESTAB socket idle ~58min, zero retries, the whole process wedged on one
+# call. Kept 10s above the 120s litellm timeout so litellm fires first on a normal
+# timeout and this only catches the silent-hang case.
+#
+# Overridable because the default cannot tell "hung" from "slow" on a non-streaming
+# call, and a slow reasoning model lives inside the band: measured 2026-08-23 on
+# openrouter/stealth/ox-alpha, the distiller shape (8.1k prompt -> 4k completion) took
+# 78s alone and 106-112s with the default k=3 prefetch in flight, i.e. the run kills
+# its own healthy calls. Raise it for such a model (SILICA_LLM_TIMEOUT=400), or drop
+# SILICA_DISTILL_CONCURRENCY to 1. The real repair is to stream the distiller call so
+# the deadline resets per chunk (_bounded_stream already does that for the loop) and
+# no wall-clock number has to be guessed at all.
 
 
 def run_with_deadline(fn, timeout: float, on_timeout, *, catch: type = Exception):
@@ -134,7 +149,14 @@ def run_with_deadline(fn, timeout: float, on_timeout, *, catch: type = Exception
         except catch as e:  # noqa: BLE001 - carried to the calling thread
             box["e"] = e
 
-    th = threading.Thread(target=_work, daemon=True)
+    # Caller's name plus a marker per nesting level: retry_transient logs from
+    # *inside* this worker, and two deadlines nest per distiller call
+    # (DISTILLER_TIMEOUT outside, _LOCAL_LLM_TIMEOUT inside), so the default
+    # "Thread-18 (_work)" hides which lane a retry belongs to. The suffix is not
+    # decoration: a bare copy let an abandoned worker log as "MainThread" long
+    # after the main thread had given up on it.
+    th = threading.Thread(target=_work, daemon=True,
+                          name=f"{threading.current_thread().name}~dl")
     th.start()
     th.join(timeout)
     if th.is_alive():

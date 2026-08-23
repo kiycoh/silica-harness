@@ -320,3 +320,45 @@ def test_update_without_git_says_so(tmp_path, monkeypatch, capsys):
 
     assert upd.update() == 1
     assert "git is not on PATH" in capsys.readouterr().out
+
+
+def test_folder_pick_prompt_says_when_the_vault_has_no_folders(tmp_vault, monkeypatch):
+    """A fresh vault (inbox only) used to render "Existing folders:" followed by
+    nothing. 2026-08-23 run: the model spent 473 tokens of reasoning on "the
+    user says 'Existing folders:' but then nothing follows" before guessing.
+    An empty census is an answer, and the prompt has to state it."""
+    import silica.agent.llm as llm
+    from silica.cli import _pick_target_folder
+
+    captured: dict = {}
+
+    def fake(model, messages, **kw):
+        captured["prompt"] = messages[0]["content"]
+        return _Reply("Digital Libraries")
+
+    monkeypatch.setattr(llm, "call_llm", fake)
+    tmp_vault.note("Inbox/14-digital-libraries/01-src.md", "body\n")
+
+    assert _pick_target_folder(["Inbox/14-digital-libraries/01-src.md"]) == "Digital Libraries"
+    prompt = captured["prompt"]
+    assert "Existing folders:\n\n" not in prompt
+    assert "no folders yet" in prompt
+
+
+def test_folder_pick_prompt_lists_existing_folders(tmp_vault, monkeypatch):
+    import silica.agent.llm as llm
+    from silica.cli import _pick_target_folder
+
+    captured: dict = {}
+
+    def fake(model, messages, **kw):
+        captured["prompt"] = messages[0]["content"]
+        return _Reply("Concepts")
+
+    monkeypatch.setattr(llm, "call_llm", fake)
+    tmp_vault.note("Concepts/existing.md", "census non-empty\n")
+    tmp_vault.note("Inbox/01-src.md", "body\n")
+
+    assert _pick_target_folder(["Inbox/01-src.md"]) == "Concepts"
+    assert "- Concepts" in captured["prompt"]
+    assert "no folders yet" not in captured["prompt"]

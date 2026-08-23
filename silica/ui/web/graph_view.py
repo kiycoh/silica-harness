@@ -13,7 +13,7 @@ graph-frame.css the sheet, graph-frame.js the frame's code. This module fills th
 with the counts, the legend and tree fragments, and one JSON island carrying
 everything graph-frame.js needs for this document. All three are inlined at render
 and never referenced by URL, because the emitted file opens from file:// with
-no server behind it (ADR-0026); the renderer bundles and the Lexend face are
+no server behind it (ADR-0026); the renderer bundles and the Archivo face are
 inlined for the same reason.
 
 TWO renderers ship in every document: `3d-force-graph` (WebGL) and `force-graph`
@@ -67,19 +67,25 @@ def _vendored_lib_js() -> str:
 
 
 def _vendored_font_face() -> str:
-    """@font-face rule with the Lexend woff2 inlined as a data: URI, so the
+    """@font-face rule with the Archivo woff2 inlined as a data: URI, so the
     exported HTML stays fully self-contained (it is opened from file:// too).
-    Cosmetic asset: if missing, degrade to the system-ui fallback, not a raise."""
+    Cosmetic asset: if missing, degrade to the system-ui fallback, not a raise.
+
+    Archivo's subset is 90KB against Lexend's 40KB, so every export it lands in
+    grew by ~50KB when the identity consolidated on one sans
+    (docs/specs/visual-identity.md). Subset to the glyphs an export actually
+    uses if that ever shows up in a size complaint."""
     import base64
 
-    res = importlib.resources.files("silica.ui.web") / "static" / "lexend-latin.woff2"
+    res = importlib.resources.files("silica.ui.web") / "static" / "archivo-latin.woff2"
     if not res.is_file():
         return ""
     b64 = base64.b64encode(res.read_bytes()).decode("ascii")
     return (
-        '@font-face{font-family:"Lexend";'
+        '@font-face{font-family:"Archivo";'
         f'src:url("data:font/woff2;base64,{b64}") format("woff2");'
-        "font-weight:100 900;font-style:normal;font-display:swap}"
+        "font-weight:100 900;font-stretch:62% 125%;"
+        "font-style:normal;font-display:swap}"
     )
 
 
