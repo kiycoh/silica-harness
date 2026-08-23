@@ -163,27 +163,36 @@ function refreshPaint() {
 // --- the canvas's own palette ----------------------------------------------
 // CSS tokens stop at the edge of the canvas: a WebGL material and a 2D
 // fillStyle both need a literal, and both are set on a hot path where reading
-// getComputedStyle per node is not an option. So the two sets live here, picked
-// once at load. Every value is the light twin of the one beside it, chosen
-// against the floor it lands on rather than by inverting a channel.
+// getComputedStyle per node is not an option.
+//
+// So read the token block ONCE, here, into the literals that hot path wants.
+// The per-node constraint is unchanged, nothing below this line calls
+// getComputedStyle. What changes is who owns the values: graph-frame.css said
+// its --g-* neutrals were "declared here so the legend swatches and the
+// renderer read one source", and that was simply not true, the renderer kept a
+// second set. The second set then missed the whole identity consolidation (see
+// docs/specs/visual-identity.md): the canvas was still painting the deleted
+// crystal floor #0D0917 while every surface around it had moved to graphite,
+// the two neutrals were still blue-violet on a warm paper ground, and
+// ghostLabel was still the ash-dim that measured 3.83:1 and got replaced for it.
+// A theme fork here is also redundant: the CSS forks on [data-theme="light"]
+// already, so one read serves both grounds and there is nothing left to keep in
+// sync by hand.
 const LIGHT = document.documentElement.dataset.theme === "light";
-const GP = LIGHT ? {
-  dim: '#DCD5C7',          // a node filtered out of focus: toward the paper
-  ghost: '#C9C4D6',        // unresolved link — the faintest thing the floor holds
-  fallback: '#6B6F8C',     // no community
-  label: '#1A1815', ghostLabel: '#615B4F',
-  linkDim: '#E5DFD2',
-  bg: '#EFEAE0', bgHex: 0xEFEAE0,
-  ringHub: '#096275', ringOrphan: '#615B4F', ringCut: '#7A5305',
-} : {
-  dim: '#1d192f',
-  ghost: '#484867',        // unlit, never black
-  fallback: '#565a77',
-  label: '#EBEFF8', ghostLabel: '#838DA7',
-  linkDim: '#141221',
-  bg: '#0D0917', bgHex: 0x0D0917,
-  ringHub: '#35C6E8', ringOrphan: '#838DA7', ringCut: '#E0A93B',
+const TOK = getComputedStyle(document.documentElement);
+const tok = (name) => TOK.getPropertyValue(name).trim();
+const GP = {
+  dim: tok('--g-dim'),           // a node filtered out of focus: toward the floor
+  ghost: tok('--g-ghost'),       // unresolved link — the faintest thing the floor holds
+  fallback: tok('--g-fallback'), // no community
+  label: tok('--frost'), ghostLabel: tok('--ash-dim'),
+  linkDim: tok('--g-link-dim'),
+  bg: tok('--void'),
+  ringHub: tok('--accent'), ringOrphan: tok('--ash-dim'), ringCut: tok('--warn'),
 };
+// three.js wants the floor as an int, and only here: one parse of the value
+// above rather than a second literal that can disagree with it.
+GP.bgHex = parseInt(GP.bg.slice(1), 16);
 
 let activeCommunity = -2;
 let showExtracted = true;

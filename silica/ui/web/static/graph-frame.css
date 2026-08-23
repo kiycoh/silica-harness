@@ -15,10 +15,18 @@
   --lift:0 10px 28px -12px rgba(0,0,0,.7);
   /* HUD and focus bar float over the canvas, so their fill is the floor at
      near-opacity, not a surface step: whatever the graph paints has to stop
-     at their edge. --g-* are the canvas's own neutrals, declared here so
-     the legend swatches and the renderer read one source. */
+     at their edge. --g-* are the canvas's own neutrals, and the renderer now
+     actually reads them, which is what this comment used to only claim: see
+     the GP block in graph-frame.js. --g-dim and --g-link-dim joined the family
+     when it stopped being a claim, because a value the renderer alone knows is
+     a value that drifts, and both of those had.
+     --g-dim is the graphite twin of the old #1d192f at the same luminance
+     (.0120 against .0115), --g-link-dim of #141221 (.0068 against .0063). They
+     are deliberately below the legibility floor: a node or a link outside the
+     current focus is not meant to be read, only to keep the shape of the
+     field. */
   --hud-fill:rgba(13,14,15,.92);
-  --g-ghost:#454b54;--g-fallback:#545d67;
+  --g-ghost:#454b54;--g-fallback:#545d67;--g-dim:#1A1D20;--g-link-dim:#131517;
 }
 /* Light: same ramp as the app shell, same warm paper, same reasoning — see
    static/app.css. Kept in sync by hand because this file must stay
@@ -31,7 +39,7 @@
   --accent:#0A6070;--warn:#7A4F03;
   --lift:0 8px 20px -12px rgba(58,44,20,.34);
   --hud-fill:rgba(245,241,233,.95);
-  --g-ghost:#cbc6bd;--g-fallback:#79705f;
+  --g-ghost:#cbc6bd;--g-fallback:#79705f;--g-dim:#DCD5C7;--g-link-dim:#E5DFD2;
 }
 *{box-sizing:border-box;margin:0;padding:0;border-radius:0}
 html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}

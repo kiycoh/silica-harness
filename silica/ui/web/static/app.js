@@ -5190,10 +5190,36 @@ $("#quick-actions").addEventListener("click", (e) => {
 });
 
 syncQuick();
-// Lexend loads async and the segments get wider when it lands; the track also
+// Archivo loads async and the segments get wider when it lands; the track also
 // re-wraps whenever the sidebar or the drawer renegotiates the pane. Both are
 // resizes of the track, so one observer covers them.
 new ResizeObserver(syncQuick).observe(qaTrack);
+
+// --- the composer hint, at the width it actually gets ------------------------
+// The placeholder is a name plus a parenthetical key hint, and CSS cannot
+// shorten it: Chromium drops text-overflow on a <textarea> placeholder, so the
+// ellipsis declared for exactly this in app.css never renders and a squeezed
+// field hard-cuts mid-word. At the 900px floor with the work drawer folded open
+// the field is 223px wide and the string wants 263px, which showed "⇧⏎ nev".
+// So drop the clause, not the characters. Canvas measures the same string the
+// field will draw; the 6px margin covers what the 2d context cannot carry from
+// the element, which is the variable-width axis Archivo is here for.
+const phMeter = document.createElement("canvas").getContext("2d");
+function fitPlaceholder(el) {
+  const full = el.dataset.phFull || (el.dataset.phFull = el.placeholder);
+  const cs = getComputedStyle(el);
+  phMeter.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const fits = phMeter.measureText(full).width + 6 <= room;
+  // strip the trailing parenthetical, keeping the name the field is for
+  el.placeholder = fits ? full : full.replace(/\s*\([^()]*\)\s*$/, "");
+}
+// Changing a placeholder resizes nothing, so observing the field it sits in
+// cannot feed itself.
+for (const el of [$("#input"), $("#dock-input")]) {
+  fitPlaceholder(el);
+  new ResizeObserver(() => fitPlaceholder(el)).observe(el);
+}
 
 // --- the chat's model line ---------------------------------------------------
 // Its own cheap read, kept separate from /settings: that one probes four

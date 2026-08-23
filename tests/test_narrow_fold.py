@@ -48,6 +48,35 @@ def test_the_panel_folds_instead_of_disappearing():
     assert "body.work-fold #view-chat" in css and "padding-right: var(--work-w)" in css
 
 
+def test_the_composer_hint_is_a_clause_the_fitter_can_drop():
+    """Chromium drops text-overflow on a <textarea> placeholder, so a squeezed
+    field hard-cuts mid-word and fitPlaceholder() shortens the string instead.
+    It shortens by stripping the trailing parenthetical, which silently does
+    nothing the day someone rewrites the hint without one -- and the failure is
+    the old clip, which looks like a rendering artefact rather than a rewrite."""
+    html, app = INDEX.read_text(), APP_JS.read_text()
+    assert "function fitPlaceholder(" in app
+    hints = re.findall(r'<textarea[^>]*placeholder="([^"]*)"', html)
+    assert hints, "no composer placeholder in index.html"
+    for hint in hints:
+        stem = re.sub(r"\s*\([^()]*\)\s*$", "", hint)
+        assert stem and stem != hint, f"{hint!r} has no clause for the fitter to drop"
+
+
+def test_every_view_but_the_graph_reserves_the_drawer_gap():
+    """A view that does not reserve the gap renders UNDER the overlay, and the
+    part that goes missing is silent: the calendar lost its seventh column, its
+    agenda rail and its month/week toggle, and a month grid that stops at
+    Saturday still looks like a month grid. #view-graph is the one exception on
+    purpose -- it hides its own HUD instead, see syncDrawerToViews."""
+    html, css = INDEX.read_text(), APP_CSS.read_text()
+    views = set(re.findall(r'id="(view-[a-z]+)"', html)) - {"view-graph"}
+    assert views, "no views found in index.html"
+    for rule in ("body.work-fold", "body.note-open", "body.work-fold.note-open"):
+        for view in sorted(views):
+            assert f"{rule} #{view}" in css, f"{rule} does not inset #{view}"
+
+
 def test_every_rail_icon_stands_for_a_compartment_that_exists():
     """data-sec is the id of the <details> the icon opens. A renamed section
     leaves a button that opens nothing, and nothing about that is an error --

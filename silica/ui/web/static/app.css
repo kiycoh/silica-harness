@@ -112,6 +112,10 @@
      holds again, since every corner in the file is now opted in BY NAME. */
   --r-xs: 4px;
 
+  /* One chevron, worn as a mask so currentColor fills it: a coloured SVG would
+     need a light twin and a disabled twin, and this needs neither. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   /* The reading measure. Transcript and composer share it so a turn and the box
      you answer it in line up on the same two edges; changing it here moves both. */
   --measure: 58rem;
@@ -355,6 +359,21 @@ body {
 body {
   display: flex;
   flex-direction: column;
+}
+
+/* The chrome's explaining copy: the second line under a stat, a caption, an
+   empty state. Every one of these is one or two lines of a fixed sentence in a
+   column the layout decides, which is exactly the case `pretty` is for: it
+   costs nothing and it stops the two-word last line these were landing on, eg
+   "rising and which are falling." under a 68ch band.
+   Deliberately not on prose and not on code. A turn is long enough that the
+   last-line rule buys nothing and the reflow is real, and the mono blocks want
+   their breaks where the characters fall. The headings inside a turn take
+   `balance` instead, further down, because a heading is short and centred-ish
+   raggedness reads as a title. */
+:is(.mnote, .mband-p, .mempty, .mcard-sub, .msec-s, .wl-d, .wk-empty-d,
+    .map-picker-hint, .meter-lbl, .st-banner) {
+  text-wrap: pretty;
 }
 
 /* --- scrollbars: the one piece of chrome the app was letting the OS draw -----
@@ -703,6 +722,19 @@ body.note-open #top-counts {
   outline-offset: -1px;
 }
 
+/* The pointer floor, on the same principle as the list above it: one rule that
+   every control too small to hold its own belongs on. #metrics-proposals named
+   24px in a comment and nothing enforced it, so five controls sat under it,
+   measured 2026-08-23. #top-broken and #work-close carry no vertical padding at
+   all and collapsed to their 12.8px line box — the two smallest targets in the
+   app, and one of them is a close button. The three chip-sized buttons stopped
+   two pixels short of the floor. min-height and not height, because a <button>
+   centres its own content: the text lands without touching a single value of
+   their type, padding or border. */
+:is(#top-broken, #work-close, #notices-btn, .mini, .wk-mini) {
+  min-height: 24px;
+}
+
 #sidebar-toggle {
   font-size: 13px;
 }
@@ -768,7 +800,8 @@ main {
    #composer, including #send. header and #dock already reserved this exact gap;
    the reading surface was the one that did not. */
 body.note-open #view-chat,
-body.note-open #view-metrics {
+body.note-open #view-metrics,
+body.note-open #view-calendar {
   padding-right: var(--note-w, 630px);
 }
 
@@ -776,7 +809,10 @@ body.note-open #view-metrics {
    drawer is translucent, which is only safe over something that does not
    scroll behind it — header, dock and chat all reserve the gap, #view-graph is
    the deliberate exception (it hides its own HUD instead, see
-   syncDrawerToViews). Metrics reserved nothing, so an open note sat over live
+   syncDrawerToViews). The calendar joined a theme after metrics: a month grid
+   has no measure to give back, so what the drawer took was the seventh column,
+   and Sunday was simply not on screen while the work panel was folded open.
+   Metrics reserved nothing, so an open note sat over live
    cards and read their numbers through itself. Invisible on crystal, where the
    bleed-through is dark on dark; on paper it is dark text on white glass, and
    the first light build showed it immediately. */
@@ -1563,14 +1599,30 @@ details.side-section:hover>summary.side-title {
 
 /* one measure in rem, not ch: ch resolves against each element's own font-size,
    so an 11px label and 16px prose would centre on two different widths and the
-   footer would sit indented from the paragraph above it. --measure holds ~92
-   characters of prose once the sheet's own padding is taken out — wider than
-   the classic 66, because this transcript is as much table and code fence as
-   it is prose, and those were the things being squeezed. */
+   footer would sit indented from the paragraph above it. The measure is wider
+   than the classic 66 on purpose, because this transcript is as much table and
+   code fence as it is prose, and those were the things being squeezed. */
 .msg>.role,
 .msg>.body {
   max-width: var(--measure);
   margin-inline: auto;
+}
+
+/* ...but only the wide things get the wide measure. The rule above used to
+   carry the whole claim, and the number in it was wrong: 58rem was said to hold
+   "~92 characters", and it holds 119. That figure came from the ch unit, which
+   is the advance of a zero, and a zero is one of the widest glyphs Archivo
+   draws; real lowercase prose sets about 30% denser than it, so measuring a
+   text column in ch overstates the measure every time.
+   119 characters is past the point where the eye loses the line it is
+   returning to, and this surface is the one thing in the app people actually
+   read. So prose takes the measure it was always meant to have and a code
+   fence, a table, a diagram or an image keeps the full sheet, which is the
+   whole reason the sheet is wide. 43rem is 92 characters, measured at 15px root
+   with a rendered string rather than with a zero. */
+:is(.msg, #note-body, #peek-body) > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6),
+:is(.msg, #note-body, #peek-body) .body > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 43rem;
 }
 
 /* Whose turn it is is now carried by the shape, so the byline stops saying it a
@@ -2001,10 +2053,21 @@ details.side-section:hover>summary.side-title {
   font-size: 0.9em;
 }
 
+/* Tabular figures, because a table in an answer is usually a table of
+   measurements and the whole reason it is a table is that the reader compares
+   one row against the next. With proportional digits 0.8815 and 0.8233 start at
+   the same x and end at two different ones, so the comparison the table exists
+   for has to be read digit by digit. It is the rule this file already applies
+   to every number it prints itself; a number the model prints is not a
+   different kind of number.
+   Alignment is deliberately NOT touched: markdown carries per-column alignment
+   (`---:`) and the writer owns it. Guessing "this column looks numeric" in CSS
+   would right-align a version string and a commit hash too. */
 :is(.msg, #note-body, #peek-body) :is(th, td) {
   border: 1px solid var(--line);
   padding: 0.3rem 0.5rem;
   text-align: left;
+  font-variant-numeric: tabular-nums;
 }
 
 :is(.msg, #note-body, #peek-body) thead th {
@@ -2714,8 +2777,14 @@ details.side-section:hover>summary.side-title {
 #input::placeholder,
 #dock-input::placeholder {
   color: var(--ash-dim);
-  /* the hint is two clauses long, and the field is one row tall: in a narrow
-     column it wrapped and the second line was clipped mid-word */
+  /* the hint is two clauses long and the field is one row tall, so without this
+     it wrapped and the second line was clipped mid-word. `text-overflow` is the
+     half of that fix which does NOT work: Chromium honours it on an <input>
+     placeholder and drops it on a <textarea>, so what a squeezed field actually
+     showed was a hard cut ("⇧⏎ nev") and never an ellipsis. Measured at the
+     900px floor with the work drawer folded open: 263px of text into 223px of
+     room. fitPlaceholder() in app.js drops the whole clause there instead, and
+     these three lines stay as the guard for the pixel-level case it leaves. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3503,7 +3572,10 @@ details.side-section:hover>summary.side-title {
   background: var(--drop-scrim);
   color: var(--accent);
   border: 2px dashed var(--accent);
-  font-size: 1.2rem;
+  /* the headline step, stated in px like every other step: 1.2rem resolves to
+     the same 18px at the 15px root and reads as a sixteenth step to anything
+     that checks the ramp */
+  font-size: 18px;
   letter-spacing: 0.14em;
   pointer-events: none;
 }
@@ -4843,9 +4915,14 @@ body.note-open #toasts {
 }
 
 /* The one that changes the vault carries the one interactive colour. It drafts
-   the turn into the composer: nothing here writes anything by itself. */
+   the turn into the composer: nothing here writes anything by itself.
+   The border was rgba(53, 198, 232, .4), which is the accent this palette
+   REPLACED, frozen at 40% alpha: the last literal in the file still wearing the
+   crystal cyan, three planes away from the .wk-mini.go beside it that had
+   already been written as a color-mix on the token. Same expression, same
+   value, one source. */
 .mini.go {
-  border-color: rgba(53, 198, 232, 0.4);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   color: var(--accent);
 }
 
@@ -6320,9 +6397,41 @@ body.note-open #toasts {
   transition: border-color var(--dur) var(--ease);
 }
 
+/* The one control in the app that was still drawn by the operating system.
+   Everything else here is opted into by name, and then a native <select> put a
+   Linux chevron beside a macOS one beside a Windows one, on a surface whose
+   whole argument is that its corners and its hairlines are decided. So the
+   arrow comes off and the pane draws its own: a mask filled with currentColor
+   rather than a coloured SVG, which is what lets one asset serve graphite,
+   paper and :disabled without a second file or a second rule. It is drawn on
+   .st-ctl and not on the select, because a background on the select scrolls
+   with a long value on some engines and this must not move. */
 .st-ctl select {
   font-family: var(--sans);
   cursor: pointer;
+  appearance: none;
+  /* room for the chevron, so a long model id never sets under it */
+  padding-right: 1.6rem;
+}
+
+.st-ctl:has(> select) {
+  position: relative;
+}
+
+.st-ctl:has(> select)::after {
+  content: "";
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  width: 9px;
+  height: 6px;
+  translate: 0 -50%;
+  background: currentColor;
+  color: var(--ash);
+  mask: var(--chevron) center / contain no-repeat;
+  -webkit-mask: var(--chevron) center / contain no-repeat;
+  /* the field under it owns the click, including the 1.6rem it just reserved */
+  pointer-events: none;
 }
 
 .st-ctl input[type="text"]:focus,
@@ -7050,6 +7159,7 @@ body.note-open #work {
 .wk-call::before {
   width: 0;
   height: 0;
+  /* impeccable-disable-next-line side-tab -- a zero-box border triangle, not an accent rail: this IS the marker, see .wk-think and .wk-phase beside it */
   border-left: 5px solid var(--accent);
   border-top: 3.5px solid transparent;
   border-bottom: 3.5px solid transparent;
@@ -7511,7 +7621,11 @@ body.note-open #work {
     /* Opaque for the same reason the folded panel is: summoned, it stands over
        the transcript, and a file tree read through a message is neither. */
     background: var(--slate, var(--chrome-glass));
-    box-shadow: 18px 0 40px -22px rgba(0, 0, 0, 0.9);
+    /* --shadow-rgb, not a literal black: on paper the app casts a warm shadow
+       and a folded rail casting a grey one beside it is the tell that this
+       overlay was written before the second ground existed. Same geometry both
+       ways, only the channel changes. */
+    box-shadow: 18px 0 40px -22px rgb(var(--shadow-rgb) / 0.9);
   }
 
   body.rail-open #sidebar {
@@ -7532,7 +7646,8 @@ body.note-open #work {
        the app's own wash behind it, an overlay has the transcript, and reading
        a beat stream through the message it narrates is reading neither. */
     background: var(--slate, var(--chrome-glass));
-    box-shadow: -18px 0 40px -22px rgba(0, 0, 0, 0.9);
+    /* mirrored, and on the same channel as the rail's: see the note there */
+    box-shadow: -18px 0 40px -22px rgb(var(--shadow-rgb) / 0.9);
   }
 
   /* The same inset the note drawer takes, for the same reason it had to: an
@@ -7542,14 +7657,16 @@ body.note-open #work {
      560 and the fold stops being enough on its own -- that is the width where
      the deck's own floor says the shell needs a different answer. */
   body.work-fold #view-chat,
-  body.work-fold #view-metrics {
+  body.work-fold #view-metrics,
+  body.work-fold #view-calendar {
     padding-right: var(--work-w);
   }
 
   /* The drawer wins over the panel (body.note-open #work is display:none), so
      when both would claim the edge only the drawer's inset applies. */
   body.work-fold.note-open #view-chat,
-  body.work-fold.note-open #view-metrics {
+  body.work-fold.note-open #view-metrics,
+  body.work-fold.note-open #view-calendar {
     padding-right: var(--note-w, 630px);
   }
 
@@ -7614,6 +7731,14 @@ body.note-open #work {
    closed from the header toggle, which is in view. */
 #work-close {
   display: none;
+  /* it is display:flex once the drawer folds, so the pointer floor above needs
+     an axis to centre the glyph on, or the ✕ sits on the top edge of its box.
+     The floor is a height; this is the only entry on it narrower than it is
+     tall, a 9px glyph in 4.8px of padding, so it takes the floor on both axes
+     and comes out square. */
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
   padding: 0 0.3rem;
 }
 
