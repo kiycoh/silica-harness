@@ -420,6 +420,9 @@ def _fuse(
     mem_cooc_rank: list[tuple[str, float]] | None = None,
     recall_rank: list[tuple[str, float]] | None = None,
     lexical_rank: list[tuple[str, float]] | None = None,
+    structural_rank: list[tuple[str, float]] | None = None,
+    coupling_rank: list[tuple[str, float]] | None = None,
+    structural_boost: dict[str, float] | None = None,
 ) -> list[RelatedNote]:
     """RRF-fuse the per-leg rankings into RelatedNotes with provenance.
 
@@ -480,7 +483,32 @@ def _fuse(
         rankings.append(list(lexical_rank))
         lexical_scores = dict(lexical_rank)
 
+    # V1/V3 (spec 2026-08-22-graph-variables-design): two more abstaining
+    # legs. `structural_rank` is Adamic-Adar over the wikilink graph (notes
+    # two hops away through shared neighbours), `coupling_rank` the shared
+    # transactions (sources cited, runs written). Store keyspace, like every
+    # other leg; None abstains and fusion is bit-identical to before.
+    structural_scores: dict[str, float] = {}
+    if structural_rank is not None:
+        rankings.append(list(structural_rank))
+        structural_scores = dict(structural_rank)
+    coupling_scores: dict[str, float] = {}
+    if coupling_rank is not None:
+        rankings.append(list(coupling_rank))
+        coupling_scores = dict(coupling_rank)
+
     fused = _rrf_fuse(rankings)
+    # V1 as corroboration rather than generation: a candidate the other legs
+    # already surfaced is lifted by its Adamic-Adar score with the query
+    # (aa/(1+aa), in [0,1)); a candidate no leg surfaced is never introduced.
+    # A leg introduces its whole pool, and measured 2026-08-22 that pushed the
+    # true counterpart down on every one of 481 and 845 golden pairs.
+    if structural_boost:
+        for p in list(fused):
+            aa = structural_boost.get(p)
+            if aa:
+                fused[p] *= 1.0 + aa / (1.0 + aa)
+                structural_scores.setdefault(p, aa)
     # Vault-root artifacts (log.md, GRAPH_REPORT.md) are excluded at index-build,
     # but a stale vector embedded before that exclusion outlives it: the store is
     # upsert-only and never prunes departed notes. Drop them here, before the
@@ -510,6 +538,12 @@ def _fuse(
         lexical_weight = lexical_scores.get(path)
         if lexical_weight is not None:
             evidence.append(f"lex:{lexical_weight:.2f}")
+        structural_score = structural_scores.get(path)
+        if structural_score is not None:
+            evidence.append(f"struct:{structural_score:.2f}")
+        coupling_score = coupling_scores.get(path)
+        if coupling_score is not None:
+            evidence.append(f"coupled:{coupling_score:.2f}")
         origin = "vault"
         if path.startswith(_MEM):
             origin = "memory"
@@ -616,6 +650,31 @@ def neighbours_above(query_path: str, floor: float) -> list[str] | None:
     ]
 
 
+def _structural_ranking(
+    graph, query_path: str, *, k: int, exclude: set[str],
+) -> list[tuple[str, float]] | None:
+    """V1 leg: Adamic-Adar neighbours of `query_path` over the wikilink graph.
+
+    The graph carries driver node ids (with `.md`); the facade speaks store
+    keys. Bridged here, both ways, so the leg's output joins the other legs'
+    keyspace in `_fuse` — the same seam autolink/missing-links cross in the
+    report. None abstains: no graph, query not a node, or no two-hop candidate.
+    """
+    if graph is None:
+        return None
+    from silica.kernel.recall.signals import adamic_adar_ranking
+
+    key_of = {cooccur_key(n): n for n in graph.nodes}
+    gid = key_of.get(cooccur_key(query_path))
+    if gid is None:
+        return None
+    blocked_ids = {key_of[x] for x in exclude if x in key_of}
+    ranking = adamic_adar_ranking(graph, gid, k=k, exclude=blocked_ids)
+    if not ranking:
+        return None
+    return [(cooccur_key(n), s) for n, s in ranking]
+
+
 def related_notes(
     query_path: str,
     *,
@@ -627,6 +686,9 @@ def related_notes(
     scope: str | None = None,
     exclude: set[str] | None = None,
     expand: bool = False,
+    graph=None,
+    coupling_rank: list[tuple[str, float]] | None = None,
+    structural_mode: str = "boost",
 ) -> list[RelatedNote]:
     """Return the top-k notes related to an INDEXED note `query_path`.
 
@@ -644,6 +706,19 @@ def related_notes(
     concept profile. On a real vault this re-inflates hub concepts and buries
     true matches even under IDF weighting, so it stays opt-in for the one caller
     that wants pure associative reach (autolink candidate discovery).
+
+    `graph` (an nx.Graph over driver node ids, e.g. graph_export's cached
+    wikilink graph) switches on the structural signal (V1, Adamic-Adar) in
+    `structural_mode`: "boost" (default) lifts candidates the other legs
+    surfaced, "leg" adds the Adamic-Adar ranking as a fusion leg of its own.
+    `coupling_rank` is the coupling leg (V3) already ranked in store keyspace
+    (`VaultReport.coupling_map[key]`). Both default to abstaining.
+    Gate 2026-08-22 (evals/probe_graph_variables, ADR-0027): "leg" recovered
+    more masked links on a 1199-note vault (+5.7pp recall@10) but pushed every
+    golden eligible pair down (-18pp); "boost" kept +2.3/+6.3pp on masked
+    links and still lost 3.3/9.1pp on golden pairs; coupling as a leg lost
+    25pp. No production caller passes `graph` or `coupling_rank`; the probe
+    does, so the negative results stay reproducible.
     """
     # Normalize to the STORE keyspace before anything is excluded. CooccurStore
     # normalizes at its own boundary (note_nodes -> cooccur_key); EmbedStore does
@@ -686,6 +761,17 @@ def related_notes(
             key=lambda kv: (-kv[1], kv[0]),
         )
         edges_rank = ranked or None
+    structural_rank = None
+    structural_boost = None
+    if graph is not None:
+        ranked = _structural_ranking(graph, query_path, k=pool, exclude=blocked)
+        if structural_mode == "leg":
+            structural_rank = ranked
+        elif ranked:
+            structural_boost = dict(ranked)
+    coupling_leg = None
+    if coupling_rank:
+        coupling_leg = [(p, w) for p, w in coupling_rank if p not in blocked][:pool] or None
     return _fuse(
         embed_rank,
         cooc_rank,
@@ -693,6 +779,9 @@ def related_notes(
         edges_rank=edges_rank,
         mem_embed_rank=mem_embed_rank,
         mem_cooc_rank=mem_cooc_rank,
+        structural_rank=structural_rank,
+        coupling_rank=coupling_leg,
+        structural_boost=structural_boost,
     )
 
 

@@ -64,6 +64,7 @@ ALLOWED = {
     "onboarding/checks.py":         "metadata-only read via the public frozen_lang accessor (doctor language check), no store construction, not relatedness ranking",
     "kernel/report/graph_report/compute.py": "store-file stat only (_index_path, for the report memo's freshness key), no store construction, not relatedness ranking",
     "kernel/report/learner.py":     "concept-centrality read via CooccurStore.note_nodes/adjacency (unexplored-pool ranking), not relatedness ranking",
+    "kernel/report/structure.py":   "keyspace normalization (cooccur_key) plus paths/note_nodes/node_label for the burst window (V6), same reads as learner.py; constructs no ranking",
 }
 
 

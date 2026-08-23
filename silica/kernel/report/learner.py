@@ -201,6 +201,80 @@ def _measured_stems(entries: list[dict], lang: str) -> set[str]:
     return stems
 
 
+_prereq_memo: dict[str, tuple[str, dict[str, list[str]]]] = {}  # vault -> (epoch, map)
+
+
+def prerequisites_map() -> dict[str, list[str]]:
+    """{dependent: [prerequisites]} (V2, RefD), store keyspace.
+
+    Computes the store-derived variables alone rather than the whole
+    co-occurrence report: the AUTOLINK delta it would drag in costs ~5 s on a
+    700-note vault and the picker does not read it. Memoized on the vault
+    epoch so a quiz round pays the pass once per vault change. {} when the
+    graph or the index is unavailable: the queue then orders by gain alone.
+    """
+    try:
+        from silica.config import CONFIG
+        from silica.kernel.recall.paths import vault_epoch
+
+        vault = str(CONFIG.vault_path or "")
+        epoch = vault_epoch(vault) if vault else ""
+        hit = _prereq_memo.get(vault)
+        if epoch and hit is not None and hit[0] == epoch:
+            return hit[1]
+
+        from silica.kernel.recall.cooccurrence import get_cooccur_store
+        from silica.kernel.recall.graph_export import build_graph_data, edge_graph
+        from silica.kernel.report.graph_report.compute import _empty_report
+        from silica.kernel.report.graph_report.cooccur_delta import _compute_cooccur_variables
+
+        nodes, edges = build_graph_data()
+        G_dir = edge_graph(nodes, edges, directed=True)
+        store = get_cooccur_store(lang=CONFIG.cooccurrence_lang)
+        _prereqs, prereq_map, _sprawl, _burst = _compute_cooccur_variables(
+            _empty_report(), G_dir.to_undirected(), G_dir, cooccur_store=store, created=None,
+        )
+        if epoch:
+            _prereq_memo.clear()
+            _prereq_memo[vault] = (epoch, prereq_map)
+        return prereq_map
+    except Exception as exc:
+        logger.debug("learner: prerequisites unavailable (%s)", exc)
+        return {}
+
+
+def _topological(rows: list[dict], prereqs: dict[str, list[str]], order_key) -> list[dict]:
+    """Kahn's order over the prerequisite edges among `rows`, ties by `order_key`.
+
+    A note with an unknown or out-of-scope prerequisite is free (no edge). A
+    cycle (RefD is antisymmetric per pair but chains can close) leaves the
+    remaining rows in `order_key` order at the end, so the picker never stalls.
+    """
+    by_key = {key_of(r["path"]): r for r in rows}
+    indeg: dict[str, int] = {k: 0 for k in by_key}
+    dependents: dict[str, list[str]] = {k: [] for k in by_key}
+    for k in by_key:
+        for p in prereqs.get(k, ()):
+            pk = key_of(p)
+            if pk in by_key and pk != k:
+                indeg[k] += 1
+                dependents[pk].append(k)
+    out: list[dict] = []
+    ready = sorted((k for k, d in indeg.items() if d == 0), key=lambda k: order_key(by_key[k]))
+    while ready:
+        k = ready.pop(0)
+        out.append(by_key[k])
+        for d in dependents[k]:
+            indeg[d] -= 1
+            if indeg[d] == 0:
+                ready.append(d)
+        ready.sort(key=lambda k: order_key(by_key[k]))
+    if len(out) < len(rows):
+        done = {key_of(r["path"]) for r in out}
+        out += sorted((r for r in rows if key_of(r["path"]) not in done), key=order_key)
+    return out
+
+
 def review_queue(
     limit: int = 10,
     target: str = "",
@@ -208,6 +282,7 @@ def review_queue(
     _notes_override: dict | None = None,
     _entries_override: list | None = None,
     _store=None,
+    _prereqs_override: dict[str, list[str]] | None = None,
 ) -> list[dict]:
     """The picker: what to quiz next, or (with target=) an area's full state.
 
@@ -232,13 +307,27 @@ def review_queue(
     for r in rows.values():
         r["why"] = why(r)
 
+    # V2: a note is ready when every prerequisite the vault knows is itself
+    # known (R at or above the due line). Unknown prerequisites (not a note in
+    # this view) do not block: absence of evidence is not a blocker.
+    prereqs = _prereqs_override if _prereqs_override is not None else prerequisites_map()
+    prereq_paths = {key_of(k): list(v) for k, v in prereqs.items()}   # display form
+    prereq_keys = {k: [key_of(p) for p in v] for k, v in prereq_paths.items()}
+    for k, r in rows.items():
+        mine = prereq_keys.get(k, [])
+        r["prereqs"] = prereq_paths.get(k, [])
+        r["ready"] = all(
+            (rows[p]["R"] is not None and rows[p]["R"] >= DUE_R)
+            for p in mine if p in rows and p != k
+        )
+
     if target:
         t = target.casefold()
-        scoped = sorted(
-            (r for r in rows.values() if r["path"].casefold().startswith(t)),
-            key=lambda r: (r["R"] is not None, r["R"] if r["R"] is not None else 0.0),
-        )
-        return scoped
+        scoped = [r for r in rows.values() if r["path"].casefold().startswith(t)]
+        state_key = lambda r: (r["R"] is not None, r["R"] if r["R"] is not None else 0.0)
+        # Prerequisite order is the syllabus order /learn asks for; within a
+        # rank the old unknown-first order stands.
+        return _topological(scoped, prereq_keys, state_key)
 
     store = _store
     if store is None:
@@ -268,10 +357,14 @@ def review_queue(
             return 0.0
         return sum(adj_mass.get(s, 0.0) for s in nodes if s not in measured)
 
-    due = sorted((r for r in rows.values() if r["why"] == "due"), key=lambda r: r["R"])
+    # Blocked notes (a prerequisite not yet known) sink below ready ones in
+    # both pools: quizzing B before A is measured is the adaptive-testing
+    # mistake the learner model exists to avoid (spec D5).
+    due = sorted((r for r in rows.values() if r["why"] == "due"),
+                 key=lambda r: (not r["ready"], r["R"]))
     unexplored = sorted(
         (r for r in rows.values() if r["why"] == "unexplored"),
-        key=lambda r: (not r["ai"], -gain(r), r["path"]),
+        key=lambda r: (not r["ready"], not r["ai"], -gain(r), r["path"]),
     )
     n_due = min(len(due), max(1, limit // 2)) if due else 0
     picked = due[:n_due] + unexplored[: limit - n_due]

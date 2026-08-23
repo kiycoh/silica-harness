@@ -386,6 +386,9 @@ def silica_curate(
             {"kind": i.kind, "target": i.target, "partner": i.partner, "reason": i.reason}
             for i in plan.items
         ],
+        # Held back on purpose (load-bearing notes, V4): shown so a dry-run
+        # never reads as "nothing to refine" when something was vetoed.
+        "vetoed": [{"kind": i.kind, "target": i.target, "reason": i.reason} for i in plan.vetoed],
     }
     if ambiguous:
         result["ambiguous_targets"] = ambiguous

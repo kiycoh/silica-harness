@@ -69,6 +69,10 @@ class CurationItem:
 @dataclass
 class CurationPlan:
     items: list[CurationItem] = field(default_factory=list)
+    # Findings the composer deliberately does NOT enqueue, with the reason: a
+    # refine on a load-bearing note (V4). Kept on the plan rather than dropped
+    # so a dry-run can print what was held back; never applied.
+    vetoed: list[CurationItem] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.items)
@@ -130,7 +134,7 @@ class CurationPlan:
                     return False
             return True
 
-        return CurationPlan(items=[i for i in self.items if keep(i)])
+        return CurationPlan(items=[i for i in self.items if keep(i)], vetoed=list(self.vetoed))
 
     def ambiguous_targets(
         self,
@@ -190,6 +194,37 @@ def compose_curation_plan(report: VaultReport) -> CurationPlan:
                 reason="co-occurrence: " + ", ".join(cand.shared),
             ))
 
+    # 1b. Predicted (V1) and coupled (V3) pairs, only when a second, independent
+    #     evidence corroborates: the structural or transactional signal says
+    #     "near", the co-occurrence store says "about the same thing". One
+    #     signal alone stays a report row for a human.
+    seen_auto: set[tuple[str, str]] = {
+        (min(i.target, i.partner), max(i.target, i.partner)) for i in items
+    }
+    for sl in report.structural_links:
+        if _is_vault_artifact(sl.source) or _is_vault_artifact(sl.target) or not sl.shared:
+            continue
+        key = (min(sl.source, sl.target), max(sl.source, sl.target))
+        if key in seen_auto:
+            continue
+        seen_auto.add(key)
+        items.append(CurationItem(
+            kind="autolink", target=sl.source, partner=sl.target, score=sl.score,
+            reason="structural: via " + ", ".join(sl.common[:3])
+                   + "; co-occurrence: " + ", ".join(sl.shared),
+        ))
+    for cp in report.coupled_pairs:
+        if _is_vault_artifact(cp.source) or _is_vault_artifact(cp.target) or not cp.shared:
+            continue
+        key = (min(cp.source, cp.target), max(cp.source, cp.target))
+        if key in seen_auto:
+            continue
+        seen_auto.add(key)
+        items.append(CurationItem(
+            kind="autolink", target=cp.source, partner=cp.target, score=cp.score,
+            reason=f"coupling: w={cp.score}; co-occurrence: " + ", ".join(cp.shared),
+        ))
+
     # 2. Orphans (in-degree 0) → orphan-connector WorkItem.
     for orphan in report.orphans:
         if _is_vault_artifact(orphan):
@@ -223,16 +258,38 @@ def compose_curation_plan(report: VaultReport) -> CurationPlan:
 
     # 4. Oversized / lean notes → refine WorkItem. reformat_notes is the
     #    report's "Stylistic Refinement" bucket; lean_notes fold in per the spec
-    #    row "oversized / lean → refine".
-    seen_refine: set[str] = set()
-    for note in list(report.reformat_notes) + list(report.lean_notes):
-        if _is_vault_artifact(note) or note in seen_refine:
-            continue
-        seen_refine.add(note)
-        items.append(CurationItem(
-            kind="refine",
-            target=note,
-            reason="needs stylistic refinement",
-        ))
+    #    row "oversized / lean → refine". Misfiled (V5) and sprawling (V7) rows
+    #    deliberately do NOT feed this: judged 2026-08-22 on two vaults, the
+    #    misfiled list was filed right 13 of 14 times and the split candidates
+    #    were no more splittable than random notes (ADR-0027). They stay
+    #    report rows a person reads.
+    # Matched on the normalised path (the report mixes graph ids with `.md`
+    # and store keys without), emitted under the first id seen so a caller's
+    # own ids come back unchanged.
+    reasons: dict[str, list[str]] = {}
+    raw_of: dict[str, str] = {}
 
-    return CurationPlan(items=items)
+    def note_reason(raw: str, why: str) -> None:
+        norm = _norm_note_path(raw)
+        raw_of.setdefault(norm, raw)
+        reasons.setdefault(norm, []).append(why)
+
+    for note in list(report.reformat_notes) + list(report.lean_notes):
+        note_reason(note, "needs stylistic refinement")
+    # V4 veto: the refine worker rewrites a body and guarantees nothing about
+    # its wikilinks, and a cut vertex is the one note whose links hold areas
+    # together. Listed, not enqueued.
+    load_bearing = {_norm_note_path(a) for a in report.articulation}
+    vetoed: list[CurationItem] = []
+    for norm, why in reasons.items():
+        note = raw_of[norm]
+        if _is_vault_artifact(note):
+            continue
+        item = CurationItem(kind="refine", target=note, reason="; ".join(why))
+        if norm in load_bearing:
+            item.reason = "load-bearing (cut vertex): refine by hand; " + item.reason
+            vetoed.append(item)
+        else:
+            items.append(item)
+
+    return CurationPlan(items=items, vetoed=vetoed)
