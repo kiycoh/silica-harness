@@ -26,6 +26,16 @@ class TestDispatchSubcommand:
         monkeypatch.setattr(checks, "render_report", lambda results: None)
         assert _dispatch_subcommand(["doctor"]) == 1
 
+    def test_doctor_hold_returns_two(self, monkeypatch):
+        """Nothing failed, but a row needs reading: exit 2, so a script can
+        tell that from a clean run without parsing the table."""
+        import silica.onboarding.checks as checks
+        from silica.cli import _dispatch_subcommand
+        hold = checks.CheckResult("rerank", "warn", "unreachable")
+        monkeypatch.setattr(checks, "run_checks", lambda cfg: [hold])
+        monkeypatch.setattr(checks, "render_report", lambda results: None)
+        assert _dispatch_subcommand(["doctor"]) == 2
+
     def test_doctor_json_parses_and_mirrors_the_exit_code(self, monkeypatch, capsys):
         """stdout is the payload: nothing else may print on it."""
         import json
