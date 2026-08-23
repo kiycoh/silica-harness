@@ -68,11 +68,12 @@ class UndoJournalStore:
         self._conn().executescript(
             """
             CREATE TABLE IF NOT EXISTS runs (
-                run_id      TEXT PRIMARY KEY,
-                source      TEXT,
-                vault       TEXT,
-                started_at  REAL NOT NULL,
-                reverted_at REAL
+                run_id        TEXT PRIMARY KEY,
+                source        TEXT,
+                vault         TEXT,
+                started_at    REAL NOT NULL,
+                reverted_at   REAL,
+                ledger_run_id TEXT
             );
             CREATE TABLE IF NOT EXISTS inverses (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,17 +101,42 @@ class UndoJournalStore:
         inv_cols = {r["name"] for r in conn.execute("PRAGMA table_info(inverses)")}
         if "to_path" not in inv_cols:
             conn.execute("ALTER TABLE inverses ADD COLUMN to_path TEXT")
+        # Migration: pre-source-revert DBs lack `ledger_run_id`, the FSM's own
+        # run id that the provenance ledger keys on (ADR-0028). Legacy rows stay NULL, so
+        # /revert --source reports them as not in the journal instead of
+        # guessing a join by file name; /revert <run-id> still reaches them.
+        if "ledger_run_id" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN ledger_run_id TEXT")
         conn.commit()
 
-    def start_run(self, source: str | None = None, vault: str | None = None) -> str:
+    def start_run(self, source: str | None = None, vault: str | None = None,
+                  ledger_run_id: str | None = None) -> str:
         run_id = uuid.uuid4().hex
         conn = self._conn()
         conn.execute(
-            "INSERT INTO runs (run_id, source, vault, started_at) VALUES (?, ?, ?, ?)",
-            (run_id, source, vault, time.time()),
+            "INSERT INTO runs (run_id, source, vault, started_at, ledger_run_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (run_id, source, vault, time.time(), ledger_run_id),
         )
         conn.commit()
         return run_id
+
+    def runs_for_ledger(self, ledger_run_ids: list[str],
+                        vault: str | None = None) -> list[str]:
+        """Un-reverted journal runs opened under these ledger run ids, newest
+        first: a later run's inverses restore what an earlier one wrote, so
+        that is the only order in which replaying both is sound."""
+        ids = [i for i in ledger_run_ids if i]
+        if not ids:
+            return []
+        query = ("SELECT run_id FROM runs WHERE reverted_at IS NULL AND ledger_run_id IN (%s)"
+                 % ",".join("?" * len(ids)))
+        params: list[str] = list(ids)
+        if vault is not None:
+            query += " AND vault = ?"
+            params.append(vault)
+        query += " ORDER BY started_at DESC, rowid DESC"
+        return [r["run_id"] for r in self._conn().execute(query, params).fetchall()]
 
     def record(self, run_id: str, inverse: InverseOp, post_hash: str | None) -> None:
         conn = self._conn()
@@ -165,12 +191,13 @@ class UndoJournalStore:
         never tells the user WHAT they are about to revert.
         """
         row = self._conn().execute(
-            "SELECT source, vault, started_at FROM runs WHERE run_id = ?", (run_id,)
+            "SELECT source, vault, started_at, ledger_run_id FROM runs WHERE run_id = ?",
+            (run_id,),
         ).fetchone()
         if row is None:
             return None
         return {"source": row["source"], "vault": row["vault"],
-                "started_at": row["started_at"]}
+                "started_at": row["started_at"], "ledger_run_id": row["ledger_run_id"]}
 
     def refresh_post_hashes(self, run_id: str) -> int:
         """Re-hash every journalled path from the vault's CURRENT content.
@@ -229,24 +256,37 @@ def _content_hash(text: str | None) -> str:
     return _hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 
-def revert_run(run_id: str, *, store: UndoJournalStore | None = None) -> dict:
+def revert_run(run_id: str, *, store: UndoJournalStore | None = None,
+               only_paths: set[str] | None = None) -> dict:
     """Replay a run's inverses LIFO, refusing notes modified since the inject.
 
     Version guard: re-read each note, hash it. If recorded post_hash exists and
     the current hash differs (note edited since inject), skip it — don't clobber
     newer work. Mark the run reverted when done.
+
+    `only_paths` scopes the replay to those notes (any spelling; folded through
+    provenance.note_key): the rest are skipped as outside the scope and the run
+    stays open, since what was not replayed is still undoable. A run scoped to
+    its whole footprint closes as an unscoped one does.
     """
+    from silica.kernel.write.provenance import note_key
     from silica.tools.wrapped import silica_restore
 
     store = store or get_undo_journal()
     entries = store.inverses_for(run_id)  # LIFO
+    scope = {note_key(p) for p in only_paths} if only_paths is not None else None
     reverted: list[str] = []
     skipped: list[dict] = []
     stale: list[dict] = []
     errors: list[dict] = []
     applied_paths: set[str] = set()
+    out_of_scope = 0
 
     for inv, post_hash in entries:
+        if scope is not None and note_key(inv.path) not in scope:
+            skipped.append({"path": inv.path, "reason": "outside the requested scope"})
+            out_of_scope += 1
+            continue
         try:
             current = DRIVER.read_note(inv.path).content
             cur_hash: str | None = _content_hash(current)
@@ -300,6 +340,47 @@ def revert_run(run_id: str, *, store: UndoJournalStore | None = None) -> dict:
         except Exception as e:
             logger.debug("revert: survivor link sweep failed (non-fatal): %s", e)
 
-    store.mark_reverted(run_id)
+    if not out_of_scope:
+        store.mark_reverted(run_id)
     return {"run_id": run_id, "reverted": reverted, "skipped": skipped,
             "stale": stale, "errors": errors}
+
+
+def revert_source(source: str, *, vault: str | None,
+                  store: UndoJournalStore | None = None) -> dict:
+    """Undo every journalled run that derived notes from `source` (ADR-0028).
+
+    The join is the ledger's run id, which the journal records at start_run:
+    the ledger says which runs touched the source and which notes each of
+    them attributed to it, the journal holds the inverses and the guard.
+    Newest run first, each scoped to its own ledger notes, so a hub another
+    source also patched is left to the guard rather than rewound past the
+    other source's work. Ledger runs with no active journal row (legacy rows
+    from before the join, a pruned journal, a run already reverted by id) are
+    reported under `unrevertable` with their note count, never acted on: the
+    ledger knows the paths but not the inverses, and deleting on a guess is
+    the one thing a revert must never do.
+    """
+    from silica.kernel.write.provenance import read_records
+
+    store = store or get_undo_journal()
+    notes_by_ledger_run: dict[str, set[str]] = {}
+    for r in read_records(source, vault_path=vault):
+        rid = r.get("run_id")
+        if rid:
+            notes_by_ledger_run.setdefault(rid, set()).update(r.get("notes") or [])
+    if not notes_by_ledger_run:
+        return {"source": source, "runs": [], "unrevertable": []}
+
+    runs: list[dict] = []
+    covered: set[str] = set()
+    for run_id in store.runs_for_ledger(list(notes_by_ledger_run), vault=vault):
+        ledger_id = (store.run_info(run_id) or {}).get("ledger_run_id") or ""
+        res = revert_run(run_id, store=store,
+                         only_paths=notes_by_ledger_run.get(ledger_id, set()))
+        res["ledger_run_id"] = ledger_id
+        runs.append(res)
+        covered.add(ledger_id)
+    unrevertable = [{"run_id": rid, "notes": len(notes)}
+                    for rid, notes in notes_by_ledger_run.items() if rid not in covered]
+    return {"source": source, "runs": runs, "unrevertable": unrevertable}

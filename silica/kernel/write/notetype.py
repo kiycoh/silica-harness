@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from silica.kernel.write import frontmatter
 
@@ -115,12 +116,25 @@ class Violation:
     detail: str
 
 
-def okf_conformance(vault: Path | str) -> list[Violation]:
-    """Census a vault against OKF §11. Empty list ⇒ the vault IS a bundle.
+class Census(NamedTuple):
+    """One §11 walk: how many notes it reached, and which of them fail a clause.
+
+    The count is the proof the walk reached the notes at all; doctor reads a
+    zero as unknown, never as a conformant bundle.
+    """
+    scanned: int
+    violations: list[Violation]
+
+
+def okf_conformance(vault: Path | str) -> Census:
+    """Census a vault against OKF §11. No violations ⇒ the vault IS a bundle.
 
     Walks the filesystem rather than DRIVER: doctor is routinely handed a
     vault that is not the active one (the init wizard does exactly that),
     and the DRIVER global is bound to the active vault only.
+
+    A path that is not a directory raises instead of reading as an empty,
+    conformant bundle: a zero-file scan is an invocation error, never a pass.
     """
     from silica.kernel.recall.paths import ignore_matcher
 
@@ -129,7 +143,7 @@ def okf_conformance(vault: Path | str) -> list[Violation]:
 
     vault = Path(vault)
     if not vault.is_dir():
-        return []
+        raise NotADirectoryError(f"{vault} is not a vault directory")
     ignored = ignore_matcher(vault)
     # Silica's own journal is not a note. §11.3's advice for it reads "rename
     # any `index`/`log` note by hand" — which the user cannot do, because the
@@ -140,6 +154,7 @@ def okf_conformance(vault: Path | str) -> list[Violation]:
     except Exception:
         journal = DEFAULT_LOG_FILENAME
     out: list[Violation] = []
+    scanned = 0
     for f in sorted(vault.rglob("*.md")):
         parts = f.relative_to(vault).parts
         if any(p.startswith(".") for p in parts):
@@ -149,6 +164,7 @@ def okf_conformance(vault: Path | str) -> list[Violation]:
         rel = f.relative_to(vault).as_posix()
         if rel == journal:
             continue
+        scanned += 1
         if f.stem.lower() in RESERVED_NAMES:
             out.append(Violation(rel, "11.3", f"reserved note name `{f.stem}` — rename by hand"))
         try:
@@ -164,4 +180,4 @@ def okf_conformance(vault: Path | str) -> list[Violation]:
             out.append(Violation(rel, "11.1", "frontmatter is not parseable YAML"))
         elif not str(data.get("type") or "").strip():
             out.append(Violation(rel, "11.2", "missing `type`"))
-    return out
+    return Census(scanned, out)

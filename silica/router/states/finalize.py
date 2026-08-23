@@ -263,6 +263,11 @@ def _log_nucleate_completion(fsm: "InjectorFSM", fi: int, source_file: str) -> N
                 # nucleation-forms spec: the declared residue is part of the
                 # run report, so a dropped fact is never invisible.
                 entry["residue"] = len(declared)
+            prior = (ctx.get("renucleated") or {}).get(basename)
+            if prior:
+                # The source was nucleated before at another version: the
+                # report says how many notes of that version stay beside these.
+                entry["renucleated_prior_notes"] = prior
             ctx.setdefault("files_summary", []).append(entry)
 
         event = format_nucleate_event(basename, new_count, patch_count, deferred_count)

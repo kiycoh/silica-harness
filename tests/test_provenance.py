@@ -8,6 +8,7 @@ records" everywhere.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,7 @@ def test_append_record_writes_exact_shape(tmp_path):
         "lezione-03.md", "sha-v1", "run-abc123", ["Concepts/A", "Concepts/B"],
         vault_path=str(tmp_path), date="2026-07-02",
     )
-    assert ok is True
+    assert ok == "present"
 
     raw = json.loads((tmp_path / DEFAULT_PROVENANCE_FILENAME).read_text(encoding="utf-8"))
     assert raw == [{
@@ -80,13 +81,21 @@ def test_read_records_corrupt_file_returns_empty(tmp_path):
     assert read_records(vault_path=str(tmp_path)) == []
 
 
-def test_append_record_no_vault_path_returns_false(monkeypatch):
+def test_append_record_no_vault_path_is_absent(monkeypatch):
     import silica.config as config_mod
     monkeypatch.setattr(config_mod.CONFIG, "vault_path", "")
-    assert append_record("a.md", "sha1", "r1", ["N1"]) is False
+    assert append_record("a.md", "sha1", "r1", ["N1"]) == "absent"
 
 
-def test_append_record_survives_unwritable_store(tmp_path, monkeypatch):
+def test_append_record_resume_refire_is_present(tmp_path):
+    """The second CLEANUP of a resumed run changes nothing on disk, but the
+    record IS there: the caller asked whether its record is durable, not
+    whether this call wrote bytes."""
+    append_record("a.md", "sha1", "run1", ["N1"], vault_path=str(tmp_path))
+    assert append_record("a.md", "sha1", "run1", ["N1"], vault_path=str(tmp_path)) == "present"
+
+
+def test_append_record_survives_unwritable_store(tmp_path, monkeypatch, caplog):
     """Best-effort: an I/O failure on write must not raise."""
     import silica.kernel.recall.paths as paths_mod
 
@@ -94,8 +103,44 @@ def test_append_record_survives_unwritable_store(tmp_path, monkeypatch):
         raise OSError("disk full")
 
     monkeypatch.setattr(paths_mod, "atomic_write_bytes", _boom)
-    ok = append_record("a.md", "sha1", "r1", ["N1"], vault_path=str(tmp_path))
-    assert ok is False
+    with caplog.at_level(logging.WARNING, logger="silica.kernel.write.provenance"):
+        out = append_record("a.md", "sha1", "r1", ["N1"], vault_path=str(tmp_path))
+    # Nothing reached the disk, and the ledger says so: a proven absence, and
+    # a warning that names what the absence costs (the next nucleate of this
+    # source re-appends into the notes it already wrote).
+    assert out == "absent"
+    assert "re-ingest" in caplog.text
+
+
+def test_append_record_is_present_when_the_error_came_after_the_replace(tmp_path, monkeypatch):
+    """atomic_write_bytes can raise after os.replace landed: the record IS on
+    disk, and calling it absent would double-append on the next nucleate."""
+    import silica.kernel.recall.paths as paths_mod
+
+    real = paths_mod.atomic_write_bytes
+
+    def _late(path, data):
+        real(path, data)
+        raise OSError("late failure")
+
+    monkeypatch.setattr(paths_mod, "atomic_write_bytes", _late)
+    assert append_record("a.md", "sha1", "r1", ["N1"], vault_path=str(tmp_path)) == "present"
+
+
+def test_append_record_is_uncertain_when_the_store_cannot_be_read_back(tmp_path, monkeypatch, caplog):
+    """Garbage on disk after a failed write is neither presence nor absence,
+    and the ledger must not turn unreadable evidence into a proven absence."""
+    import silica.kernel.recall.paths as paths_mod
+
+    def _torn(path, data):
+        Path(path).write_bytes(data[: len(data) // 2])
+        raise OSError("torn")
+
+    monkeypatch.setattr(paths_mod, "atomic_write_bytes", _torn)
+    with caplog.at_level(logging.WARNING, logger="silica.kernel.write.provenance"):
+        out = append_record("a.md", "sha1", "r1", ["N1"], vault_path=str(tmp_path))
+    assert out == "uncertain"
+    assert "re-ingest" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +324,7 @@ def test_append_is_atomic_a_failed_write_keeps_the_prior_ledger(tmp_path, monkey
     before = store.read_bytes()
 
     monkeypatch.setattr(os, "fsync", lambda fd: (_ for _ in ()).throw(OSError("disk full")))
-    assert append_record("b.md", "sha2", "r2", ["N2"], vault_path=str(tmp_path)) is False
+    assert append_record("b.md", "sha2", "r2", ["N2"], vault_path=str(tmp_path)) == "absent"
 
     assert store.read_bytes() == before
     assert list(tmp_path.iterdir()) == [store]  # no tmp leftovers
@@ -355,7 +400,7 @@ def test_a_failed_merge_write_leaves_nothing_in_the_memo(tmp_path, monkeypatch):
     read_records(vault_path=str(tmp_path))            # warm the memo
 
     monkeypatch.setattr(os, "fsync", lambda fd: (_ for _ in ()).throw(OSError("disk full")))
-    assert append_record("a.md", "sha1", "r1", ["N2"], vault_path=str(tmp_path)) is False
+    assert append_record("a.md", "sha1", "r1", ["N2"], vault_path=str(tmp_path)) == "absent"
     monkeypatch.undo()
 
     assert read_records(vault_path=str(tmp_path))[0]["notes"] == ["N1"]
@@ -367,7 +412,7 @@ def test_a_successful_merge_still_unions_the_notes(tmp_path):
     """The sub-agent lane commits several times under one triple; the later
     commits must not lose their notes."""
     append_record("a.md", "sha1", "r1", ["N1"], vault_path=str(tmp_path))
-    assert append_record("a.md", "sha1", "r1", ["N2"], vault_path=str(tmp_path)) is True
+    assert append_record("a.md", "sha1", "r1", ["N2"], vault_path=str(tmp_path)) == "present"
 
     recs = read_records(vault_path=str(tmp_path))
     assert len(recs) == 1 and recs[0]["notes"] == ["N1", "N2"]
@@ -435,3 +480,90 @@ def test_a_fabricated_line_is_still_rejected():
     from silica.kernel.write.provenance import nonextractive_lines
 
     assert nonextractive_lines("A slow green turtle ambles past the alert cat.", _SRC)
+
+
+# ---------------------------------------------------------------------------
+# rename_note — the ledger follows a moved note
+# ---------------------------------------------------------------------------
+
+def test_rename_note_follows_the_moved_note(tmp_path):
+    """The ledger keys notes by bare path: after a move the old key answered
+    nothing, so a re-ingest re-appended into the note it had already written."""
+    from silica.kernel.write.provenance import note_authored_by, rename_note
+
+    append_record("a.md", "sha1", "r1", ["Concepts/A", "Concepts/B"], vault_path=str(tmp_path))
+
+    out = rename_note("Concepts/A.md", "Archive/A.md", vault_path=str(tmp_path))
+
+    assert out == "present"
+    assert note_authored_by("Archive/A.md", "a.md", vault_path=str(tmp_path))
+    assert not note_authored_by("Concepts/A.md", "a.md", vault_path=str(tmp_path))
+    # the sibling entry is untouched
+    assert note_authored_by("Concepts/B.md", "a.md", vault_path=str(tmp_path))
+
+
+def test_rename_note_rewrites_every_record_naming_the_note(tmp_path):
+    from silica.kernel.write.provenance import rename_note
+
+    append_record("a.md", "sha1", "r1", ["Concepts/A"], vault_path=str(tmp_path))
+    append_record("b.md", "sha9", "r2", ["Concepts/A", "Concepts/C"], vault_path=str(tmp_path))
+
+    rename_note("Concepts/A.md", "Concepts/A2.md", vault_path=str(tmp_path))
+
+    notes = [r["notes"] for r in read_records(vault_path=str(tmp_path))]
+    assert notes == [["Concepts/A2"], ["Concepts/A2", "Concepts/C"]]
+
+
+def test_rename_note_with_nothing_to_rename_writes_nothing(tmp_path):
+    from silica.kernel.write.provenance import rename_note
+
+    append_record("a.md", "sha1", "r1", ["Concepts/A"], vault_path=str(tmp_path))
+    store = tmp_path / DEFAULT_PROVENANCE_FILENAME
+    before = store.stat().st_mtime_ns
+
+    assert rename_note("Other/X.md", "Other/Y.md", vault_path=str(tmp_path)) == "present"
+    assert store.stat().st_mtime_ns == before
+
+
+def test_rename_note_failure_is_absent_and_named(tmp_path, monkeypatch, caplog):
+    from silica.kernel.write.provenance import note_authored_by, rename_note
+    import silica.kernel.recall.paths as paths_mod
+
+    append_record("a.md", "sha1", "r1", ["Concepts/A"], vault_path=str(tmp_path))
+
+    def _boom(*a, **k):
+        raise OSError("read-only vault")
+
+    monkeypatch.setattr(paths_mod, "atomic_write_bytes", _boom)
+    with caplog.at_level(logging.WARNING, logger="silica.kernel.write.provenance"):
+        out = rename_note("Concepts/A.md", "Archive/A.md", vault_path=str(tmp_path))
+
+    assert out == "absent"
+    assert "re-ingest" in caplog.text
+    assert note_authored_by("Concepts/A.md", "a.md", vault_path=str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# sources_of / drift_map — the ledger read from the note's side
+# ---------------------------------------------------------------------------
+
+def test_sources_of_lists_every_source_that_authored_the_note(tmp_path):
+    from silica.kernel.write.provenance import sources_of
+
+    append_record("a.md", "sha1", "r1", ["Concepts/X"], vault_path=str(tmp_path))
+    append_record("b.md", "sha2", "r2", ["Concepts/X", "Concepts/Y"], vault_path=str(tmp_path))
+    append_record("a.md", "sha3", "r3", ["Concepts/X"], vault_path=str(tmp_path))
+
+    assert sources_of("Concepts/X.md", vault_path=str(tmp_path)) == ["a.md", "b.md"]
+    assert sources_of("Concepts/Y", vault_path=str(tmp_path)) == ["b.md"]
+    assert sources_of("Concepts/Nope", vault_path=str(tmp_path)) == []
+
+
+def test_drift_map_keys_notes_the_way_the_stale_peek_does(tmp_path):
+    """`.md`-suffixed keys, so codedocs.peek_level reads both maps alike."""
+    from silica.kernel.write.provenance import drift_map
+
+    append_record("lec.md", "sha-v1", "r1", ["Concepts/A", "Concepts/B"], vault_path=str(tmp_path))
+    append_record("lec.md", "sha-v2", "r2", ["Concepts/A"], vault_path=str(tmp_path))
+
+    assert drift_map(vault_path=str(tmp_path)) == {"Concepts/B.md": "lec.md"}

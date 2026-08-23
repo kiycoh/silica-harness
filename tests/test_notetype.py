@@ -7,6 +7,8 @@ cannot parse; and the walker reports each §11 clause on the note that breaks it
 """
 from __future__ import annotations
 
+import pytest
+
 from silica.kernel.write.notetype import (
     derive_type,
     is_human_verified,
@@ -118,7 +120,7 @@ def _write(vault, rel, content):
 def test_clean_vault_has_no_violations(tmp_path):
     _write(tmp_path, "notes/a.md", "---\ntype: Note\n---\n\nB\n")
     _write(tmp_path, "sources/leaf.md", "---\ntype: Source\nsource_id: leaf.md\n---\n\nB\n")
-    assert okf_conformance(tmp_path) == []
+    assert okf_conformance(tmp_path).violations == []
 
 
 def test_walker_reports_each_clause(tmp_path):
@@ -127,7 +129,7 @@ def test_walker_reports_each_clause(tmp_path):
     _write(tmp_path, "notes/untyped.md", PLAIN)
     _write(tmp_path, "index.md", "---\ntype: Note\n---\n\nB\n")
 
-    by_path = {v.path: v for v in okf_conformance(tmp_path)}
+    by_path = {v.path: v for v in okf_conformance(tmp_path).violations}
     assert by_path["notes/no_fm.md"].clause == "11.1"
     assert by_path["notes/broken.md"].clause == "11.1"
     assert by_path["notes/untyped.md"].clause == "11.2"
@@ -137,11 +139,14 @@ def test_walker_reports_each_clause(tmp_path):
 def test_walker_skips_dot_dirs(tmp_path):
     _write(tmp_path, ".obsidian/plugins/x.md", "# no frontmatter\n")
     _write(tmp_path, ".trash/old.md", "# no frontmatter\n")
-    assert okf_conformance(tmp_path) == []
+    assert okf_conformance(tmp_path).violations == []
 
 
-def test_walker_on_a_missing_vault_is_empty(tmp_path):
-    assert okf_conformance(tmp_path / "nope") == []
+def test_walker_refuses_a_missing_vault(tmp_path):
+    """An empty result over a path that is not there read as a conformant
+    bundle: a zero-file scan is an invocation error, never a pass."""
+    with pytest.raises(NotADirectoryError):
+        okf_conformance(tmp_path / "nope")
 
 
 def test_backfill_makes_a_legacy_vault_conformant(tmp_path):
@@ -152,7 +157,7 @@ def test_backfill_makes_a_legacy_vault_conformant(tmp_path):
     _write(tmp_path, "notes/a.md", PLAIN)
     _write(tmp_path, "plans/b.md", "---\nstatus: todo\n---\n\nB\n")
     _write(tmp_path, "sources/leaf.md", "---\nsource_id: leaf.md\n---\n\nB\n")
-    assert len(okf_conformance(tmp_path)) == 3
+    assert len(okf_conformance(tmp_path).violations) == 3
 
     script = Path(__file__).resolve().parent.parent / "scripts" / "backfill_notetype.py"
     spec = importlib.util.spec_from_file_location("backfill_notetype", script)
@@ -161,7 +166,7 @@ def test_backfill_makes_a_legacy_vault_conformant(tmp_path):
 
     counts = mod.backfill(tmp_path)
     assert counts["stamped"] == 3
-    assert okf_conformance(tmp_path) == []
+    assert okf_conformance(tmp_path).violations == []
     assert mod.backfill(tmp_path)["stamped"] == 0   # second pass is a no-op
 
 
@@ -172,11 +177,11 @@ def test_silicas_own_journal_is_not_a_violation(tmp_path):
     _write(tmp_path, "vault.yaml", "write_dir: silica\n")
     _write(tmp_path, "silica/log.md", "- 2026-08-16 · nucleate `a.md` · run abc\n")
 
-    assert okf_conformance(tmp_path) == []
+    assert okf_conformance(tmp_path).violations == []
 
 
 def test_a_users_own_log_note_is_still_a_violation(tmp_path):
     _write(tmp_path, "vault.yaml", "write_dir: silica\n")
     _write(tmp_path, "Journal/log.md", "---\ntype: Note\n---\n\nB\n")
 
-    assert [v.clause for v in okf_conformance(tmp_path)] == ["11.3"]
+    assert [v.clause for v in okf_conformance(tmp_path).violations] == ["11.3"]

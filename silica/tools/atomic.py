@@ -71,16 +71,48 @@ def silica_search(query: str) -> dict:
     # Stale flags (spec-stale-triggers §3): read-only peek, so a search never
     # pays the git walk; at worst the first search after a commit has no flags.
     try:
-        from silica.config import CONFIG
         from silica.kernel.code import codedocs
 
-        m = codedocs.peek(CONFIG.vault_path)
+        m = _stale_map()
         flagged = {p: lvl for p in out["paths"]
                    if (lvl := codedocs.peek_level(m, p))}
         if flagged:
             out["stale"] = flagged
     except Exception:
         pass  # flags are an aid, never a reason a search fails
+    return out
+
+
+# The third stale level, beside codedocs' "cosmetic" and "structural": the
+# note was distilled from a source version that has since been re-nucleated.
+_STALE_SOURCE = "source"
+
+
+def _stale_map() -> dict[str, str]:
+    """`note_path.md -> level` for every note a reader should doubt.
+
+    Two ledgers, one flag. codedocs.peek answers for code notes after a commit;
+    the provenance drift map answers for notes whose source was re-nucleated
+    at another version. The code level wins when a note carries both: it is
+    the more specific claim. Each leg is guarded on its own, so a ledger that
+    cannot be read costs its flags and nothing else.
+    """
+    from silica.config import CONFIG
+
+    out: dict[str, str] = {}
+    try:
+        from silica.kernel.write import provenance
+
+        out.update({p: _STALE_SOURCE
+                    for p in provenance.drift_map(vault_path=CONFIG.vault_path)})
+    except Exception:
+        pass  # flags are an aid, never a reason a search fails
+    try:
+        from silica.kernel.code import codedocs
+
+        out.update(codedocs.peek(CONFIG.vault_path))
+    except Exception:
+        pass
     return out
 
 
@@ -132,10 +164,9 @@ def silica_search_context(query: str) -> dict:
     # this try/except guards the imports and honors the soft-failure rule (§5)
     # regardless.
     try:
-        from silica.config import CONFIG
         from silica.kernel.code import codedocs
 
-        stale_map = codedocs.peek(CONFIG.vault_path)
+        stale_map = _stale_map()
     except Exception:
         stale_map = {}
         codedocs = None  # type: ignore[assignment]  # peek import failed: no flags this call
@@ -167,31 +198,51 @@ class ReadNoteArgs(BaseModel):
 def silica_read_note(name: str) -> str:
     """Reads the complete content of a note in the vault by name (wikilink-style resolution). DO NOT use paths."""
     nc = DRIVER.read_note(name)
-    return _with_stale_banner(nc.content)
+    return _with_stale_banner(nc.content, path=nc.ref.path or "")
 
 
-def _with_stale_banner(content: str) -> str:
-    """Prefix a code-doc note with its staleness warning, when it has one.
+def _with_stale_banner(content: str, path: str = "") -> str:
+    """Prefix a note with its staleness warnings, when it has any.
 
     A wiki note derived from source outlives the source: after a refactor it
-    still reads as authoritative while naming files that have moved. The
-    `code_ref`/`documents:` frontmatter always carried the answer, but only the
-    `/stale` report ever asked — so the reader, the one acting on the note, was
-    the one kept in the dark. Parsed from the content already in hand: no extra
-    driver round-trip, and notes without `documents:` cost one dict lookup.
+    still reads as authoritative while naming files that have moved, and a
+    note distilled from a lecture outlives the lecture's next version the same
+    way. The `code_ref`/`documents:` frontmatter and the provenance ledger
+    always carried the answer, but only the `/stale` report and the graph
+    report ever asked — so the reader, the one acting on the note, was the one
+    kept in the dark. The code banner is parsed from the content in hand; the
+    drift banner is one ledger lookup keyed by `path`.
     """
+    banners: list[str] = []
     try:
         from silica.config import CONFIG
         from silica.kernel.code import codedocs
         from silica.kernel.write import frontmatter
 
         data, _, _ = frontmatter.split(content)
-        if not data or not codedocs.documents_of(data):
-            return content
-        warning = codedocs.read_warning(CONFIG.vault_path, data)
-        return f"> {warning}\n\n{content}" if warning else content
+        if data and codedocs.documents_of(data):
+            warning = codedocs.read_warning(CONFIG.vault_path, data)
+            if warning:
+                banners.append(warning)
     except Exception:
+        pass  # a banner is an aid, never a reason a read fails
+    try:
+        if path:
+            from silica.config import CONFIG
+            from silica.kernel.code import codedocs
+            from silica.kernel.write import provenance
+
+            source = codedocs.peek_level(
+                provenance.drift_map(vault_path=CONFIG.vault_path), path)
+            if source:
+                banners.append(
+                    f"[stale] source {source} was re-nucleated after this note was "
+                    f"written: it derives from the previous version")
+    except Exception:
+        pass
+    if not banners:
         return content
+    return "".join(f"> {b}\n\n" for b in banners) + content
 
 
 class PropsArgs(BaseModel):
@@ -616,7 +667,10 @@ def silica_graph_explain(note: str, depth: int = 1) -> dict:
     from silica.kernel.report.graph_report import compute_report
 
     try:
-        report = compute_report(analytics=True)  # on-demand: needs god_nodes/bridges
+        # with_cooccurrence: the prerequisite direction (V2) is store-derived,
+        # and "what to read first" is the question this tool answers best.
+        # Memoized per vault epoch, like the analytics pass it rides on.
+        report = compute_report(analytics=True, with_cooccurrence=True)
     except Exception as exc:
         return {"error": f"Failed to compute graph report: {exc}"}
 
@@ -690,6 +744,7 @@ def silica_graph_explain(note: str, depth: int = 1) -> dict:
     # The co-occurrence signals (integration deficit, stale links) need
     # with_cooccurrence, which this tool does not pay for; they read `null` here.
     # Flip the compute_report call above if the diagnosis ever needs them.
+    store_key = resolved_id.removesuffix(".md")  # prereq_map is store-keyed (no .md)
     cluster_stat = next((c for c in report.clusters if c.cluster_id == cluster_id), None)
     contested_note = next((c for c in report.contested if c.path == resolved_id), None)
     attention = next((a for a in report.attention_candidates if a.path == resolved_id), None)
@@ -719,6 +774,13 @@ def silica_graph_explain(note: str, depth: int = 1) -> dict:
         "days_idle": (attention.days_idle if attention else None),
         "integration_deficit": (deficit.score if deficit else None),
         "stale_links": stale,
+        # Seven variables (spec 2026-08-22): structural role and reading order.
+        "coreness": report.core_map.get(resolved_id),
+        "is_articulation": resolved_id in report.articulation,
+        "surprise": next((lb.surprise for lb in report.load_bearing if lb.path == resolved_id), None),
+        "dissonance": report.dissonance_map.get(resolved_id),
+        "prerequisites": list(report.prereq_map.get(store_key, [])),
+        "unlocks": sorted(d for d, ps in report.prereq_map.items() if store_key in ps),
     }
 
     return {
@@ -926,6 +988,9 @@ def silica_review_queue(limit: int = 10, target: str = "") -> list:
             "R": None if r["R"] is None else round(r["R"], 3),
             "why": r["why"], "misses": r["misses"], "attempts": r["attempts"],
             "ai": r["ai"],
+            # V2: what to read first, and whether those are known yet. Target
+            # mode already returns rows in prerequisite order.
+            "prereqs": r.get("prereqs", []), "ready": r.get("ready", True),
         }
         for r in rows
     ]

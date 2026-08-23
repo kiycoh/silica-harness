@@ -212,6 +212,13 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
         p.replace("\\", "/") for p in internal_notes if _in_scope(p.replace("\\", "/"))
     }
 
+    # Provenance is a third grouping of the graph, disjoint from both Louvain
+    # partitions (ADR-0023 names two; this is neither): read off the ledger,
+    # never computed from topology. One inversion for the whole payload.
+    from silica.kernel.write.provenance import note_key, sources_by_note
+
+    by_note = sources_by_note()
+
     nodes: list[dict] = []
     for raw_path, ref in internal_notes.items():
         path = raw_path.replace("\\", "/")
@@ -219,7 +226,7 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
             continue
         if is_vault_artifact(path):   # keep Silica's own log.md/GRAPH_REPORT.md out of the graph
             continue
-        nodes.append({
+        node = {
             "id":    path,
             "label": ref.name,
             "title": path,
@@ -229,7 +236,11 @@ def build_graph_data(folder: str = "") -> tuple[list[dict], list[dict]]:
             "path":  path,
             "font":  {"color": "#EBEFF8", "size": 13},
             "size":  16,
-        })
+        }
+        sources = by_note.get(note_key(path))
+        if sources:
+            node["sources"] = list(sources)
+        nodes.append(node)
 
     node_ids: set[str] = {n["id"] for n in nodes}
 
@@ -391,15 +402,26 @@ def edge_graph(
     different starting order lands on a different local optimum. Feeding it a set
     made the order hash-dependent, hence per-process, and E(vault) drifted on an
     unchanged vault (cohesion moved in the third decimal, cluster sizes by ~5%).
+
+    EDGES go in sorted for the same reason, one layer down. Sorting the nodes
+    only fixed where Louvain STARTS; each local move then scans `G[u]`, whose
+    order is edge insertion order, and `build_graph_data` hands back a list whose
+    order varies per process. Measured 2026-08-22 on a 709-note vault: three runs
+    of an unchanged vault gave 24, 24 and 23 areas and a largest community of 74,
+    74 and 96. With both sorted the three runs agree exactly. Anything that
+    persists a partition depends on this -- cluster_id in clusters_ctx.json, the
+    colour a community gets, E(vault), and the report history's `areas` delta,
+    which otherwise reports movement that never happened.
     """
     import networkx as nx
 
     real = {n["id"] for n in nodes if n.get("type") != "ghost"}
     G = nx.DiGraph() if directed else nx.Graph()
     G.add_nodes_from(sorted(real))
-    for e in edges:
-        if e.get("type") == edge_type and e.get("from") in real and e.get("to") in real:
-            G.add_edge(e["from"], e["to"])
+    G.add_edges_from(sorted(
+        (e["from"], e["to"]) for e in edges
+        if e.get("type") == edge_type and e.get("from") in real and e.get("to") in real
+    ))
     return G
 
 
@@ -665,6 +687,39 @@ def detect_semantic_partition(nodes: list[dict], edges: list[dict]) -> list[Zone
     ]
 
 
+def shared_concepts(pairs, *, k: int = 3) -> dict[tuple[str, str], list[str]]:
+    """{(a, b): shared concept labels} for graph-id pairs, best-effort.
+
+    Lives beside community_labels for the same reason that does: reading the
+    co-occurrence store for a LABEL is not a relatedness query, and the graph
+    surfaces need one place that knows how to ask. A pair with no shared
+    concept is absent from the result, which is what makes the caller's
+    "corroborated only" filter a filter and not a preference.
+
+    Empty when there is no index: an uncorroborated proposal is exactly what
+    the gates refuted (docs/adr/0027), so no index means no proposals rather
+    than proposals nobody checked.
+    """
+    from silica.kernel.recall.cooccurrence import cooccur_key, get_cooccur_store
+
+    try:
+        store = get_cooccur_store()
+        if len(store) == 0:
+            return {}
+    except Exception as exc:
+        logger.debug("graph_export: shared concepts need the co-occurrence index (%s)", exc)
+        return {}
+    out: dict[tuple[str, str], list[str]] = {}
+    for a, b in pairs:
+        try:
+            common = set(store.note_nodes(cooccur_key(a))) & set(store.note_nodes(cooccur_key(b)))
+        except Exception:
+            continue
+        if common:
+            out[(a, b)] = sorted(store.node_label(x) for x in common)[:k]
+    return out
+
+
 def structural_gaps(
     nodes: list[dict], edges: list[dict], top_k: int = 10, min_size: int = 2
 ) -> list[tuple[int, int, str, str, int, float, float]]:
@@ -848,6 +903,29 @@ _distance_graph_memo: dict[tuple[str, str], Any] = {}
 _DISTANCE_MEMO_CAP = 8
 
 
+def wikilink_graph_cached(folder: str = ""):
+    """The undirected resolved-wikilink nx.Graph, memoized on the vault epoch.
+
+    Shared by graph_distances (BFS) and the structural relatedness leg (V1):
+    both read the graph and never mutate it. See graph_distances for the
+    memo's bound and eviction.
+    """
+    from silica.kernel.recall.paths import vault_epoch
+
+    epoch = vault_epoch()
+    G = _distance_graph_memo.get((epoch, folder)) if epoch else None
+    if G is None:
+        nodes, edges = build_graph_data(folder=folder)
+        G = edge_graph(nodes, edges)
+        if epoch:
+            for k in [k for k in _distance_graph_memo if k[0] != epoch]:
+                del _distance_graph_memo[k]
+            _distance_graph_memo[(epoch, folder)] = G
+            while len(_distance_graph_memo) > _DISTANCE_MEMO_CAP:
+                del _distance_graph_memo[next(iter(_distance_graph_memo))]
+    return G
+
+
 def graph_distances(source: str, *, folder: str = "") -> dict[str, int] | None:
     """BFS hop distances from `source` over the resolved wikilink graph.
 
@@ -867,19 +945,7 @@ def graph_distances(source: str, *, folder: str = "") -> dict[str, int] | None:
     try:
         import networkx as nx
 
-        from silica.kernel.recall.paths import vault_epoch
-
-        epoch = vault_epoch()
-        G = _distance_graph_memo.get((epoch, folder)) if epoch else None
-        if G is None:
-            nodes, edges = build_graph_data(folder=folder)
-            G = edge_graph(nodes, edges)
-            if epoch:
-                for k in [k for k in _distance_graph_memo if k[0] != epoch]:
-                    del _distance_graph_memo[k]
-                _distance_graph_memo[(epoch, folder)] = G
-                while len(_distance_graph_memo) > _DISTANCE_MEMO_CAP:
-                    del _distance_graph_memo[next(iter(_distance_graph_memo))]
+        G = wikilink_graph_cached(folder=folder)
     except Exception:
         return None
     src = source if source in G else source + ".md"

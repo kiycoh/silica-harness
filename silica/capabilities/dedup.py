@@ -232,6 +232,28 @@ def _incoming_side(ctx: dict, source_basename: str) -> tuple[int, str | None]:
     return TIER_DISTILLED, source_event_date(source_text)
 
 
+def _pair_provenance(candidate_path: str, source_basename: str) -> dict[str, Any]:
+    """Whether the merge joins two derivations of one source or two sources.
+
+    Two notes from one source are distiller noise; two from different sources
+    are a real convergence. The judge and its gates are untouched and the
+    cross-file fusion path stays closed (see the CROSSDEDUP verdict): this is
+    the ledger's answer riding on the result, for whoever reviews the merge.
+    `unknown` when the ledger never saw the candidate, never a guess.
+    """
+    from silica.kernel.write.provenance import sources_of
+
+    candidate_sources = sources_of(candidate_path)
+    if not candidate_sources:
+        relation = "unknown"
+    elif source_basename in candidate_sources:
+        relation = "same-source"
+    else:
+        relation = "cross-source"
+    return {"candidate_sources": candidate_sources,
+            "incoming_source": source_basename, "relation": relation}
+
+
 def _file_dominated_claim(
     ctx: dict, path: str, decision: Any, source_basename: str, hub: str | None
 ) -> dict | None:
@@ -429,6 +451,7 @@ def _route_verdict(
     )
     result.setdefault("rationale", decision.rationale)
     result.setdefault("verdict", decision.verdict)
+    result.setdefault("provenance", _pair_provenance(candidate_path, source_basename))
     if result.get("status") == "committed":
         _clean_twin_bundle(ctx)
         if decision.verdict == "duplicate":

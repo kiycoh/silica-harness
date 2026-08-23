@@ -36,6 +36,12 @@ class _BatchFromTopK:
             for p in keys if self.get_vec(p) is not None
         }
 
+    def sync_from_disk(self):
+        """The accessor re-reads the index when another process wrote it
+        (paths.DiskSynced); a fake has no file, so there is never anything
+        to re-read."""
+        return False
+
 
 class _FakeStore(_BatchFromTopK):
     def __len__(self):

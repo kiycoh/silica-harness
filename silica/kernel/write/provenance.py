@@ -33,13 +33,22 @@ import re
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from silica.kernel.recall.paths import resolve_vault_path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROVENANCE_FILENAME = "provenance.json"
+
+# What an append can prove about the ledger once it returns. `present`: the
+# record with these notes is on disk. `absent`: nothing of it is (a clean
+# failure before the replace, or no store to write to). `uncertain`: the store
+# could not be read back, so neither claim holds. Kept apart because folding
+# the last two into "not written" is how a failed append stayed invisible
+# until the next nucleate of the source re-appended into the notes it had
+# already written: note_authored_by reads this ledger to stop exactly that.
+AppendOutcome = Literal["present", "absent", "uncertain"]
 
 
 def _store_path(vault_path: str | None) -> Path | None:
@@ -169,6 +178,32 @@ def is_deriving_op(op: Any) -> bool:
     return getattr(op, "value", op) in DERIVING_OPS
 
 
+def _observed(path: Path, source: str, sha256: str, run_id: str,
+              notes: list[str]) -> AppendOutcome:
+    """What the store holds for this triple, read raw after a failed append.
+
+    Raw, not through read_records: its quarantine would move the very bytes
+    whose state is the question, and its memo could answer from before the
+    write. An unreadable or unparseable store is `uncertain`, never a proven
+    absence.
+    """
+    try:
+        if not path.exists():
+            return "absent"
+        records = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            return "uncertain"
+    except Exception:
+        return "uncertain"
+    wanted = set(notes)
+    for r in records:
+        if (isinstance(r, dict) and r.get("source") == source
+                and r.get("sha256") == sha256 and r.get("run_id") == run_id
+                and wanted <= set(r.get("notes") or [])):
+            return "present"
+    return "absent"
+
+
 def append_record(
     source: str,
     sha256: str,
@@ -177,18 +212,23 @@ def append_record(
     *,
     vault_path: str | None = None,
     date: str | None = None,
-) -> bool:
-    """Append one record for `source`. Best-effort: swallows I/O errors and
-    returns False rather than raising — CLEANUP must never fail on this.
+) -> AppendOutcome:
+    """Append one record for `source` and report what is on disk afterwards.
+
+    Never raises (CLEANUP must never fail on this), but never hides a failure
+    either: anything short of `present` is logged at WARNING with what it
+    costs, because the note is already in the vault and a ledger that does
+    not know it will let the next nucleate of this source patch its own
+    concepts into the notes it already wrote.
 
     Idempotent on (source, sha256, run_id): a resumed run re-entering
     CLEANUP for the same file fires this again with an unchanged triple —
     that must not duplicate the record (mirrors run_log.append_log_line's
-    resume-safety).
+    resume-safety), and it answers `present` because the record is.
     """
     path = _store_path(vault_path)
     if not path:
-        return False
+        return "absent"
 
     record = {
         "source": source,
@@ -222,7 +262,7 @@ def append_record(
                 prior = list(existing[idx].get("notes") or [])
                 merged = list(dict.fromkeys(prior + list(notes)))
                 if merged == prior:
-                    return False
+                    return "present"
                 # Replace the entry, never edit it in place: read_records copies
                 # the LIST but hands back the very dicts `_records_memo` holds,
                 # so an in-place edit lands in the cache BEFORE the write below
@@ -240,9 +280,14 @@ def append_record(
                 path, json.dumps(existing, indent=2, ensure_ascii=False).encode("utf-8")
             )
     except Exception as exc:
-        logger.debug("provenance: append failed (non-fatal): %s", exc)
-        return False
-    return True
+        outcome = _observed(path, source, sha256, run_id, notes)
+        if outcome != "present":  # the replace can land and a later step still raise
+            logger.warning(
+                "provenance: record for %s (run %s) did not land: %s (%s); a "
+                "re-ingest of this source will re-append into the notes it "
+                "already wrote", source, run_id, outcome, exc)
+        return outcome
+    return "present"
 
 
 def drifted_notes(
@@ -284,11 +329,11 @@ def drifted_notes(
     return out
 
 
-def _norm_note_ref(p: str) -> str:
-    """Fold a note reference to a comparable key: vault-relative POSIX, no
-    `.md`, casefolded. Provenance stores RunManifestEntry.path (already
-    vault-relative, no `.md`); a caller may pass an absolute or `.md`-suffixed
-    path, so relativize when possible and degrade to a plain strip otherwise."""
+def _bare_note_ref(p: str) -> str:
+    """A note reference in the ledger's own spelling: vault-relative POSIX, no
+    `.md`. Provenance stores RunManifestEntry.path in exactly this form; a
+    caller may pass an absolute or `.md`-suffixed path, so relativize when
+    possible and degrade to a plain strip otherwise."""
     ref = p or ""
     try:
         from silica.kernel.recall.paths import to_vault_relative
@@ -296,7 +341,21 @@ def _norm_note_ref(p: str) -> str:
         ref = to_vault_relative(ref, ensure_md=False)
     except Exception:
         ref = ref.replace("\\", "/").strip("/")
-    return ref.removesuffix(".md").casefold()
+    return ref.removesuffix(".md")
+
+
+def note_key(p: str) -> str:
+    """The comparable key of a note reference: `_bare_note_ref`, casefolded.
+
+    Public because the undo journal scopes a revert by the ledger's note set
+    and must fold its own (possibly absolute) inverse paths the same way;
+    two spellings of this rule would disagree on exactly the rename cases
+    the ledger exists to survive.
+    """
+    return _bare_note_ref(p).casefold()
+
+
+_norm_note_ref = note_key
 
 
 def note_authored_by(
@@ -323,6 +382,115 @@ def note_authored_by(
         if any(_norm_note_ref(n) == target for n in (r.get("notes") or [])):
             return True
     return False
+
+
+def sources_by_note(*, vault_path: str | None = None) -> dict[str, list[str]]:
+    """`{note_key: [source_basename, ...]}`, sources in first-seen ledger order.
+
+    The ledger is keyed by source; the graph payload and the dedup verdict ask
+    the other way round, for every node at once. One inversion per call is
+    O(records) and the memo in read_records makes the parse free; per-node
+    `sources_of` calls over the whole graph would be O(nodes * records).
+    """
+    out: dict[str, list[str]] = {}
+    for r in read_records(vault_path=vault_path):
+        src = r.get("source")
+        if not src:
+            continue
+        for n in r.get("notes") or []:
+            lst = out.setdefault(note_key(n), [])
+            if src not in lst:
+                lst.append(src)
+    return out
+
+
+def sources_of(note_path: str, *, vault_path: str | None = None) -> list[str]:
+    """Every source basename that ever authored `note_path`, or []."""
+    return list(sources_by_note(vault_path=vault_path).get(note_key(note_path), []))
+
+
+def drift_map(*, vault_path: str | None = None) -> dict[str, str]:
+    """`{note_path.md: source_basename}` for every drifted note.
+
+    The read-time stale flag's shape: keys end in `.md` like codedocs.peek's,
+    so `codedocs.peek_level` reads both maps with one lookup. The ledger
+    stores bare paths, so the suffix is restored here and nowhere else.
+    """
+    return {f"{note}.md": source for note, source in drifted_notes(vault_path=vault_path)}
+
+
+def rename_note(old_path: str, new_path: str, *, vault_path: str | None = None) -> AppendOutcome:
+    """Make every record that names `old_path` name `new_path` instead.
+
+    The ledger keys notes by bare path, so a move that rewrote every wikilink
+    and not this left `note_authored_by` answering False for the moved note:
+    the next nucleate of its source re-appended into a note it had already
+    written, and drift reports named a path that no longer existed. Called by
+    every backend's move(), right after the file itself has moved.
+
+    Same outcome vocabulary as append_record: `present` means the ledger now
+    names the new path wherever it named the old one (nothing to rename is
+    present too, and writes nothing); `absent` means the old name is still
+    there; `uncertain` means the store could not be read back.
+    """
+    path = _store_path(vault_path)
+    if not path:
+        return "absent"
+    old_key = note_key(old_path)
+    new_bare = _bare_note_ref(new_path)
+    if not old_key or not new_bare:
+        return "absent"
+
+    def _rewritten(notes: list[str]) -> list[str] | None:
+        if not any(note_key(n) == old_key for n in notes):
+            return None
+        moved = [new_bare if note_key(n) == old_key else n for n in notes]
+        return list(dict.fromkeys(moved))
+
+    try:
+        from silica.kernel.recall.paths import atomic_write_bytes
+        from silica.kernel.workqueue import path_lease
+
+        with path_lease(str(path)):
+            existing = read_records(vault_path=vault_path)
+            changed = False
+            for i, r in enumerate(existing):
+                moved = _rewritten(list(r.get("notes") or []))
+                if moved is not None:
+                    # A new dict, never an in-place edit: read_records hands back
+                    # the very dicts its memo holds (see append_record).
+                    existing[i] = {**r, "notes": moved}
+                    changed = True
+            if not changed:
+                return "present"
+            atomic_write_bytes(
+                path, json.dumps(existing, indent=2, ensure_ascii=False).encode("utf-8")
+            )
+    except Exception as exc:
+        outcome = _observed_rename(path, old_key)
+        if outcome != "present":
+            logger.warning(
+                "provenance: rename %s -> %s did not land: %s (%s); a re-ingest of "
+                "its source will re-append into the moved note and drift reports "
+                "will name the old path", old_path, new_path, outcome, exc)
+        return outcome
+    return "present"
+
+
+def _observed_rename(path: Path, old_key: str) -> AppendOutcome:
+    """Whether any record still names the old path, read raw after a failure."""
+    try:
+        if not path.exists():
+            return "absent"
+        records = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            return "uncertain"
+    except Exception:
+        return "uncertain"
+    for r in records:
+        if isinstance(r, dict) and any(note_key(n) == old_key for n in (r.get("notes") or [])):
+            return "absent"
+    return "present"
 
 
 def check_renucleate(
