@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ from typing import Any
 import orjson
 
 from silica.kernel.text import language
-from silica.kernel.recall.paths import atomic_write_bytes, in_folder, quarantine
+from silica.kernel.recall.paths import DiskSynced, in_folder, quarantine
 
 # --- algorithm constants -------------------------------------
 NARRATIVE_WEIGHT = 3
@@ -185,7 +186,9 @@ def get_cooccur_store(lang: str = "english") -> "CooccurStore":
     keeps the language frozen on disk. Use ``clear()`` in tests.
     """
     from silica.kernel.recall.paths import path_keyed_singleton
-    return path_keyed_singleton(_STORE_CACHE, str(_index_path()), lambda: CooccurStore(lang=lang))
+    store = path_keyed_singleton(_STORE_CACHE, str(_index_path()), lambda: CooccurStore(lang=lang))
+    store.sync_from_disk()
+    return store
 
 
 def clear() -> None:
@@ -193,7 +196,7 @@ def clear() -> None:
     _STORE_CACHE.clear()
 
 
-class CooccurStore:
+class CooccurStore(DiskSynced):
     """orjson-backed store of per-note co-occurrence contributions.
 
     The global graph is a lazy, cached aggregation over the per-note
@@ -228,6 +231,15 @@ class CooccurStore:
         # two-way note_edges adjacency (mirrors the _adj cache); also reset
         # by the note-edge writers, which skip _invalidate on purpose
         self._note_edges_adj: dict[str, dict[str, float]] | None = None
+        # DiskSynced bookkeeping: keys upserted / deleted, edge pairs set, and
+        # keys whose edges were cleared, all since the last sync with the
+        # file. The lock guards only the sync/save skeleton; this store's
+        # mutators were never thread-safe and that is unchanged here.
+        self._lock = threading.RLock()
+        self._dirty: set[str] = set()
+        self._gone: set[str] = set()
+        self._dirty_edges: set[tuple[str, str]] = set()
+        self._cleared: set[str] = set()
         self._load()
 
     # --- caches ---
@@ -242,43 +254,80 @@ class CooccurStore:
         self._note_edges_adj = None
 
     # --- I/O ---
-    def _load(self) -> None:
-        self._invalidate()
+    def _read_disk(self) -> dict[str, Any]:
         src = self._path
         # No legacy soft-migration: inheriting the global index copied old-schema
         # keys forward, and since build_index never GCs they survived as orphans
         # poisoning aggregations. Per-vault keying is stable; a fresh store loads
         # empty and /cooccur rebuilds it clean.
-        if src.exists():
-            try:
-                data = orjson.loads(src.read_bytes())
-                self._notes = data.get("notes", {})
-                self.lang = data.get("lang", self.lang)
-                self._note_edges = data.get("note_edges", {})
-                self._prune_orphan_edges()
-            except Exception:
-                # Derived index: quarantine for doctor visibility, then
-                # rebuild from empty (/cooccur restores it).
-                quarantine(src)
-                self._notes = {}
-                self._note_edges = {}
+        if not src.exists():
+            return {}
+        try:
+            return orjson.loads(src.read_bytes())
+        except Exception:
+            # Derived index: quarantine for doctor visibility, then
+            # rebuild from empty (/cooccur restores it).
+            quarantine(src)
+            return {}
 
-    def save(self) -> Path:
+    def _take_disk(self, data: dict[str, Any]) -> None:
+        notes = data.get("notes", {})
+        edges = data.get("note_edges", {})
+        # The frozen language follows the file unless this process has
+        # already stemmed contributions under its own: mixing them is the
+        # cross-language node-splitting build_index guards against.
+        if not self._dirty:
+            self.lang = data.get("lang", self.lang)
+        mine = {k: self._notes[k] for k in self._dirty if k in self._notes}
+        for k in self._gone:
+            notes.pop(k, None)
+        notes.update(mine)
+        # Edges: replay local clears, then local verdicts per pair. A pair
+        # set locally and cleared since is absent from _note_edges, and
+        # "absent" is the verdict carried over.
+        for key in self._cleared:
+            self._drop_edges_touching(edges, key)
+        for lo, hi in self._dirty_edges:
+            score = self._note_edges.get(lo, {}).get(hi)
+            if score is None:
+                edges.get(lo, {}).pop(hi, None)
+            else:
+                edges.setdefault(lo, {})[hi] = score
+        self._notes = notes
+        self._note_edges = edges
+        self._prune_orphan_edges()
+        self._invalidate()
+
+    def _snapshot(self) -> tuple[str, dict[str, Any], dict[str, dict[str, float]]]:
+        # Contributions are replaced wholesale, so one level of copy is a
+        # consistent view; edge rows are mutated in place, so they get two.
+        return (self.lang, dict(self._notes),
+                {lo: dict(nbrs) for lo, nbrs in self._note_edges.items()})
+
+    def _serialize(self, snapshot) -> bytes:
+        lang, notes, edges = snapshot
         # No OPT_INDENT_2: machine-only derived index, pretty-printing is pure
         # I/O tax (Fix 2A). orjson defaults to compact output.
-        atomic_write_bytes(self._path, orjson.dumps(
-            {"version": 1, "lang": self.lang, "notes": self._notes,
-             "note_edges": self._note_edges},
-        ))
-        return self._path
+        return orjson.dumps(
+            {"version": 1, "lang": lang, "notes": notes, "note_edges": edges},
+        )
+
+    def _dirty_sets(self) -> tuple[set, ...]:
+        return (self._dirty, self._gone, self._dirty_edges, self._cleared)
 
     # --- mutation ---
     def upsert_note(self, path: str, contribution: dict[str, Any]) -> None:
-        self._notes[cooccur_key(path)] = contribution
+        key = cooccur_key(path)
+        self._notes[key] = contribution
+        self._dirty.add(key)
+        self._gone.discard(key)
         self._invalidate()
 
     def delete_note(self, path: str) -> None:
-        self._notes.pop(cooccur_key(path), None)
+        key = cooccur_key(path)
+        self._notes.pop(key, None)
+        self._gone.add(key)
+        self._dirty.discard(key)
         self.clear_note_edges(path)
         self._invalidate()
 
@@ -287,16 +336,22 @@ class CooccurStore:
         """Record one derived edge under its ordered pair (min, max)."""
         lo, hi = sorted((cooccur_key(a), cooccur_key(b)))
         self._note_edges.setdefault(lo, {})[hi] = score
+        self._dirty_edges.add((lo, hi))
         self._note_edges_adj = None
+
+    @staticmethod
+    def _drop_edges_touching(edges: dict[str, dict[str, float]], key: str) -> None:
+        edges.pop(key, None)  # edges where key is the min endpoint
+        for lo, nbrs in list(edges.items()):
+            nbrs.pop(key, None)  # edges where key is the max endpoint
+            if not nbrs:
+                edges.pop(lo, None)
 
     def clear_note_edges(self, path: str) -> None:
         """Drop every edge that touches `path` (both directions)."""
         key = cooccur_key(path)
-        self._note_edges.pop(key, None)  # edges where key is the min endpoint
-        for lo, nbrs in list(self._note_edges.items()):
-            nbrs.pop(key, None)          # edges where key is the max endpoint
-            if not nbrs:
-                self._note_edges.pop(lo, None)
+        self._drop_edges_touching(self._note_edges, key)
+        self._cleared.add(key)
         self._note_edges_adj = None
 
     def _prune_orphan_edges(self) -> None:

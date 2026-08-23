@@ -121,8 +121,12 @@ def test_serve_hands_uvicorn_the_app_object_not_an_import_string():
     from silica.ui.web import server as web
 
     src = inspect.getsource(web.serve)
-    assert "uvicorn.run(app" in src, "serve() must pass the app object"
-    assert not re.search(r"uvicorn\.run\(\s*[\"']", src), "no import string"
+    # Config(app, ...) since serve() builds the Server itself (so the beat
+    # stream can read should_exit); the rule under it is unchanged, and it is
+    # the OBJECT that is asserted, not which uvicorn entry point takes it.
+    assert re.search(r"uvicorn\.(run|Config)\(\s*\n?\s*app\b", src), \
+        "serve() must pass the app object"
+    assert not re.search(r"uvicorn\.(run|Config)\(\s*[\"']", src), "no import string"
     assert "reload" not in src, "reload re-imports the module and orphans session state"
 
 

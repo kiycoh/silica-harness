@@ -65,6 +65,16 @@ _MAX_HITS_PER_NOTE = 20
 # (scripts/bench_scale_levers.py) reads and flips this seam.
 _BODY_CACHE_CAP = 16384
 
+# Debounce on the out-of-band roster re-check (_roster_drifted). `_ensure_index`
+# runs on every read op and several land in one agent turn, so the whole-tree
+# directory walk needs the same brake the index sweep uses for the same reason
+# (kernel/recall/sync.py `_MIN_INTERVAL`): a roster that just rescanned has
+# nothing new to see. Measured 2026-08-22 on a 709-note / 111-folder vault:
+# the scan is 1.1 ms against the 1086 ms rebuild it decides whether to run,
+# so the brake is against call frequency, not against the walk. Reopen if a
+# scan ever passes ~200 ms (roughly 20k folders).
+_ROSTER_RECHECK_INTERVAL = 2.0
+
 # Buffered embed-vector deletes per npz save. A move/delete sweep on a big
 # vault was paying one whole-index serialization per note; buffering trades
 # that for a bounded staleness window: another process sees the phantom
@@ -142,6 +152,13 @@ class ObsidianFSBackend(GraphIndexMixin):
         # in RAM. Plain dict as the LRU: hits reinsert, eviction pops the
         # oldest key (insertion order).
         self._body_cache: dict[str, tuple[float, str]] = {}  # abs-path str -> (mtime, content)
+        # {directory -> mtime} as of the last full rebuild. POSIX bumps a
+        # directory's mtime when a file inside it is created, deleted or
+        # renamed, and NOT when one is edited in place — which is exactly the
+        # half `_patch_index` and the mtime-keyed body cache cannot cover. One
+        # stat per FOLDER, never per note.
+        self._dir_stamps: dict[str, float] = {}
+        self._roster_checked: float = 0.0  # monotonic, see _ROSTER_RECHECK_INTERVAL
 
     def _path_of(self, ref: NoteRef | str) -> str | None:
         if isinstance(ref, NoteRef):
@@ -161,8 +178,79 @@ class ObsidianFSBackend(GraphIndexMixin):
 
     @_locked
     def _ensure_index(self):
+        if not self._needs_reindex and self._roster_drifted():
+            self._needs_reindex = True
         if self._needs_reindex:
             self._rebuild_index()
+
+    def _scan_dir_stamps(self) -> dict[str, float]:
+        """{directory -> mtime} over the same tree `_rebuild_index` walks.
+
+        The pruning MUST mirror the rebuild's: a vault adopted as-is can be a
+        repo root, where `.git/` alone rewrites directory mtimes constantly and
+        would put the roster in a permanent rebuild loop over trees the index
+        does not contain anyway. Directories only — os.walk classifies entries
+        from the dirent type, so no note is stat'd here.
+        """
+        skip = ignore_matcher(self.vault_path)
+        stamps: dict[str, float] = {}
+        for root, dirs, _files in os.walk(self.vault_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and not skip(d)]
+            try:
+                stamps[root] = os.stat(root).st_mtime
+            except OSError:
+                continue  # vanished mid-walk: absent here reads as drift, correctly
+        return stamps
+
+    def _roster_drifted(self) -> bool:
+        """True when a note appeared or disappeared out-of-band (Obsidian, rm,
+        git checkout, a sync client) since the last full rebuild.
+
+        Content edits are invisible here by design: `_read_cached` is
+        mtime-keyed and the derived indexes re-embed by content signature, so
+        the roster only has to notice appearances and disappearances. Any
+        difference counts, not just a newer one — a restored backup moves an
+        mtime backwards, same as the index sweep's stamps.
+
+        Failures answer False: this runs inside every read, and a rebuild
+        skipped now is recovered by the next call.
+        """
+        now = time.monotonic()
+        if now - self._roster_checked < _ROSTER_RECHECK_INTERVAL:
+            return False
+        self._roster_checked = now
+        try:
+            return self._scan_dir_stamps() != self._dir_stamps
+        except OSError:
+            return False
+
+    def _restamp_dirs(self, rel_path: str) -> None:
+        """Carry the directory stamps forward past a write this backend made.
+
+        Silica's own write bumps the folder mtime like anyone else's, so
+        without this every `_patch_index` would read as drift on the next
+        `_ensure_index` and force the full rebuild that `_patch_index` exists
+        to avoid. Only already-stamped ancestors are touched: writing into a
+        brand-new folder (or an ignored tree) must not invent a key
+        `_scan_dir_stamps` will never produce, or the comparison would differ
+        forever. That case pays one rebuild, which repopulates the stamps.
+
+        ponytail: an out-of-band create landing in the same folder between the
+        write and this stat is absorbed and stays invisible until that folder
+        changes again. Microseconds wide; close it with a per-file roster if a
+        report ever traces a missing note to it.
+        """
+        full = self.vault_path / rel_path
+        for d in (full.parent, *full.parent.parents):
+            key = str(d)
+            if key not in self._dir_stamps:
+                break
+            try:
+                self._dir_stamps[key] = os.stat(d).st_mtime
+            except OSError:
+                del self._dir_stamps[key]
+            if d == self.vault_path:
+                break
 
     _ensure_graph = _ensure_index  # mixin hook (tests call _ensure_index directly)
 
@@ -241,6 +329,15 @@ class ObsidianFSBackend(GraphIndexMixin):
         self._unresolved_links.clear()
         self._mention_index.clear()
         self._alias_pairs.clear()
+
+        # Stamped BEFORE the file pass, deliberately: a note created between
+        # the two walks is missed by this pass but its folder mtime is already
+        # newer than what we stored, so the next check reads it as drift. The
+        # reverse order would stamp the change we just failed to see and hide
+        # the note for good. A stale stamp costs one rebuild; a fresh one
+        # costs a note.
+        self._dir_stamps = self._scan_dir_stamps()
+        self._roster_checked = time.monotonic()
 
         files_to_process = []
         skip = ignore_matcher(self.vault_path)
@@ -325,6 +422,11 @@ class ObsidianFSBackend(GraphIndexMixin):
         # them are gated by `is_inbox_path`, not by their absence from the index.
         if content is not None and is_vault_artifact(rel_path):
             content = None
+
+        # Every caller has already written or unlinked the file, so the folder
+        # mtime this reads is the post-write one. Here rather than at the two
+        # exits below: the deletion path returns early.
+        self._restamp_dirs(rel_path)
 
         # --- remove stale data for this path ---
         if rel_path in self._graph:
@@ -956,6 +1058,13 @@ class ObsidianFSBackend(GraphIndexMixin):
         session_changes.touched(old_rel, self._read_cached(src))
         session_changes.renamed(old_rel, new_rel)
         src.rename(dst)
+        # The ledger follows the file the way the session row does: it keys
+        # notes by path, and a moved note the ledger still knows under its old
+        # name is re-appended into on the next nucleate of its source.
+        # Never raises; a failure is logged with what it costs.
+        from silica.kernel.write.provenance import rename_note
+
+        rename_note(old_rel, new_rel, vault_path=str(self.vault_path))
         self._invalidate_body(old_rel)
         self._invalidate_body(new_rel)
         # The old key's vector now points at a gone path; drop it or a rename makes

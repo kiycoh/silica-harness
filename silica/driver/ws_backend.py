@@ -463,6 +463,11 @@ class ObsidianWSBackend(GraphIndexMixin):
         session_changes.touched_from_disk(path)
         session_changes.renamed(path, to)
         self._rpc("move", path=path, to=to)
+        # The ledger lives on disk whichever backend moved the file; see the
+        # fs backend's move() for why it has to follow.
+        from silica.kernel.write.provenance import rename_note
+
+        rename_note(path, to)
         # Obsidian rewrites incoming wikilinks on move; patching every referrer
         # over the wire isn't worth it — reinvalidate, rebuild lazily on next read.
         self._is_graph_built = False

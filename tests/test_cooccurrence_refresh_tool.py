@@ -48,6 +48,35 @@ def test_refresh_indexes_all_vault_notes(vault):
     assert any(p.endswith("Boats") for p in paths)
 
 
+def test_a_refresh_that_indexed_nothing_leaves_the_file_alone(vault, monkeypatch):
+    """The GUI polls `vault_version()`, which digests index mtimes, and every
+    graph export calls this tool. Rewriting an unchanged 9.5 MB index still
+    moves the mtime, so the strip announced "vault changed" after every build of
+    the graph it had just drawn -- with nothing changed."""
+    from silica.kernel.recall.cooccurrence import _index_path
+    from silica.kernel.recall.sync import disk_stamp, vault_version
+    from silica.tools.composed import silica_cooccurrence_refresh
+
+    silica_cooccurrence_refresh(folder="")
+    stamp, version = disk_stamp(_index_path()), vault_version()
+    assert stamp is not None, "the first refresh has to write the index"
+
+    silica_cooccurrence_refresh(folder="")
+    assert disk_stamp(_index_path()) == stamp
+    assert vault_version() == version
+
+    # a real change still lands, and force still writes: a gate that only proved
+    # "never rewrites" would pass on a tool that never wrote at all
+    (vault / "Concepts" / "Third.md").write_text("# Third\n\nsailing harbour\n",
+                                                 encoding="utf-8")
+    monkeypatch.setattr("silica.driver._driver", None)  # re-read the roster
+    silica_cooccurrence_refresh(folder="")
+    assert disk_stamp(_index_path()) != stamp
+    moved = disk_stamp(_index_path())
+    silica_cooccurrence_refresh(folder="", force=True)
+    assert disk_stamp(_index_path()) != moved
+
+
 def test_refresh_builds_real_queryable_contributions(vault):
     from silica.tools.composed import silica_cooccurrence_refresh
     silica_cooccurrence_refresh(force=True)

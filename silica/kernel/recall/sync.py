@@ -6,8 +6,16 @@
 The write path keeps every derived index fresh for Silica's OWN writes
 (write.py's freshness hooks). This module covers the other half: notes
 created, edited, or deleted out-of-band (Obsidian, ``rm``, ``git checkout``,
-a sync client) while no Silica process was running. Detected at invocation —
-never by a watcher (charter: no resident processes).
+a sync client), whether or not a Silica process was running at the time.
+Detected at invocation — never by a watcher (charter: no resident processes).
+
+The vault side of that is not this module's: the sweep enumerates through
+``DRIVER.list_files("")``, so a note it never hears about is one it can never
+index. Creates and deletes reach that roster because the fs backend re-checks
+folder mtimes (``fs_backend._roster_drifted``); everything below assumes it.
+Nor is the index side: a second Silica process writing the same index files
+is absorbed by the store singletons themselves (``paths.DiskSynced``), so
+what this sweep saves is always a merge, never an overwrite of their work.
 
 Mechanism, git-index style: a sidecar stamp file maps note path → last-seen
 file mtime. A note whose current mtime DIFFERS (any difference, not just
@@ -28,6 +36,7 @@ stamp if that ever bites.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import dataclass
@@ -36,7 +45,7 @@ from pathlib import Path
 import orjson
 
 from silica.config import CONFIG
-from silica.kernel.recall.paths import atomic_write_bytes, index_dir
+from silica.kernel.recall.paths import atomic_write_bytes, disk_stamp, index_dir
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +73,59 @@ class SweepStats:
     pruned: int = 0     # index entries dropped (deleted out-of-band), all stores
     stamped: int = 0    # stamp entries written/updated this sweep
     skipped: bool = False
+
+
+def vault_version() -> str:
+    """Short digest that changes when anything a derived VIEW renders from did.
+
+    The read-only twin of `sweep`: it reports that the vault moved, it never
+    rebuilds anything. The GUI's explore surfaces (graph, map, folders/areas/
+    read) are expensive enough that they are built once and cached, and the
+    only thing that used to invalidate them was a chat turn in that same
+    browser tab — so an Obsidian edit, or a `silica nucleate` in a terminal,
+    left them drawing a vault that no longer existed. Polling this is what
+    tells them otherwise.
+
+    Both halves of what those views read, because either alone lies: the note
+    roster with its mtimes (titles, links, folders, the whole structural
+    graph) and the three derived index files (the semantic overlay and the
+    communities drawn from them). Reading the roster through the driver is
+    also what refreshes it — `list_files` re-checks for out-of-band creates
+    and deletes (fs_backend._roster_drifted), so the poll doubles as the thing
+    that keeps the answer true.
+
+    Measured 4.8 ms over 709 notes: cheaper than the 304 that /graph's ETag
+    can only produce by building the whole graph, Louvain pass included, which
+    is the reason a content ETag cannot be the poll.
+
+    Never raises, and answers "" when it cannot read — a poll that threw would
+    stop, and a caller cannot tell a broken vault from an unchanged one, so
+    the safe reading of "" is "nothing to do".
+    """
+    from silica.driver import DRIVER
+    from silica.kernel.recall.cooccurrence import _index_path as _cooccur_index
+    from silica.kernel.recall.embed import _index_path as _embed_index
+    from silica.kernel.recall.lexical import _index_path as _lexical_index
+
+    h = hashlib.blake2b(digest_size=8)
+    try:
+        mtime_of = getattr(DRIVER, "mtime_of", None)
+        # Sorted: list_files walks the filesystem, whose order is not stable
+        # across rebuilds, and an order-sensitive digest would report a change
+        # on every poll.
+        for ref in sorted(DRIVER.list_files(""), key=lambda r: r.path or r.name):
+            h.update((ref.path or ref.name).encode("utf-8"))
+            if mtime_of is not None:  # ws backend has none: roster-only digest
+                h.update(str(mtime_of(ref)).encode("ascii"))
+        # Each store's own `_index_path`, not a list of names spelled again
+        # here: a renamed index file would otherwise stop being watched and
+        # nothing would say so.
+        for path in (_embed_index(), _cooccur_index(), _lexical_index()):
+            h.update(str(disk_stamp(path)).encode("ascii"))
+    except Exception as e:
+        logger.debug("vault version unavailable (%s)", e)
+        return ""
+    return h.hexdigest()
 
 
 def _stamps_path() -> Path:

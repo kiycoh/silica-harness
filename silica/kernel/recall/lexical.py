@@ -18,11 +18,14 @@ its unbounded BM25 scores never need to be comparable to cosine (spec 1.2).
 from __future__ import annotations
 
 import math
+import threading
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 import orjson
+
+from silica.kernel.recall.paths import DiskSynced
 
 _BM25_K1 = 1.5
 _BM25_B = 0.75
@@ -45,7 +48,7 @@ def _tokens(text: str) -> list[str]:
     return out
 
 
-class LexicalStore:
+class LexicalStore(DiskSynced):
     def __init__(self, path: Path | None = None):
         self._path = path if path is not None else _index_path()
         self._docs: dict[str, dict[str, int]] = {}   # path -> {term: tf}
@@ -53,6 +56,11 @@ class LexicalStore:
         self._name: dict[str, str] = {}              # path -> title/key for fuzzy
         self._postings: dict[str, dict[str, int]] = {}   # DERIVED: term -> {path: tf}
         self._name_lower: dict[str, str] = {}            # DERIVED: path -> name.lower()
+        # DiskSynced bookkeeping; the lock guards only the sync/save skeleton,
+        # this store's mutators were never thread-safe and that is unchanged.
+        self._lock = threading.RLock()
+        self._dirty: set[str] = set()
+        self._gone: set[str] = set()
 
     def __len__(self) -> int:
         return len(self._docs)
@@ -85,6 +93,8 @@ class LexicalStore:
         for term, f in tf.items():
             self._postings.setdefault(term, {})[path] = f
         self._name_lower[path] = name.lower()
+        self._dirty.add(path)
+        self._gone.discard(path)
 
     def remove(self, path: str) -> None:
         self._unindex(path)
@@ -92,6 +102,8 @@ class LexicalStore:
         self._len.pop(path, None)
         self._name.pop(path, None)
         self._name_lower.pop(path, None)
+        self._gone.add(path)
+        self._dirty.discard(path)
 
     def paths(self) -> list[str]:
         return list(self._docs)
@@ -145,35 +157,45 @@ class LexicalStore:
                 fused[path] = fused.get(path, 0.0) + 1.0 / (60 + rank + 1)
         return sorted(fused.items(), key=lambda kv: (-kv[1], kv[0]))[:k]
 
-    def save(self) -> Path:
-        from silica.kernel.recall.paths import atomic_write_bytes
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload: dict[str, Any] = {
-            "docs": self._docs, "len": self._len, "name": self._name,
-        }
-        atomic_write_bytes(self._path, orjson.dumps(payload))
-        return self._path
-
-    @classmethod
-    def load(cls, path: Path | None = None) -> "LexicalStore":
-        store = cls(path)
+    def _read_disk(self) -> dict[str, Any]:
         try:
-            if store._path.is_file():
-                data = orjson.loads(store._path.read_bytes())
-                store._docs = {p: dict(tf) for p, tf in data.get("docs", {}).items()}
-                store._len = dict(data.get("len", {}))
-                store._name = dict(data.get("name", {}))
-                store._reindex()
+            if self._path.is_file():
+                return orjson.loads(self._path.read_bytes())
         except Exception:
             # Derived index: quarantine for doctor visibility, then
             # reset to empty (a rebuild repopulates it).
             from silica.kernel.recall.paths import quarantine
-            quarantine(store._path)
-            store._docs = {}
-            store._len = {}
-            store._name = {}
-            store._postings = {}
-            store._name_lower = {}
+            quarantine(self._path)
+        return {}
+
+    def _take_disk(self, data: dict[str, Any]) -> None:
+        docs = {p: dict(tf) for p, tf in data.get("docs", {}).items()}
+        lens = dict(data.get("len", {}))
+        names = dict(data.get("name", {}))
+        for p in self._gone:
+            docs.pop(p, None)
+            lens.pop(p, None)
+            names.pop(p, None)
+        for p in self._dirty:
+            if p in self._docs:
+                docs[p], lens[p], names[p] = self._docs[p], self._len[p], self._name[p]
+        self._docs, self._len, self._name = docs, lens, names
+        self._reindex()
+
+    def _snapshot(self) -> tuple[dict, dict, dict]:
+        return (dict(self._docs), dict(self._len), dict(self._name))
+
+    def _serialize(self, snapshot) -> bytes:
+        docs, lens, names = snapshot
+        return orjson.dumps({"docs": docs, "len": lens, "name": names})
+
+    def _dirty_sets(self) -> tuple[set[str], set[str]]:
+        return (self._dirty, self._gone)
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> "LexicalStore":
+        store = cls(path)
+        store._load()
         return store
 
 
@@ -182,7 +204,9 @@ _STORE_CACHE: dict[str, "LexicalStore"] = {}
 
 def get_lexical_store() -> "LexicalStore":
     from silica.kernel.recall.paths import path_keyed_singleton
-    return path_keyed_singleton(_STORE_CACHE, str(_index_path()), LexicalStore.load)
+    store = path_keyed_singleton(_STORE_CACHE, str(_index_path()), LexicalStore.load)
+    store.sync_from_disk()
+    return store
 
 
 def clear() -> None:

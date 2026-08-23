@@ -699,7 +699,7 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
     """
     from silica.config import CONFIG
     from silica.kernel.link import correlate
-    from silica.kernel.recall.cooccurrence import build_index, get_cooccur_store
+    from silica.kernel.recall.cooccurrence import _index_path, build_index, get_cooccur_store
 
     try:
         all_refs = DRIVER.list_files(folder or None)
@@ -754,7 +754,14 @@ def silica_cooccurrence_refresh(folder: str = "", force: bool = False) -> dict[s
         new_paths = [idx for idx, _, _ in notes if idx not in seeded_before]
         if new_paths:
             correlate.refresh_edges(store, new_paths)
-    store.save()
+    # A refresh that indexed nothing must not rewrite the index. Every graph
+    # export calls this, the file is ~9.5 MB on a 700-note vault, and an
+    # unchanged rewrite still moves the mtime - which is what vault_version()
+    # digests, so the GUI's "vault changed" chip fired after every build of the
+    # graph it had just drawn. force still writes, and so does an absent file:
+    # skipping there would leave the vault with no index and nothing to say so.
+    if force or store.is_dirty() or not _index_path().exists():
+        store.save()
 
     return {
         "indexed": len(store),
@@ -1015,7 +1022,8 @@ def silica_health() -> dict[str, Any]:
     search is degraded; refresh with silica_embed_refresh /
     silica_cooccurrence_refresh and re-run) and `integrity` (differential lint
     across the write-path transforms — under 1.0 the pipeline CORRUPTS note
-    bodies and writes should stop). Full-vault sweep, on demand, not a
+    bodies and writes should stop; null means the vault held no notes and
+    nothing was measured). Full-vault sweep, on demand, not a
     per-write gate. Structural audit of content: silica_vault_report.
     """
     from pathlib import Path

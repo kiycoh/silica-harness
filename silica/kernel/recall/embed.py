@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 import orjson
 
-from silica.kernel.recall.paths import atomic_write_bytes
+from silica.kernel.recall.paths import DiskSynced
 
 _LEGACY_INDEX_PATH = Path.home() / ".silica" / "index" / "embeddings.json"
 
@@ -212,7 +212,7 @@ def _deserialize_notes(raw: bytes) -> dict[str, dict[str, Any]]:
 # EmbedStore
 # ---------------------------------------------------------------------------
 
-class EmbedStore:
+class EmbedStore(DiskSynced):
     """orjson-backed flat index mapping note paths to embedding vectors.
 
     File schema:
@@ -256,6 +256,11 @@ class EmbedStore:
         self._tmat: np.ndarray | None = None
         self._tmat_paths: list[str] = []
         self._tmat_dim: int | None = None
+        # Keys upserted / deleted since the last sync with the file, so a
+        # reload after another process's write can lay them back on top
+        # (DiskSynced). Mutated under _lock like the entries they describe.
+        self._dirty: set[str] = set()
+        self._gone: set[str] = set()
         self._load()
 
     def _invalidate_matrix(self) -> None:
@@ -271,22 +276,21 @@ class EmbedStore:
     # I/O
     # ------------------------------------------------------------------
 
-    def _load(self) -> None:
-        self._invalidate_matrix()
+    def _read_disk(self) -> dict[str, dict[str, Any]]:
         src = self._path
         if not src.exists() and src != _LEGACY_INDEX_PATH and _LEGACY_INDEX_PATH.exists():
             src = _LEGACY_INDEX_PATH  # one-time soft migration: copied forward on next save()
         if not src.exists():
-            return
+            return {}
         try:
             raw = src.read_bytes()
         except Exception:
-            return
+            return {}
         # Sniff the format: npz archives start with the zip magic 'PK'; the
         # legacy index is orjson text starting with '{'. Old files auto-migrate
         # to binary on the next save() — reformat, never re-embed.
         if raw[:2] == b"PK":
-            self._notes = _deserialize_notes(raw)
+            return _deserialize_notes(raw)
         else:
             try:
                 notes = orjson.loads(raw).get("notes", {})
@@ -302,11 +306,28 @@ class EmbedStore:
                         v = entry.get(key)
                         if v is not None and not isinstance(v, np.ndarray):
                             entry[key] = np.asarray(v, dtype=np.float32).ravel()
-                self._notes = notes
+                return notes
             except Exception:
-                self._notes = {}
+                return {}
 
-    def save(self) -> Path:
+    def _take_disk(self, notes: dict[str, dict[str, Any]]) -> None:
+        with self._lock:
+            mine = {p: self._notes[p] for p in self._dirty if p in self._notes}
+            for p in self._gone:
+                notes.pop(p, None)
+            notes.update(mine)
+            self._notes = notes
+            self._invalidate_matrix()
+
+    def _snapshot(self) -> dict[str, dict[str, Any]]:
+        # A SHALLOW copy, not the live dict: _serialize_notes walks it in a
+        # Python loop for ~250 ms, so a concurrent upsert/delete raised
+        # "dictionary changed size during iteration". dict(...) copies pointers
+        # in C under one lock acquisition, and entries are replaced wholesale
+        # (never mutated in place), so the copy is a consistent view.
+        return dict(self._notes)
+
+    def _serialize(self, snapshot: dict[str, dict[str, Any]]) -> bytes:
         # ponytail: a flush reserializes the WHOLE index, ~250 ms / 25.6 MB at 1.2k
         # notes and linear in vault size. It stays off the hot path only because
         # callers batch (refresh_note(save=False), one flush per run). This is the
@@ -314,17 +335,10 @@ class EmbedStore:
         # flush passes ~2 s (~12k notes), and the answer there is sqlite or an
         # append-only shard, NOT a vector DB. See cosine_top_k_batch for why the
         # search side is not the limit.
-        #
-        # Serialize a SHALLOW SNAPSHOT, not the live dict: _serialize_notes walks
-        # it in a Python loop for ~250 ms, so a concurrent upsert/delete raised
-        # "dictionary changed size during iteration". dict(...) copies pointers in
-        # C under one lock acquisition, and entries are replaced wholesale (never
-        # mutated in place), so the snapshot is a consistent view — and the long
-        # serialize then runs outside the lock instead of stalling every search.
-        with self._lock:
-            snapshot = dict(self._notes)
-        atomic_write_bytes(self._path, _serialize_notes(snapshot))
-        return self._path
+        return _serialize_notes(snapshot)
+
+    def _dirty_sets(self) -> tuple[set[str], set[str]]:
+        return (self._dirty, self._gone)
 
     # ------------------------------------------------------------------
     # Mutation
@@ -361,11 +375,15 @@ class EmbedStore:
             if resolved_ch is not None:
                 entry["content_hash"] = resolved_ch
             self._notes[path] = entry
+            self._dirty.add(path)
+            self._gone.discard(path)
             self._invalidate_matrix()
 
     def delete(self, path: str) -> None:
         with self._lock:
             self._notes.pop(path, None)
+            self._gone.add(path)
+            self._dirty.discard(path)
             self._invalidate_matrix()
 
     # ------------------------------------------------------------------
@@ -637,11 +655,15 @@ def get_store() -> "EmbedStore":
 
     A process-lifetime singleton per resolved index path: readers stop
     re-deserialising the index, and the write path mutates the same instance
-    every reader sees (no reload needed for consistency). Use `clear()` in tests.
+    every reader sees. The one reload that does happen is another PROCESS's
+    write, caught by stamp on every lookup (paths.DiskSynced). Use `clear()`
+    in tests.
     """
     from silica.kernel.recall.paths import path_keyed_singleton
     with _STORE_CACHE_LOCK:
-        return path_keyed_singleton(_STORE_CACHE, str(_index_path()), EmbedStore)
+        store = path_keyed_singleton(_STORE_CACHE, str(_index_path()), EmbedStore)
+    store.sync_from_disk()  # outside the cache lock: a reload takes the store's own
+    return store
 
 
 def clear() -> None:
