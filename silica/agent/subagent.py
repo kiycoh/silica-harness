@@ -52,7 +52,8 @@ def _item_provenance(item: Any) -> tuple[str, str, str] | None:
 
 
 def consume(wq: Any, agent: "BoundedSubAgent", stop: Any = None,
-            undo_run: Any = None) -> None:
+            undo_run: Any = None, parent_span: str | None = None,
+            run_id: str | None = None) -> None:
     """One consumer thread: claim → handle → complete until the queue closes.
 
     THE consumer loop — shared by the Coordinator's in-run pool and the ad-hoc
@@ -66,6 +67,14 @@ def consume(wq: Any, agent: "BoundedSubAgent", stop: Any = None,
     from silica.agent.bus import BUS
     from silica.agent.commit import _current_provenance, _current_undo_run
     from silica.agent.events import WorkCancelledEvent
+    from silica.agent import narration as _narr_mod
+
+    # Thread contexts are born empty: rebind the run/parent anchors the
+    # submitting thread held, so children attribute to the run span.
+    if run_id is not None:
+        _narr_mod.set_run(run_id)
+    if parent_span is not None:
+        _narr_mod.set_parent(parent_span)
 
     while True:
         item = wq.claim()               # blocks; no timeout, no polling
@@ -77,17 +86,41 @@ def consume(wq: Any, agent: "BoundedSubAgent", stop: Any = None,
                 "work/cancelled",
                 WorkCancelledEvent(item.id, item.kind, "pre_handle"),
             )
+            _narr_mod.NARRATOR.narrate(
+                "subagent", "cancelled", f"{item.kind} cancelled at pre_handle",
+                {"kind": item.kind, "phase": "pre_handle"}, id=item.id)
             continue
+        # The subagent span (spec §4): this worker thread starts with an empty
+        # context, so attach makes every inner beat (calls, writes) carry
+        # item.id as parent — the attribution that keeps parallel appends
+        # unambiguous.
+        _narr_mod.NARRATOR.span_open(
+            "subagent", item.id, f"{item.kind} {item.target_path}".strip(),
+            {"kind": item.kind}, attach=True)
         tok = _current_provenance.set(_item_provenance(item))
         run_tok = (_current_undo_run.set(undo_run())
                    if undo_run is not None else None)
         try:
             res = agent.handle(item)
+        except BaseException:
+            _narr_mod.NARRATOR.span_close("subagent", item.id, "failed",
+                                          f"{item.kind} crashed", {"kind": item.kind})
+            raise
         finally:
             _current_provenance.reset(tok)
             if run_tok is not None:
                 _current_undo_run.reset(run_tok)
         wq.complete(item, res.get("status", "done"), res)
+        status = res.get("status", "done")
+        mapped = {"error": "failed", "cancelled": "cancelled"}.get(status, "done")
+        # `done` carries the queue's richer verdict (no_merge/skipped/…) in the
+        # summary: the axis stays three-valued, the truth stays visible.
+        _narr_mod.NARRATOR.narrate(
+            "work", mapped, f"{item.kind} {status}",
+            {"kind": item.kind, "status": status}, id=f"wk-{item.id}")
+        _narr_mod.NARRATOR.span_close(
+            "subagent", item.id, mapped,
+            f"{item.kind} {status}", {"kind": item.kind, "status": status})
 
 
 def run_subagent_batch(

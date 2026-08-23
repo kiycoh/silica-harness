@@ -41,6 +41,7 @@ from silica.agent.events import (
     LLMStreamEvent,
 )
 from silica.agent.llm import call_llm
+from silica.agent import narration as _narr_mod
 from silica.agent.compaction import (
     COMPACT_FLOOR_TURNS,
     COMPACT_FRACTION,
@@ -268,6 +269,12 @@ def run_agent(
         topic = _topic_for(event)
         if topic is not None:
             _bus_mod.BUS.publish(topic, event)
+        # Durable record: one adapter call, all render-event kinds (spec §4).
+        # Best-effort like the callback above — narration must never kill a turn.
+        try:
+            _narr_mod.NARRATOR.on_render_event(event)
+        except Exception as exc:
+            logger.debug("narration adapter error (swallowed): %s", exc)
 
     # Set once the main thread stops waiting on the LLM (Ctrl+C or normal return).
     # The LLM runs on a detached daemon thread that keeps streaming deltas after an
@@ -344,7 +351,16 @@ def run_agent(
                 resp = _interruptible_llm(_llm_kwargs)
         finally:
             _emit(ThinkingEndEvent(iteration=iteration))
+        # Closed here and not in the adapter: the reasoning text only exists
+        # once resp does, and the durable thought carries it whole (spec §4).
+        _narr_mod.NARRATOR.thought_close(resp.reasoning or "")
         messages.append(resp.assistant_message)
+        # Only intermediate (tool-calling) assistant messages narrate here.
+        # The FINAL one is narrated by the caller after attribution mutates
+        # messages[-1] in place (WebTurn.attribute appends the Sources block):
+        # narrating it now would freeze the pre-citation text into the replay.
+        if resp.tool_calls:
+            _narr_mod.NARRATOR.turn(resp.assistant_message)
 
         if resp.reasoning:
             _emit(ReasoningEvent(text=resp.reasoning, iteration=iteration))
@@ -377,6 +393,7 @@ def run_agent(
         prompt_tokens = resp.usage.get("prompt_tokens") or sum(
             len(str(m.get("content") or "")) for m in messages
         ) // 4
+        _pre_collapsed = set(collapsed)
         collapsed = compact_read_history(
             messages,
             collapsed,
@@ -385,6 +402,14 @@ def run_agent(
             floor_turns=COMPACT_FLOOR_TURNS,
             tools=TOOLS,
         )
+        _newly = sorted(set(collapsed) - _pre_collapsed)
+        if _newly:
+            # Without this beat the turn beats alone cannot reconstruct the
+            # live context (ticket 05): the elision would be invisible.
+            _narr_mod.NARRATOR.narrate("compaction", "done",
+                              f"compacted {len(_newly)} message(s)",
+                              {"indices": _newly, "prompt_tokens": prompt_tokens},
+                              parent=None)
 
         # Dispatch each tool call
         pending_notices: list[dict] = []  # A34: convergence warnings, flushed AFTER
@@ -470,13 +495,13 @@ def run_agent(
             if not failed and tc.name in allowed and allowed[tc.name].collapse == "eager":
                 result = eager_stub(allowed[tc.name], result)
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result,
-                }
-            )
+            tool_msg = {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            }
+            messages.append(tool_msg)
+            _narr_mod.NARRATOR.turn(tool_msg)
 
             # Update convergence guard
             if failed:
@@ -526,6 +551,7 @@ def run_agent(
         notice = _budget_notice(iteration, max_iterations)
         if notice is not None:
             messages.append(notice)
+            _narr_mod.NARRATOR.turn(notice)
 
         # Loop continues: re-call LLM with tool results
 
@@ -545,6 +571,7 @@ def run_agent(
         logger.info("Agent loop cancelled before the final turn")
         return "(silica: cancelled)"
     messages.append({"role": "system", "content": _FINAL_TURN_INSTRUCTION})
+    _narr_mod.NARRATOR.turn(messages[-1])
     _emit(ThinkingStartEvent(iteration=iteration))
     try:
         slot = nullcontext() if _interactive else worker_slot()
@@ -559,4 +586,9 @@ def run_agent(
         return "(silica: maximum iterations reached)"
     finally:
         _emit(ThinkingEndEvent(iteration=iteration))
-    return (final.text or "").strip() or "(silica: maximum iterations reached)"
+    _narr_mod.NARRATOR.thought_close(final.reasoning or "")
+    text = (final.text or "").strip() or "(silica: maximum iterations reached)"
+    # The landing answer never reaches messages here (callers print it), so the
+    # narration records it explicitly or the transcript ends mid-question.
+    _narr_mod.NARRATOR.turn({"role": "assistant", "content": text})
+    return text

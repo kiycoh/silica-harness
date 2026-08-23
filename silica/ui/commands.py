@@ -261,8 +261,8 @@ COMMANDS: tuple[Command, ...] = (
     Command(
         name="/revert",
         group="direct",
-        usage="[run-id]",
-        summary="revert a whole injection (per-run, LIFO)",
+        usage="[run-id | --source <file>]",
+        summary="revert a whole injection (per-run, LIFO), or every run derived from one source",
     ),
     Command(
         name="/dedup",
@@ -327,6 +327,29 @@ COMMANDS: tuple[Command, ...] = (
         summary="list notes flagged contested: true with their unresolved contradictions",
     ),
     # System
+    Command(
+        name="/sessions",
+        group="system",
+        usage="[prune <days>d]",
+        summary="list saved conversations (narration + legacy); prune deletes old ones",
+        examples=("/sessions", "/sessions prune 90d"),
+        repl_only=True,
+    ),
+    Command(
+        name="/resume",
+        group="system",
+        usage="<n|id>",
+        summary="reopen a saved conversation and continue it",
+        examples=("/resume 1",),
+        repl_only=True,
+    ),
+    Command(
+        name="/new",
+        group="system",
+        usage="",
+        summary="start a fresh conversation (same as /clear); the old one stays resumable",
+        repl_only=True,
+    ),
     Command(
         name="/vault",
         group="system",

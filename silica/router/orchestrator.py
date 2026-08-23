@@ -492,8 +492,11 @@ class InjectorFSM(BaseFSM[InjectorState]):
         try:
             from silica.agent.events import PhaseEvent
             from silica.ui.renderer import emit_phase
-            emit_phase(PhaseEvent(phase=capability_name, status=status,
-                                  **self._phase_position(capability_name)))
+            from silica.agent import narration as _narr_mod
+            pe = PhaseEvent(phase=capability_name, status=status,
+                            **self._phase_position(capability_name))
+            emit_phase(pe)
+            _narr_mod.NARRATOR.on_render_event(pe)   # durable twin of the bus event
         except Exception:
             pass
 
@@ -642,6 +645,31 @@ class InjectorFSM(BaseFSM[InjectorState]):
             logger.warning("%s: failed to save deferred ops: %s", phase, _de)
             return False
 
+    def _note_renucleation(self, inbox_file: str, content_hash: str) -> None:
+        """Record that `inbox_file` was nucleated before at another version.
+
+        The ledger knew (check_renucleate existed, tested, uncalled) and the
+        user was never told that the notes of the previous version stay in
+        place beside the new ones. No prompt belongs in this path, which runs
+        headless from the GUI and MCP, so the fact is said where it can be
+        acted on: the log at start, the run report (`files_summary`) and the
+        completion line at the end, each naming the count and the command
+        that is the operator's actual choice, `/revert --source`.
+        """
+        if not content_hash:
+            return  # an unreadable file makes no claim about its history
+        from silica.kernel.write.provenance import check_renucleate
+
+        basename = os.path.basename(inbox_file)
+        modified, prior = check_renucleate(basename, content_hash)
+        if not modified:
+            return
+        self.context.setdefault("renucleated", {})[basename] = prior
+        logger.warning(
+            "NUCLEATE: %s changed since its last nucleation; %d note(s) derive from "
+            "the previous version and stay in place (/revert --source %s removes them)",
+            basename, prior, basename)
+
     def run(self) -> dict[str, Any]:
         """Execute the pipeline end-to-end (single or multi-file)."""
         from silica.kernel.write.ledger import get_ledger
@@ -668,6 +696,7 @@ class InjectorFSM(BaseFSM[InjectorState]):
                     content_bytes = b""  # never carry the previous file's bytes forward
                     content_hash = ""
             self._file_content_hashes.append(content_hash)
+            self._note_renucleation(inbox_file, content_hash)
             # Resolve the event clock once per file, off the bytes already read.
             # None (undated source) stamps nothing: the run date is the ingest
             # clock, and stamping it as valid_from would feed note_clock a fake
@@ -693,8 +722,12 @@ class InjectorFSM(BaseFSM[InjectorState]):
 
         # Only open a journal run when the pipeline will actually execute writes.
         from silica.kernel.write.undo_journal import get_undo_journal
+        # The ledger's run id travels with the journal row: it is the join
+        # `/revert --source` needs, and the journal's own uuid is a different
+        # keyspace that the ledger never sees.
         self._undo_run_id = get_undo_journal().start_run(
-            source=self.inbox_file, vault=getattr(CONFIG, "vault_path", None) or None
+            source=self.inbox_file, vault=getattr(CONFIG, "vault_path", None) or None,
+            ledger_run_id=getattr(getattr(self, "progress", None), "run_id", None),
         )
 
         # Fix A: repair index drift before this run reads the indexes — crash

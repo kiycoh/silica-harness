@@ -216,6 +216,18 @@ def commit_ops(
         ]
         lease_paths = sorted({p for p, _, _ in touched})
 
+        # The write-gate lane (spec §4): what is about to touch the vault and
+        # why, narrated from the material this function already computed.
+        from silica.agent import narration as _narr_mod
+        import uuid as _uuid
+        _wid = f"w-{_uuid.uuid4().hex[:8]}"
+        _narr_mod.NARRATOR.narrate(
+            "write", "proposed",
+            f"write {len(touched)} note(s): " + ", ".join(p for p, _, _ in touched[:3])
+            + ("…" if len(touched) > 3 else ""),
+            {"touched": touched, "rejected_by_bounds": len(rejected_by_bounds)},
+            id=_wid)
+
         with ExitStack() as stack:
             # Deterministic lock ordering (sorted) avoids deadlock between sub-agents.
             for p in lease_paths:
@@ -235,6 +247,13 @@ def commit_ops(
                     reason["rollback_error"] = str(e)
                 reason.update({"status": "rolled_back", "committed": 0, "txn_id": txn_id,
                                "rejected_by_bounds": rejected_by_bounds})
+                _narr_mod.NARRATOR.narrate(
+                    "write", "rolled_back",
+                    f"rolled back {len(touched)} note(s): "
+                    + str(reason.get("error") or reason.get("lint_failures") or "")[:80],
+                    {"txn_id": txn_id, "reason": {k: v for k, v in reason.items()
+                                                  if k in ("error", "lint_failures")}},
+                    id=_wid)
                 return reason
 
             wres = silica_bulk_write(ops_path)
@@ -258,6 +277,11 @@ def commit_ops(
             _journal_inverses(undo_run_id, inverses)
         _append_provenance(undo_run_id, touched)
 
+        _narr_mod.NARRATOR.narrate(
+            "write", "committed",
+            f"committed {wres.get('successful', len(lease_paths))} note(s), txn {txn_id[:8]}",
+            {"txn_id": txn_id, "committed": wres.get("successful", len(lease_paths))},
+            id=_wid)
         return {
             "status": "committed",
             "committed": wres.get("successful", len(lease_paths)),

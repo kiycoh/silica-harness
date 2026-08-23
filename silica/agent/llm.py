@@ -476,6 +476,53 @@ def call_llm(
     api_key: str | None = None,
     reasoning: bool | None = None,
 ) -> LLMResponse:
+    """Narrating wrapper around the real call (`_call_llm`).
+
+    One graft point covers every LLM call in the process — the loop, the
+    subagents, the distill pool — which is why the `call` beat lives here and
+    not at each caller (spec §4). No open session → narrate() no-ops, so
+    batch entry points pay one dict lookup and nothing else.
+    """
+    from silica.agent.narration import NARRATOR
+    import uuid as _uuid
+    cid = f"c-{_uuid.uuid4().hex[:8]}"
+    t0 = time.time()
+    NARRATOR.span_open("call", cid, f"llm {model}", {"model": model})
+    try:
+        resp = _call_llm(model, messages, tools, max_tokens, response_format,
+                         temperature, on_delta, openrouter_provider, cancel,
+                         api_key, reasoning)
+    except Exception as e:
+        NARRATOR.span_close("call", cid, "failed",
+                            f"llm {model} failed: {str(e)[:80]}",
+                            {"model": model, "error": str(e),
+                             "duration_s": round(time.time() - t0, 3)})
+        raise
+    u = resp.usage or {}
+    NARRATOR.span_close(
+        "call", cid, "done",
+        f"llm {model} {u.get('prompt_tokens', '?')}→{u.get('completion_tokens', '?')} tok",
+        {"model": model, "prompt_tokens": u.get("prompt_tokens"),
+         "completion_tokens": u.get("completion_tokens"),
+         "cached_tokens": _cached_tokens(u) if u else 0,
+         "duration_s": round(time.time() - t0, 3),
+         "finish_reason": resp.finish_reason})
+    return resp
+
+
+def _call_llm(
+    model: str,
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    max_tokens: int | None = None,
+    response_format=None,
+    temperature: float | None = None,
+    on_delta: Callable[[str, str], None] | None = None,
+    openrouter_provider: str | None = None,
+    cancel: threading.Event | None = None,
+    api_key: str | None = None,
+    reasoning: bool | None = None,
+) -> LLMResponse:
     """Call the LLM with function-calling support.
 
     Args:

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for the silica-agent test suite."""
+"""Shared pytest fixtures for the silica-harness test suite."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,6 +11,18 @@ def _fresh_bus(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reset the global BUS singleton for every test to prevent cross-test contamination."""
     import silica.agent.bus as bus_mod
     monkeypatch.setattr(bus_mod, "BUS", bus_mod.EventBus())
+
+
+@pytest.fixture(autouse=True)
+def _fresh_narrator(monkeypatch: pytest.MonkeyPatch):
+    """Fresh NARRATOR per test, same contract as _fresh_bus: the singleton
+    holds an open file handle + flock, so a leaked one would pin a tmp dir
+    (and a beat from one test could land in another's session)."""
+    import silica.agent.narration as narration_mod
+    fresh = narration_mod.Narrator()
+    monkeypatch.setattr(narration_mod, "NARRATOR", fresh)
+    yield fresh
+    fresh.close()
 
 
 @pytest.fixture(autouse=True)

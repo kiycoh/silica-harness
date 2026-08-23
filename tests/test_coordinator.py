@@ -262,7 +262,7 @@ def test_consumer_threads_resolve_the_run_id_lazily_not_at_thread_entry():
 
     seen = {}
 
-    def _fake_consume(wq, agent, stop=None, undo_run=None):
+    def _fake_consume(wq, agent, stop=None, undo_run=None, **narration_kw):
         fsm._undo_run_id = "run-xyz"          # the FSM opens its run meanwhile
         seen["at_item"] = undo_run() if undo_run else None
 

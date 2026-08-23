@@ -190,3 +190,36 @@ def test_compact_context_noop_under_budget(monkeypatch):
 
     assert cli._compact_context(messages, set()) == set()
     assert CONFIG.context_tokens == 10  # no recount on the no-op path
+
+
+def test_context_breakdown_parts_sum_to_the_single_count():
+    """The context ring prints the three parts and the total side by side, so a
+    reader can add them up. litellm bills a fixed chat envelope per CALL, and
+    counting three groups separately therefore over-reports by two envelopes;
+    _context_breakdown charges it once. Without that subtraction the panel shows
+    parts that do not reach the total beside them.
+    """
+    from silica.cli import _context_breakdown, _count_context_tokens
+
+    msgs = [
+        {"role": "system", "content": "You are silica. " * 40},
+        {"role": "user", "content": "what do I know about ethics?"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "type": "function",
+             "function": {"name": "silica_recall", "arguments": '{"query": "ethics"}'}}]},
+        {"role": "tool", "tool_call_id": "a", "content": "Etica.md\n" * 60},
+        {"role": "assistant", "content": "You have several notes." * 10},
+    ]
+    parts = _context_breakdown(msgs)
+    assert sum(parts.values()) == _count_context_tokens(msgs)
+    # An assistant turn that carries a call is billed to tools, not to the
+    # conversation: its arguments are what filled the window, and its content is
+    # empty by construction.
+    assert parts["tools"] > parts["messages"] > 0
+    assert parts["system"] > 0
+
+    # A window missing a whole group still adds up: the envelope is charged to
+    # whichever group happens to be first, not to `system` by name.
+    only_user = [msgs[1]]
+    assert sum(_context_breakdown(only_user).values()) == _count_context_tokens(only_user)
+    assert _context_breakdown([]) == {"system": 0, "tools": 0, "messages": 0}

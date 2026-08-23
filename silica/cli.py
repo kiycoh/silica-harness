@@ -68,6 +68,45 @@ def _update_context_tokens(messages: list[dict]) -> None:
     CONFIG.context_tokens = _count_context_tokens(messages)
 
 
+# What put a message in the window. `tools` takes the assistant turns that carry
+# tool_calls as well as the results: the arguments are what the model paid to
+# emit, and an assistant message holding a call carries no prose worth billing to
+# the conversation.
+def _context_group(m: dict) -> str:
+    role = m.get("role")
+    if role == "system":
+        return "system"
+    if role == "tool" or (role == "assistant" and m.get("tool_calls")):
+        return "tools"
+    return "messages"
+
+
+def _context_breakdown(messages: list[dict]) -> dict[str, int]:
+    """The same window `_count_context_tokens` totals, split by what filled it.
+
+    Three counter calls, not one per message: litellm bills a fixed chat envelope
+    per CALL (3 tokens on every model measured 2026-08-22, including the empty
+    list), so per-message counting would over-report by 3 tokens each. Charging
+    the envelope once and subtracting it from the other two groups makes the
+    three parts sum to exactly what one call over the whole list returns, which
+    is what lets the meter print the parts and the total without them
+    disagreeing in front of the user.
+    """
+    groups: dict[str, list[dict]] = {"system": [], "tools": [], "messages": []}
+    for m in messages:
+        groups[_context_group(m)].append(m)
+    counts = {k: (_count_context_tokens(v) if v else 0) for k, v in groups.items()}
+    envelope = _count_context_tokens([])
+    charged = False
+    for k, v in counts.items():
+        if not v:
+            continue
+        if charged:
+            counts[k] = max(0, v - envelope)
+        charged = True
+    return counts
+
+
 def _compact_context(messages: list[dict], collapsed: set[int]) -> set[int]:
     """Collapse old read-tool results once the context meter crosses the budget.
 
@@ -600,7 +639,26 @@ def _dc_vault(args: list[str], **_) -> bool:
 
 
 def _dc_status(args: list[str], **_) -> bool:
-    """/status [run_id] — progress of the newest run, or of the one named."""
+    """/status [run_id] — progress of the newest run, or of the one named.
+
+    The bare form now opens with the narration's view of THIS session
+    (ticket 12): running spans, context pressure, spend — the same fold the
+    surfaces render, so /status cannot disagree with them. The ledger digest
+    below it stays: it answers recovery, which narration refuses to carry.
+    """
+    if not args:
+        from silica.agent import narration as _narr
+        sid = _narr.NARRATOR.sid
+        if sid is not None:
+            st = _narr.fold_all(_narr.read_beats(_narr.narration_dir() / f"{sid}.jsonl"))
+            running = [sv for sv in st.spans.values() if sv.ended_ts is None]
+            CONSOLE.print(f"  session [bold]{sid}[/] · beat {st.cursor}"
+                          f" · context {st.context_tokens:,} tok"
+                          f" · spent {st.cost_tokens:,} tok out")
+            for sv in running[:10]:
+                CONSOLE.print(f"    [cyan]{sv.kind}[/] {sv.summary} [dim](running)[/]")
+            if st.gaps:
+                CONSOLE.print(f"  [yellow]gaps in the record: {st.gaps}[/]")
     from silica.tools import TOOLS
 
     run_id = args[0] if (len(args) + 1) > 1 else ""
@@ -1099,11 +1157,51 @@ def _dc_undo(args: list[str], *, raw_input: str = "", **_) -> bool:
     return True
 
 
+def _revert_by_source(source: str, vault: str | None) -> bool:
+    """Every journalled run the ledger attributes to `source`, newest first,
+    scoped to that source's notes; what the journal does not hold is named,
+    never guessed at (legacy runs predate the join and stay /revert <run-id>)."""
+    from silica.kernel.write.undo_journal import revert_source
+
+    res = revert_source(source, vault=vault)
+    runs = res["runs"]
+    reverted = sum(len(r["reverted"]) for r in runs)
+    skipped = sum(len(r["skipped"]) for r in runs)
+    errors = sum(len(r["errors"]) for r in runs)
+    left = sum(u["notes"] for u in res["unrevertable"])
+    line = (f"  Revert by source {source}: {len(runs)} run(s), {reverted} writes "
+            f"reverted, {skipped} skipped, {errors} errors.")
+    if res["unrevertable"]:
+        line += (f" {len(res['unrevertable'])} run(s) not in the undo journal: "
+                 f"{left} note(s) left in place (/revert <run-id> still applies "
+                 f"to journalled runs).")
+    if not runs and not res["unrevertable"]:
+        line = f"  Nothing to revert — the ledger has no record of {source}."
+    CONSOLE.print(line)
+    try:
+        from silica.kernel.recall.run_log import append_log_line, format_revert_event
+        for r in runs:
+            append_log_line(
+                format_revert_event(source, len(r["reverted"]), len(r["skipped"])),
+                r["run_id"],
+            )
+    except Exception:
+        pass  # the journal is a courtesy, never a failure path
+    return True
+
+
 def _dc_revert(args: list[str], *, raw_input: str = "", **_) -> bool:
-    """/revert [run-id] — undo a whole journalled run."""
+    """/revert [run-id | --source <file>] — undo a journalled run, or every run
+    that derived notes from one source."""
     from silica.kernel.write.undo_journal import get_undo_journal, revert_run
-    parts_split = raw_input.strip().split(maxsplit=1)
     vault = CONFIG.vault_path.strip() or None
+    tokens = list(args) or raw_input.strip().split()[1:]
+    source = next((t.split("=", 1)[1] for t in tokens if t.startswith("--source=")), "")
+    if "--source" in tokens and tokens.index("--source") + 1 < len(tokens):
+        source = tokens[tokens.index("--source") + 1]
+    if source:
+        return _revert_by_source(source, vault)
+    parts_split = raw_input.strip().split(maxsplit=1)
     run_id = parts_split[1].strip() if len(parts_split) > 1 else get_undo_journal().last_active_run(vault=vault)
     if not run_id:
         CONSOLE.print("  Nothing to revert — no runs recorded for this vault.")
@@ -1189,8 +1287,12 @@ def _dc_curate(args: list[str], **_) -> bool:
 
     total = res.get("total", 0)
     counts = res.get("counts", {})
+    vetoed = res.get("vetoed", [])
     if total == 0:
         CONSOLE.print("  Nothing to do — the vault is coherent.")
+        # A veto is a finding, not a clean bill: say what was held back.
+        for it in vetoed:
+            CONSOLE.print(f"  · [dim]held[/]  {it['target']}  ({it['reason']})")
         return True
 
     breakdown = ", ".join(f"{v} {k}" for k, v in counts.items())
@@ -1209,6 +1311,8 @@ def _dc_curate(args: list[str], **_) -> bool:
         for it in res.get("items", []):
             pair = f" ↔ {it['partner']}" if it.get("partner") else ""
             CONSOLE.print(f"  · [bold]{it['kind']}[/]  {it['target']}{pair}")
+        for it in vetoed:
+            CONSOLE.print(f"  · [dim]held[/]  {it['target']}  ({it['reason']})")
         CONSOLE.print('  Run [bold]/curate --apply[/] to execute, or ask e.g. "apply only dedup".')
     return True
 
@@ -1369,6 +1473,12 @@ def _seed_batch_ledger(cap: str, payloads: list[dict], *, kind: str, label: str)
         task.input_ref = payload_path
     run.save()
     emit_batch_event(BatchRunStartEvent(run_id=run.run_id, kind=kind, label=label, total=len(payloads)))
+    from silica.agent import narration as _narr_mod
+    # Left running on purpose: a seeded ledger IS pending until executed, and
+    # a projection showing it running is the truth, not a leak.
+    _narr_mod.NARRATOR.span_open(
+        "run", f"run-{run.run_id}", f"{kind} {label}: {len(payloads)} batch(es)",
+        {"run_id": run.run_id, "kind": kind, "total": len(payloads)})
     return (
         f"A ledger for /{kind} has been created with {len(payloads)} chunk(s) "
         f"(run_id={run.run_id}). Use `silica_ledger_next` with this run_id to execute them."
@@ -2370,6 +2480,11 @@ def _nucleate_result_line(result: dict) -> str:
     ]
     if bits:
         extra += " — " + ", ".join(bits)
+    # A re-nucleated source keeps its previous derivation beside the new one;
+    # the line says so and names the way back, since no prompt stood in the way.
+    for src, n in sorted((result.get("renucleated") or {}).items()):
+        extra += (f" — {src} re-nucleated: {n} note(s) from its previous version "
+                  f"kept (/revert --source {src} removes them)")
     return f"[bold]{status}[/]{extra}"
 
 
@@ -3114,6 +3229,64 @@ def _handle_slash_command(cmd: str, messages: list[dict]) -> bool | None:
     if cmd in ("/exit", "/quit", "/q"):
         return False  # Signal to exit
 
+    if cmd.startswith("/sessions"):
+        from silica.agent import narration as _narr
+        arg = cmd.split(None, 2)[1:] if len(cmd.split()) > 1 else []
+        if arg and arg[0] == "prune":
+            # Deletion is the user's sentence to write: an explicit age, no
+            # default (ticket 06).
+            if len(arg) < 2 or not arg[1].rstrip("d").isdigit():
+                CONSOLE.print("  usage: /sessions prune <days>d   e.g. /sessions prune 90d")
+                return True
+            n = _narr.prune(float(arg[1].rstrip("d")))
+            CONSOLE.print(f"  pruned {n} narration session(s)")
+            return True
+        rows = _narr.list_sessions(CONFIG.vault_path or "")
+        if not rows:
+            CONSOLE.print("  no saved sessions for this vault")
+            return True
+        import datetime as _dt
+        for i, r in enumerate(rows[:20], 1):
+            when = _dt.datetime.fromtimestamp(r["updated"]).strftime("%Y-%m-%d %H:%M")
+            tag = "" if r["store"] == "narration" else " [dim](legacy)[/]"
+            CONSOLE.print(f"  {i:>2}. [bold]{r['title']}[/]{tag}  [dim]{when} · {r['id']}[/]")
+        CONSOLE.print("  [dim]/resume <n|id> to reopen[/]")
+        return True
+
+    if cmd.startswith("/resume"):
+        from silica.agent import narration as _narr
+        parts = cmd.split()
+        if len(parts) != 2:
+            CONSOLE.print("  usage: /resume <n|id>  (list with /sessions)")
+            return True
+        rows = _narr.list_sessions(CONFIG.vault_path or "")
+        sel = parts[1]
+        sid = (rows[int(sel) - 1]["id"] if sel.isdigit() and 0 < int(sel) <= len(rows)
+               else sel)
+        replayed = _narr.load_session_messages(sid, CONFIG.vault_path or "")
+        if replayed is None:
+            CONSOLE.print(f"  no such session: {sel}")
+            return True
+        row = next((r for r in rows if r["id"] == sid), None)
+        if row and row["store"] == "narration":
+            try:
+                _narr.NARRATOR.resume(sid)
+            except _narr.SessionBusy as e:
+                CONSOLE.print(f"  [bold red]{e}[/]")
+                return True
+        else:
+            # Legacy snapshot: continue it as a NEW narration session seeded
+            # with its turns — emit new, recognise legacy (ticket 05).
+            _narr.NARRATOR.close()
+            _narr.NARRATOR.ensure_session(driver="tui")
+            for m in replayed:
+                _narr.NARRATOR.turn(m)
+        messages[:] = _fresh_messages() + replayed
+        _update_context_tokens(messages)
+        CONSOLE.print(f"  resumed [bold]{(row or {}).get('title', sid)}[/] "
+                      f"({len(replayed)} message(s))")
+        return True
+
     if cmd == "/model":
         if not CONFIG.model:
             CONSOLE.print("  Current model: [bold](not configured)[/]")
@@ -3255,9 +3428,10 @@ Usage:
   silica --gui [--port N]    serve the web GUI (default http://localhost:8765)
   silica doctor [--live]     check the environment (--json for machine output)
   silica init [--advanced]   first-run wizard
-  silica setup <client>      register the MCP server (claude, codex, opencode)
+  silica setup <client>      register the MCP server (claude, codex, opencode, dsh)
   silica connect             bridge to the Obsidian desktop app
   silica mcp [--all]         serve the vault over stdio MCP
+  silica hook <event>        harness hook producer (SessionStart); stdin = payload
   silica import <path>       import external material into the vault
   silica update [--check]    self-update
   silica --version           print the version and exit
@@ -3303,6 +3477,14 @@ def _dispatch_subcommand(args: list[str]) -> int | None:
         try:
             import silica.capture as capture_mod
             return capture_mod.run_capture(sys.stdin.read())
+        except Exception:
+            return 0
+    if args[:1] == ["hook"]:
+        # Same contract as capture above: the vault comes from the payload's
+        # cwd, and fail-open covers the import too.
+        try:
+            import silica.hook as hook_mod
+            return hook_mod.run_hook(args[1:], sys.stdin.read())
         except Exception:
             return 0
     if args[:1] == ["import"]:
@@ -3353,7 +3535,7 @@ def _dispatch_subcommand(args: list[str]) -> int | None:
                 checks.render_report(results)
         if as_json:
             print(json.dumps(checks.report_payload(results), ensure_ascii=False, indent=2))
-        return 1 if checks.has_failures(results) else 0
+        return checks.exit_code(results)
     if args[:1] == ["init"]:
         import silica.onboarding.wizard as wizard_mod
         return wizard_mod.run_wizard(advanced="--advanced" in args[1:])
@@ -3597,7 +3779,7 @@ def main():
                 )
                 continue
 
-            if cmd == "/clear":
+            if cmd in ("/clear", "/new"):
                 # Before the wipe: /clear destroys this conversation, so the
                 # session's own end envelope will not contain it.
                 if not incognito:
@@ -3607,6 +3789,9 @@ def main():
                 print_home()
                 messages[:] = _fresh_messages()
                 collapsed = set()  # indices reset with the history
+                from silica.agent import narration as _narr
+                _narr.NARRATOR.close()          # next user turn opens a fresh sid
+                session_id = uuid.uuid4().hex[:12]
                 continue
 
             result = _handle_slash_command(user_input, messages)
@@ -3639,6 +3824,13 @@ def main():
             msg["origin"] = "cli"
         messages.append(msg)
 
+        # Born at the first user turn (spec §5); idempotent afterwards. The
+        # sid is capture's session_id so the two records share one id space.
+        from silica.agent import narration as _narr
+        _narr.NARRATOR.ensure_session(driver="tui", sid=session_id)
+        session_id = _narr.NARRATOR.sid or session_id   # /resume may have switched it
+        _narr.NARRATOR.turn(msg)
+
         # Both wrappers forward every event to the renderer untouched: WebTurn
         # records the trace the citations are built from, RecallWatch counts
         # recall misses for the thin-coverage hint.
@@ -3664,6 +3856,10 @@ def main():
                 from silica.sources.web_research import relay_sources
 
                 answer = relay_sources(answer, messages)
+            # Final-assistant turn beat, post-attribution (see loop.py): the
+            # replay must carry what the user actually read, sources included.
+            if messages and messages[-1].get("role") == "assistant":
+                _narr.NARRATOR.turn(messages[-1])
             if answer:
                 CONSOLE.print()
                 CONSOLE.print("[role.assistant]⏺ silica[/]")
@@ -3677,6 +3873,8 @@ def main():
             collapsed = _compact_context(messages, collapsed)
         except KeyboardInterrupt:
             callback.close()
+            from silica.agent import narration as _narr
+            _narr.NARRATOR.cancel(driver="tui", target=None, scope="turn")
             CONSOLE.print("\n  [dim](interrupted)[/]")
         except Exception as e:
             callback.close()
@@ -3686,6 +3884,8 @@ def main():
     # Every exit from the REPL passes here: /exit, Ctrl+D, Ctrl+C at the prompt.
     if not incognito:
         capture_session(messages, session_id=session_id, driver="tui")
+    from silica.agent import narration as _narr
+    _narr.NARRATOR.close()
 
 
 if __name__ == "__main__":

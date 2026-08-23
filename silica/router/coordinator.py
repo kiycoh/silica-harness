@@ -78,6 +78,17 @@ class Coordinator:
         self._run_started: float | None = time.time()
 
         run_dir = getattr(self.fsm.progress, "run_dir", None)
+        _run_id = getattr(self.fsm.progress, "run_id", None)
+        from silica.agent import narration as _narr_mod
+        # The run span (spec §4). set_run binds the ambient run id so every
+        # beat this thread emits joins the existing ledger id space; consumer
+        # threads start with empty contexts, so their beats attribute through
+        # the subagent span instead — both roads lead back to this run.
+        _run_tok = _narr_mod.set_run(_run_id)
+        _narr_mod.NARRATOR.span_open(
+            "run", f"run-{_run_id or 'adhoc'}",
+            f"nucleate {len(getattr(self.fsm, 'inbox_files', []) or [])} file(s)",
+            {"run_id": _run_id}, attach=True)
         wq = WorkQueue(run_dir=run_dir)
         self.fsm.work_queue = wq
         self.fsm.warning_ledger = WarningLedger(run_dir=run_dir)
@@ -113,6 +124,13 @@ class Coordinator:
                 pool.shutdown(wait=False, cancel_futures=True)
             else:
                 pool.shutdown(wait=True)
+            _narr_mod.NARRATOR.span_close(
+                "run", f"run-{_run_id or 'adhoc'}",
+                "cancelled" if self._stop.is_set() else "done",
+                f"run {_run_id or ''} "
+                + ("cancelled" if self._stop.is_set() else "finished"),
+                {"run_id": _run_id})
+            _narr_mod.reset_run(_run_tok)
 
         # Re-verify: recompute orphans after the repairs committed.
         self._reverify_orphans(result)
@@ -351,4 +369,6 @@ class Coordinator:
         # undo_run_id:` guard silently skips the journal and /revert walks past
         # every note the expand/dedup workers created.
         consume(wq, BoundedSubAgent(self.config), self._stop,
+                parent_span=f"run-{getattr(self.fsm.progress, 'run_id', None) or 'adhoc'}",
+                run_id=getattr(self.fsm.progress, "run_id", None),
                 undo_run=lambda: getattr(self.fsm, "_undo_run_id", None))
