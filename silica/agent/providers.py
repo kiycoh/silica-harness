@@ -526,7 +526,7 @@ class FallbackReranker:
     Needed because config now defaults `rerank_base_url`/`rerank_model` to a local
     llama-server — a static "endpoint wins when configured" priority (the old
     get_reranker behaviour) would silently strand anyone who installed
-    `silica-agent[rerank]` but isn't running that server: Reranker.scores() would
+    `silica-harness[rerank]` but isn't running that server: Reranker.scores() would
     abstain every call instead of LocalReranker ever getting a turn. Trying the
     served endpoint first and falling back on its own abstention (None) needs no
     separate liveness probe and can't race a check-then-call gap the way a

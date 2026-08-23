@@ -2,7 +2,7 @@
   "generated_at": "2026-07-13",
   "benchmark": "musique",
   "vault": {
-    "path": "/tmp/claude-1000/-home-kiycoh-Documents-dev-silica-agent/7eb51303-604d-4992-9c5b-a53bbb04a05f/scratchpad/bench_musique",
+    "path": "/tmp/claude-1000/-home-kiycoh-Documents-dev-silica-harness/7eb51303-604d-4992-9c5b-a53bbb04a05f/scratchpad/bench_musique",
     "corpus_notes": 11654
   },
   "config": {

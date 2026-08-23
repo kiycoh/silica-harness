@@ -144,7 +144,7 @@ def _sheet_rows(src: Path, sheet: str):
         from openpyxl import load_workbook
     except ImportError as e:
         raise ValueError(
-            "reading .xlsx needs openpyxl: pip install 'silica-agent[bi]'"
+            "reading .xlsx needs openpyxl: pip install 'silica-harness[bi]'"
         ) from e
     wb = load_workbook(src, read_only=True, data_only=True)
     name = _pick_sheet(wb.sheetnames, sheet)
@@ -229,7 +229,7 @@ def silica_query_table(
         import duckdb  # noqa: F401
     except ImportError as e:
         raise ValueError(
-            "the tabular lane needs DuckDB: pip install 'silica-agent[bi]'"
+            "the tabular lane needs DuckDB: pip install 'silica-harness[bi]'"
         ) from e
 
     src = Path(path).expanduser()

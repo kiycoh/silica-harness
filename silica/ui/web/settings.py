@@ -545,7 +545,7 @@ def bug_report() -> dict:
         lines.append(f"  [{_STATUS_MARK.get(r.status, r.status)}] {r.name}: {_tilde(r.detail)}")
     return {
         "payload": "\n".join(lines),
-        "issues_url": "https://github.com/kiycoh/silica-agent/issues/new",
+        "issues_url": "https://github.com/kiycoh/silica-harness/issues/new",
     }
 
 

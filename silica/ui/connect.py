@@ -287,7 +287,7 @@ def run_connect() -> int:
     try:
         import websockets  # noqa: F401
     except ImportError:
-        print("silica connect requires the [connect] extra: pip install 'silica-agent[connect]'")
+        print("silica connect requires the [connect] extra: pip install 'silica-harness[connect]'")
         return 1
     if not CONFIG.vault_path:
         print("silica connect needs a vault: set SILICA_VAULT or run inside a repo with .silica/")

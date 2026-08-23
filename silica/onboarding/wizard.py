@@ -325,7 +325,7 @@ def _rerank_install_cmd() -> str:
     """Exact install command for the [rerank] extra, matching how this process
     was installed (uv-managed interpreter → uv pip, else pip)."""
     pip = "uv pip" if "uv" in Path(sys.executable).resolve().parts else "pip"
-    return f"{pip} install 'silica-agent[rerank]'"
+    return f"{pip} install 'silica-harness[rerank]'"
 
 
 def _ask_language(input_fn: Callable[[str], str]) -> str:

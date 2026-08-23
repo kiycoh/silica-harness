@@ -1068,7 +1068,7 @@ class TestWizardModes:
         answers = ["", str(self.vault), "", "", "m", "", "skip", "y", ""]
         rc = self._run(answers)
         assert rc == 0
-        assert "silica-agent[rerank]" in capsys.readouterr().out
+        assert "silica-harness[rerank]" in capsys.readouterr().out
         assert not any(l.startswith("SILICA_RERANK") for l in self._active())
 
     def test_next_steps_block_printed(self, capsys):

@@ -417,7 +417,7 @@ class SilicaConfig:
     # "pymupdf" (default, AGPL, in the base install — 60 MB, no torch and no JVM,
     # reads the PDF outline for headings, but NO OCR), "mineru" (best fidelity and
     # the only OCR path; 3.8 GB of torch+CUDA plus model downloads, via the
-    # `silica-agent[pdf]` extra), "docling" (MIT but its PDF pipeline hard-imports
+    # `silica-harness[pdf]` extra), "docling" (MIT but its PDF pipeline hard-imports
     # docling-ibm-models, so torch is unavoidable), or "opendataloader"
     # (Apache-2.0, strong on complex tables and multi-column reading order, needs
     # a JVM). Non-PDF formats (DOCX/EPUB/…) always use pymupdf — the others only
@@ -534,7 +534,7 @@ class SilicaConfig:
     # pair jointly, not an embedding), so the default here is a local llama-server
     # started with --reranking. get_reranker (agent/providers.py) tries it first
     # and falls back automatically, per call, to the in-process cross-encoder
-    # from `pip install silica-agent[rerank]` when it's down — set both empty to
+    # from `pip install silica-harness[rerank]` when it's down — set both empty to
     # skip straight to that path, or leave the extra uninstalled too to disable
     # reranking outright (a no-op that preserves the pool's order).
     rerank_base_url: str = field(

@@ -32,7 +32,7 @@ models on first run), `docling` (MIT but pulls torch + CUDA), `opendataloader`
 (Apache-2.0, strong on complex tables and multi-column reading order, needs a
 JVM). Only `pymupdf` opens the non-PDF formats, so those bypass the seam.
 `pymupdf4llm` is a base dependency; the alternatives install via the
-`silica-agent[pdf]` extra or by hand.
+`silica-harness[pdf]` extra or by hand.
 
 `pymupdf4llm` is pinned `<1` on purpose: from 1.27.2 it hard-depends on
 `pymupdf-layout`, which is Polyform Noncommercial and cannot ship as a
@@ -560,7 +560,7 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
             # default — has no OCR at all, so name the provider that does.
             raise ValueError(
                 f"no text extracted from {src.name} — a scanned document needs OCR: "
-                "`pip install 'silica-agent[pdf]'` and set SILICA_PDF_PROVIDER=mineru"
+                "`pip install 'silica-harness[pdf]'` and set SILICA_PDF_PROVIDER=mineru"
             )
         # Copy only images the markdown references: mineru dumps every crop it
         # detects (477 files for a 200-page book, 19 referenced) — the rest
@@ -1006,7 +1006,7 @@ def _csv_basic_profile(src: Path) -> str:
     columns_table = (
         _md_table(["column"], [[h] for h in header])
         + "\n\nTypes and per-column stats need DuckDB: "
-        "`pip install 'silica-agent[bi]'`, then re-run /convert."
+        "`pip install 'silica-harness[bi]'`, then re-run /convert."
     )
     return _profile_md(src, n_rows, columns_table, header, sample)
 
@@ -1025,7 +1025,7 @@ def _via_tabular(src: Path, workdir: Path) -> tuple[str, Path]:
         if src.suffix.lower() == ".parquet":
             # The stdlib reads CSV; nothing in the base install reads parquet.
             raise ValueError(
-                "profiling parquet needs DuckDB: pip install 'silica-agent[bi]'"
+                "profiling parquet needs DuckDB: pip install 'silica-harness[bi]'"
             ) from None
         return _csv_basic_profile(src), workdir
     return _duckdb_profile(src), workdir
@@ -1424,7 +1424,7 @@ def _pdf_via_mineru(src: Path, workdir: Path) -> tuple[str, Path]:
         )
     except FileNotFoundError:
         raise ValueError(
-            "mineru not installed — `pip install 'silica-agent[pdf]'` (or `pip install "
+            "mineru not installed — `pip install 'silica-harness[pdf]'` (or `pip install "
             "'mineru[pipeline]'`), or set SILICA_PDF_PROVIDER to docling/opendataloader"
         ) from None
     if proc.returncode != 0:

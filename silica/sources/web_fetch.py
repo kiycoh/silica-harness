@@ -69,7 +69,7 @@ _WP_MATH_MAXLEN = 3
 # and throttles generic browser strings, so the API branch does not send
 # _HEADERS. Their own docs call the browser-string case "discouraged".
 _WP_HEADERS = {
-    "User-Agent": "silica-agent (https://github.com/kiycoh/silica-agent)",
+    "User-Agent": "silica-harness (https://github.com/kiycoh/silica-harness)",
     "Accept": "application/json",
 }
 # A bare httpx user agent collects more 403s than a browser string does, and

@@ -284,7 +284,7 @@ def test_web_search_falls_back_to_wikipedia_when_ddg_challenges(monkeypatch):
     # encyclopedia's call is picked out by URL rather than by position.
     wp = next(s for s in seen if s[0].startswith("https://en.wikipedia.org/w/api.php?"))
     assert "list=search" in wp[0] and "srsearch=graph+theory" in wp[0]
-    assert "silica-agent" in wp[1]["User-Agent"]  # Wikimedia UA policy
+    assert "silica-harness" in wp[1]["User-Agent"]  # Wikimedia UA policy
     assert items == [
         {"title": "Graph theory",
          "url": "https://en.wikipedia.org/wiki/Graph_theory",

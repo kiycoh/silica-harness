@@ -7,8 +7,8 @@ Thanks for looking. Silica is a solo, pre-1.0 project under active development, 
 Silica uses [uv](https://github.com/astral-sh/uv). Everything runs through it:
 
 ```bash
-git clone https://github.com/kiycoh/silica-agent.git
-cd silica-agent
+git clone https://github.com/kiycoh/silica-harness.git
+cd silica-harness
 uv pip install -e '.[mcp]'   # drop [mcp] if you don't touch the MCP server
 uv run silica doctor         # sanity-check the environment
 ```

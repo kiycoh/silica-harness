@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 version_file = "silica/_version.py"
 
 [project]
-name = "silica-agent"
+name = "silica-harness"
 dynamic = ["version"]
 description = "Obsidian-native agentic CLI — vault curation with quality gates"
 readme = "README.md"
@@ -85,7 +85,7 @@ rerank = ["sentence-transformers>=3.0"]
 # mineru is the OCR provider: the default (pymupdf4llm, a base dependency) reads
 # text layers only, so a scanned document needs this extra. It pulls
 # torch/transformers and downloads models on first run — 3.8 GB against the
-# default's 60 MB — which is why it is opt-in (`pip install silica-agent[pdf]`).
+# default's 60 MB — which is why it is opt-in (`pip install silica-harness[pdf]`).
 # The [pipeline] extra matches the CLI's `-b pipeline` backend. docling /
 # opendataloader are installed manually if chosen. See SILICA_PDF_PROVIDER.
 pdf = [
@@ -98,7 +98,7 @@ pdf = [
 # Everything except [dev]. Self-referential extra: pip resolves it back to this
 # same project. Note it inherits [pdf] and [rerank], so it pulls torch and
 # downloads several GB of weights on first use.
-all = ["silica-agent[gui,connect,mcp,rerank,pdf]"]
+all = ["silica-harness[gui,connect,mcp,rerank,pdf]"]
 # Opt-in tabular lane (`silica_query_table`) — SQL over a .csv/.parquet the user
 # points at. One wheel, ~20 MB, no server and no ETL, imported only inside the
 # tool body so the base install never pays for it. Kept out of [all] until the
@@ -116,9 +116,9 @@ bi = [
 silica = "silica.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/kiycoh/silica-agent"
-Repository = "https://github.com/kiycoh/silica-agent"
-Issues = "https://github.com/kiycoh/silica-agent/issues"
+Homepage = "https://github.com/kiycoh/silica-harness"
+Repository = "https://github.com/kiycoh/silica-harness"
+Issues = "https://github.com/kiycoh/silica-harness/issues"
 
 [tool.setuptools]
 # Ship every git-tracked non-.py asset under the package (prompts, recipes,

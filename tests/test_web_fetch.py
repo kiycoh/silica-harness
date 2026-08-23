@@ -583,7 +583,7 @@ def test_wikipedia_sends_a_descriptive_user_agent_not_a_browser_string(monkeypat
         lambda host, port, *a, **kw: [(2, 1, 6, "", ("93.184.216.34", port))],
     )
     wf.web_fetch("https://en.wikipedia.org/wiki/PageRank")
-    assert "silica-agent" in sent[0]["User-Agent"]
+    assert "silica-harness" in sent[0]["User-Agent"]
     assert "Mozilla" not in sent[0]["User-Agent"]
 
 
