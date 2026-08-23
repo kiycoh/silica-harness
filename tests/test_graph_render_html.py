@@ -6,6 +6,8 @@ string or "" to avoid CDN fetches entirely.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from silica.ui.web.graph_view import render_html
@@ -296,11 +298,13 @@ class TestFocusDim:
     def test_direct_node_click_dims_without_camera_fly(self, small_graph):
         """Clicking a node in the view itself dims non-neighbours like tree/search
         picks, but must NOT call focusNode — the user is already looking at the
-        spot. Bound inside buildGraph, so a 2D/3D switch rebinds it."""
+        spot. Bound inside buildGraph, so a 2D/3D switch rebinds it. The
+        MouseEvent rides along because selectNode reads its click counter: one
+        click points at a node, two mean read it."""
         nodes, edges = small_graph
         html = render_html(nodes, edges, lib_js="// dummy")
-        assert ".onNodeClick(node => {" in html
-        assert "selectNode(node); applyFocus(node.id);" in html
+        assert ".onNodeClick((node, event) => {" in html
+        assert "selectNode(node, event); applyFocus(node.id);" in html
 
     def test_parent_can_sync_focus_by_path(self, small_graph):
         """The embedding page (note-panel navigation) can tell the graph which
@@ -468,9 +472,16 @@ class TestDragReheat:
 # ---------------------------------------------------------------------------
 # Display settings baked in at render time (settings.py Display section). The
 # flags are read from CONFIG when the document is built, so a change only lands
-# on the next /graph request — which is what makes these two constants the whole
-# contract between the panel and the viewer.
+# on the next /graph request — which is what makes these two island fields the
+# whole contract between the panel and the viewer.
 # ---------------------------------------------------------------------------
+
+def _island(html: str) -> dict:
+    """The document's data, as graph.js parses it."""
+    start = html.index('<script id="graph-data"')
+    start = html.index(">", start) + 1
+    return json.loads(html[start:html.index("</script>", start)])
+
 
 class TestGraphEffectToggles:
     def test_on_by_default(self, small_graph, monkeypatch):
@@ -483,8 +494,10 @@ class TestGraphEffectToggles:
         monkeypatch.setattr(CONFIG, "graph_particles", True)
         monkeypatch.setattr(CONFIG, "graph_shading", True)
         html = render_html(nodes, edges, lib_js="")
-        assert "const PARTICLES = true;" in html
-        assert "const SHADING = true;" in html
+        assert _island(html)["particles"] is True
+        assert _island(html)["shading"] is True
+        assert "const PARTICLES = DATA.particles;" in html
+        assert "const SHADING = DATA.shading;" in html
 
     def test_off_reaches_the_gates(self, small_graph, monkeypatch):
         from silica.config import CONFIG
@@ -493,8 +506,8 @@ class TestGraphEffectToggles:
         monkeypatch.setattr(CONFIG, "graph_particles", False)
         monkeypatch.setattr(CONFIG, "graph_shading", False)
         html = render_html(nodes, edges, lib_js="")
-        assert "const PARTICLES = false;" in html
-        assert "const SHADING = false;" in html
+        assert _island(html)["particles"] is False
+        assert _island(html)["shading"] is False
         # The constants are only worth anything if the three call sites read them.
         assert "(!PARTICLES || l._dim || l._hidden) ? 0" in html
         assert "PARTICLES && RAW_EDGES.some" in html

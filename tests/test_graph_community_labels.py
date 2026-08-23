@@ -8,6 +8,7 @@ Tests:
 """
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -176,6 +177,17 @@ class TestNamedLabels:
 # Test 3 — HTML escaping and COMM_LABELS in render_html
 # ---------------------------------------------------------------------------
 
+def _legend(rendered: str) -> str:
+    return rendered[rendered.index('<div id="legend-box">'):rendered.index('id="legend-all"')]
+
+
+def _island_text(rendered: str) -> str:
+    """The raw body of the graph-data island, before JSON.parse."""
+    start = rendered.index('<script id="graph-data"')
+    start = rendered.index(">", start) + 1
+    return rendered[start:rendered.index("</script>", start)]
+
+
 class TestRenderHtmlCommunities:
     def _make_community(self, cid: int, label: str, size: int = 2) -> Community:
         return Community(
@@ -191,40 +203,36 @@ class TestRenderHtmlCommunities:
         rendered = render_html([], [], communities=communities, lib_js="// x")
         # The legend uses html.escape — verify the escaped form is present
         assert "A &amp; B" in rendered
-        # The raw unescaped '&' must not appear in the legend section (before COMM_LABELS)
-        assert "A & B" not in rendered.split("COMM_LABELS")[0]
+        # The raw unescaped '&' must not appear in the legend itself
+        assert "A & B" not in _legend(rendered)
 
     def test_html_escaped_lt_gt(self):
         """Labels with < and > must be escaped in the legend (full output)."""
         communities = [self._make_community(0, "<topic>")]
         rendered = render_html([], [], communities=communities, lib_js="// x")
         assert "&lt;topic&gt;" in rendered
-        # Raw < must not appear in the legend section
-        assert "<topic>" not in rendered.split("COMM_LABELS")[0]
+        # Raw < must not appear in the legend itself
+        assert "<topic>" not in _legend(rendered)
 
     def test_xss_script_injection_blocked(self):
-        """A label containing '</script>' must not produce a raw '</script>' in COMM_LABELS.
+        """A label containing '</script>' must not end the data island early.
 
         Without mitigation, a label like 'x</script><script>alert(1)//' would
-        terminate the enclosing <script> tag and inject markup.  The fix applies
-        .replace('</', '<\\\\/') to the json.dumps output so the sequence becomes
-        '<\\/script>' which is semantically identical in JS but does not close the tag.
+        terminate the enclosing <script> element and inject markup. The island
+        emits every '<' as \\u003c, which is still JSON and the same string
+        again after JSON.parse, but never a tag to the HTML parser.
         """
         evil_label = "x</script><script>alert(1)//"
         communities = [self._make_community(0, evil_label)]
         rendered = render_html([], [], communities=communities, lib_js="// x")
 
-        # More direct: after COMM_LABELS the first '</script>' occurrence should be
-        # the legitimate one that closes the <script> block, NOT embedded in the JSON
-        comm_labels_region = rendered.split("COMM_LABELS =")[1].split(";")[0]
-        assert "</script>" not in comm_labels_region, (
-            "raw </script> found inside COMM_LABELS JSON assignment — XSS vector open"
+        island = _island_text(rendered)
+        assert "</script>" not in island and "<script>" not in island, (
+            "raw tag found inside the graph-data island — XSS vector open"
         )
-
-        # The escaped form must be present in that region
-        assert "<\\/script>" in comm_labels_region, (
-            "escaped <\\/script> not found in COMM_LABELS — mitigation not applied"
-        )
+        assert "\\u003c/script>" in island, "the < escape was not applied"
+        # and the label survives the round trip the browser makes
+        assert json.loads(island)["comm_labels"]["0"] == evil_label
 
     def test_comm_labels_js_map_present(self):
         """COMM_LABELS JS constant must appear in the script block."""
@@ -286,8 +294,8 @@ class TestRenderHtmlCommunities:
         assert "<!DOCTYPE html>" in html
 
     def test_node_label_xss_escape(self):
-        """A node whose label contains '</script>' must not produce raw </script>
-        in the RAW_NODES or RAW_EDGES JS assignments."""
+        """A node whose label contains '</script>' must not produce a raw
+        </script> inside the data island the nodes ride in."""
         nodes = [
             {
                 "id": "a</script>b.md",
@@ -300,15 +308,10 @@ class TestRenderHtmlCommunities:
             }
         ]
         rendered = render_html(nodes, [], lib_js="// x")
-        # After the RAW_NODES assignment there must be no raw </script> until the
-        # legitimate closing </script> tag
-        raw_nodes_region = rendered.split("const RAW_NODES =")[1].split("const RAW_EDGES")[0]
-        assert "</script>" not in raw_nodes_region, (
-            "raw </script> in RAW_NODES region — XSS vector open"
-        )
-        assert "<\\/script>" in raw_nodes_region, (
-            "escaped <\\/script> not found in RAW_NODES region — mitigation not applied"
-        )
+        island = _island_text(rendered)
+        assert "</script>" not in island, "raw </script> in the island — XSS vector open"
+        assert "\\u003c/script>" in island, "the < escape was not applied"
+        assert json.loads(island)["nodes"][0]["label"] == "a</script>b"
 
 
 # ---------------------------------------------------------------------------

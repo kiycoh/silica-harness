@@ -1,0 +1,244 @@
+/* Palette mirrors the app shell: crystal substrate travelling blue to
+   violet the way the mascot is shaded, iced cyan accent, amber for
+   caution. Community hues stay data-driven. Type: Lexend, inlined
+   as a data: URI because this file must stay self-contained for file:// use.
+   Keep these tokens in sync with static/app.css — this block had already
+   drifted a generation behind it (--ash-dim was still #757F99, which fails
+   4.5:1 on --slate-2). */
+:root{
+  color-scheme:dark;
+  --void:#0D0917;--slate:#120E21;--slate-2:#1F243A;
+  --line:#292F45;--line-2:#3B4662;
+  --frost:#EBEFF8;--text:#BAC4D8;--ash:#8E99B0;--ash-dim:#838DA7;
+  --accent:#35C6E8;--violet:#5B4BD6;--warn:#E0A93B;
+  --sans:"Lexend",system-ui,sans-serif;
+  --lift:0 10px 28px -12px rgba(0,0,0,.7);
+  /* HUD and focus bar float over the canvas, so their fill is the floor at
+     near-opacity, not a surface step: whatever the graph paints has to stop
+     at their edge. --g-* are the canvas's own neutrals, declared here so
+     the legend swatches and the renderer read one source. */
+  --hud-fill:rgba(10,13,20,.92);
+  --g-ghost:#484867;--g-fallback:#565a77;
+}
+/* Light: same ramp as the app shell, same warm paper, same reasoning — see
+   static/app.css. Kept in sync by hand because this file must stay
+   self-contained for file:// export; the app's block is the original. */
+:root[data-theme="light"]{
+  color-scheme:light;
+  --void:#EFEAE0;--slate:#F5F1E9;--slate-2:#E9E2D4;
+  --line:#D9D1C0;--line-2:#C6BCA8;
+  --frost:#1A1815;--text:#3A362F;--ash:#5B554B;--ash-dim:#615B4F;
+  --accent:#096275;--violet:#4B3BC0;--warn:#7A5305;
+  --lift:0 8px 20px -12px rgba(58,44,20,.34);
+  --hud-fill:rgba(245,241,233,.95);
+  --g-ghost:#C9C4D6;--g-fallback:#6B6F8C;
+}
+*{box-sizing:border-box;margin:0;padding:0;border-radius:0}
+html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line-2);border:2px solid var(--void)}
+::-webkit-scrollbar-thumb:hover{background:var(--ash-dim)}
+body{display:flex;height:100vh;font-family:var(--sans);font-weight:400;
+      background:var(--void);color:var(--frost);overflow:hidden;-webkit-font-smoothing:antialiased}
+#sidebar{width:240px;flex-shrink:0;background:var(--slate);border-right:1px solid var(--line);
+          display:flex;flex-direction:column;padding:14px 12px;gap:14px;overflow-y:auto}
+#sidebar h1{font-size:14px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--frost)}
+body.embedded #sidebar{display:none}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line)}
+.stat{background:var(--slate-2);padding:9px;text-align:center}
+.stat .val{font-size:24px;font-weight:600;letter-spacing:-.02em;color:var(--frost)}
+.stat .val.warn{color:var(--warn)}
+.stat .lbl{font-size:10px;color:var(--ash-dim);margin-top:2px;letter-spacing:.08em;text-transform:uppercase}
+#search{width:100%;padding:8px 10px;background:var(--slate-2);border:1px solid var(--line-2);
+         color:var(--frost);font-family:var(--sans);font-size:13px;outline:none}
+#search:focus{border-color:var(--frost)}
+.section-title{font-size:10px;color:var(--ash-dim);text-transform:uppercase;letter-spacing:.18em}
+.filter-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ash);cursor:pointer;
+             padding:3px 0;user-select:none}
+.filter-row input{cursor:pointer;accent-color:var(--accent)}
+.dot-edge{width:24px;height:3px;flex-shrink:0}
+#sort-communities:hover{color:var(--frost)}
+#legend-box{display:flex;flex-direction:column;gap:2px;max-height:200px;overflow-y:auto}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ash);cursor:pointer;
+              padding:3px 6px}
+.legend-item:hover{background:var(--slate-2);color:var(--frost)}
+.legend-item.active{background:var(--slate-2);outline:1px solid var(--frost);color:var(--frost)}
+.dot{width:9px;height:9px;flex-shrink:0}
+/* Node-state legend: the ring is the swatch, so the legend looks like what
+   drawNode paints. border-radius must be restated — the reset zeroes it. */
+.ring{width:9px;height:9px;flex-shrink:0;border:1.5px solid;border-radius:50%}
+.ct{color:var(--ash-dim);font-size:11px;margin-left:auto}
+/* Two folds in the panel: the area list under the row that counts it, and
+   the layout controls under their own heading. Native <details>, so open
+   state costs no JS and no state of ours. The marker replaces the browser
+   triangle because a summary here is a legend row, not a list item. */
+#hud summary{cursor:pointer;user-select:none;list-style:none}
+#hud summary::-webkit-details-marker{display:none}
+#hud summary::before{content:"▸";color:var(--ash-dim);font-size:9px;flex:none}
+#hud details[open]>summary::before{content:"▾"}
+#hud summary.section-title::before{margin-right:6px}
+.fold-body{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.fold-head{display:flex;align-items:center;justify-content:space-between;
+            font-size:10px;color:var(--ash-dim);letter-spacing:.02em}
+.fold-head span:last-child{color:var(--ash);cursor:pointer;text-transform:none;letter-spacing:0}
+.fold-head span:last-child:hover{color:var(--frost)}
+/* Swatches carry both values and CSS picks the live one. The alternative
+   was a script rewriting inline styles after the theme resolves, i.e. a
+   second copy of the palette that can disagree with the canvas.
+   :where() on the theme prefix is load-bearing, not style: an unwrapped
+   :root[data-theme=…] .dot scores three class-level selectors and beats
+   .dot.ghost, which paints the ghost swatch --ash-dim on paper and nothing
+   like what the canvas draws. Zeroed, the theme rule sits at .dot's own
+   weight and wins on order, while the two state swatches below still win
+   on specificity — which is the cascade this actually wants. */
+.dot,.dot-edge{background:var(--c,var(--ash-dim))}
+:where(:root[data-theme="light"]) .dot,
+:where(:root[data-theme="light"]) .dot-edge{background:var(--cp,var(--c,var(--ash-dim)))}
+/* The three rows that draw an absence, broken here because they are broken on
+   the canvas: a full swatch over a dashed line is a legend that lies about the
+   picture under it.
+   6px ink and 2px gap are DASH_2D, and three periods fill the 24px the way
+   DASH_SEGS fills a link, so the two ends of the frame agree by construction.
+   The light rule repeats rather than only swapping the token because :where()
+   carries no specificity, so it needs the same two classes and source order to
+   land over the dark one. */
+.dot-edge.dashed{background:repeating-linear-gradient(90deg,
+  var(--c,var(--ash-dim)) 0 6px,transparent 6px 8px)}
+:where(:root[data-theme="light"]) .dot-edge.dashed{background:repeating-linear-gradient(90deg,
+  var(--cp,var(--c,var(--ash-dim))) 0 6px,transparent 6px 8px)}
+.dot.ghost{background:var(--g-ghost)}
+.dot.all{background:var(--g-fallback)}
+/* Focus banner — top-right, tucked left of whatever owns that corner: the
+   HUD (216px) when the drawer is shut, the drawer's edge when it is open,
+   so the open note's title reads directly above it. A filtered graph that
+   does not say it is filtered is lying about the vault. */
+#focus-bar{position:absolute;top:10px;right:236px;z-index:5;display:none;
+            max-width:min(420px,calc(100% - 250px));padding:6px 10px;
+            font-size:11px;color:var(--ash);letter-spacing:.04em;
+            background:var(--hud-fill);border:1px solid var(--line-2);
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#focus-bar b{color:var(--frost);font-weight:600}
+#focus-bar .esc{color:var(--ash-dim)}
+body.host-drawer-open #focus-bar{right:calc(var(--drawer-w,0px) + 10px)}
+/* Zone names: over the canvas, under the HUD, never in the way of a click.
+   The halo is what keeps a mid-lightness hue readable over both a dark
+   background and the translucent hull it sits on. */
+#zone-labels{position:absolute;inset:0;z-index:4;pointer-events:none;overflow:hidden}
+.zone-label{position:absolute;top:0;left:0;display:none;white-space:nowrap;
+             font-size:13px;font-weight:600;letter-spacing:.06em;
+             text-shadow:0 0 10px var(--void),0 0 4px var(--void),0 0 2px var(--void)}
+/* Note names in 3D. Below the zone names, which name a whole region and must
+   win where the two overlap. The halo is the same trick: the canvas behind a
+   label is whatever colour the cluster happens to be. */
+#node-labels{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:hidden}
+.node-label{position:absolute;top:0;left:0;display:none;white-space:nowrap;
+             font-size:11px;color:var(--frost);
+             text-shadow:0 0 6px var(--void),0 0 3px var(--void),0 0 1px var(--void)}
+.btn{padding:8px 10px;background:var(--slate-2);border:1px solid var(--line-2);
+       color:var(--ash);font-family:var(--sans);font-size:12px;cursor:pointer;text-align:center;
+       text-transform:uppercase;letter-spacing:.06em}
+.btn:hover{border-color:var(--frost);color:var(--frost)}
+/* min-width:0 + overflow:hidden: the WebGL canvas must never force the flex
+   item wider than the viewport (it pushes the absolute HUD off-screen) */
+#graph-wrap{flex:1;min-width:0;position:relative;overflow:hidden}
+#graph{width:100%;height:100%}
+/* HUD — floating legend/filter panel anchored to the graph itself */
+#hud{position:absolute;top:10px;right:10px;z-index:5;width:216px;max-height:calc(100% - 20px);
+      display:flex;flex-direction:column;gap:12px;padding:12px;overflow-y:auto;
+      background:var(--hud-fill);border:1px solid var(--line-2)}
+/* The embedding page's note drawer overlays this frame's right edge, where
+   the HUD lives, and the drawer is translucent — so the legend showed
+   through the note you were reading. The frame cannot see that drawer, so
+   the parent tells it. */
+body.host-drawer-open #hud{display:none}
+/* Embedded, the renderer is a button in the app's own toolbar: the HUD is
+   the corner the note drawer covers, and the same control in two places is
+   two places that can disagree about which renderer is up. Standalone this
+   panel is the only chrome there is, so it keeps it. */
+body.embedded #renderer-section{display:none}
+/* What the layout is doing, at the corner opposite the HUD: the two chips
+   that move the camera and the sim, and the size of the thing they are
+   moving. Bottom-left is the one edge nothing else claims - the HUD is
+   top-right, the focus bar top-centre, the labels are in the field. */
+#gstat{position:absolute;left:12px;bottom:12px;z-index:5;display:flex;align-items:center;
+        gap:10px;font-size:10.5px;color:var(--ash-dim);letter-spacing:.03em}
+/* Embedded, the app floats its ask-from-here composer across the whole
+   bottom of this frame (70px at rest), and the stat line ran under it.
+   ponytail: a fixed clearance, not a measured one - a composer grown past
+   84px by a multiline draft rides over the line again, and the fix then is
+   for the host to post its height the way it already posts the drawer's
+   width (silica-host-drawer). */
+body.embedded #gstat{bottom:84px}
+#gstat button{padding:3px 9px;background:var(--hud-fill);border:1px solid var(--line-2);
+               color:var(--ash);font:inherit;cursor:pointer}
+#gstat button:hover{border-color:var(--frost);color:var(--frost)}
+#gstat .num{font-variant-numeric:tabular-nums}
+#drawer{width:260px;flex-shrink:0;background:var(--slate);border-left:1px solid var(--line);
+         padding:18px 16px;overflow-y:auto;display:none;flex-direction:column;gap:12px}
+#drawer.open{display:flex}
+#drawer-title{font-size:15px;font-weight:600;color:var(--frost);word-break:break-word}
+#drawer-path{font-size:11px;color:var(--ash-dim);word-break:break-all}
+#drawer-meta{font-size:12px;color:var(--ash)}
+.drawer-section{display:flex;flex-direction:column;gap:4px}
+.drawer-label{font-size:10px;color:var(--ash-dim);text-transform:uppercase;letter-spacing:.18em}
+.drawer-val{font-size:13px;color:var(--frost)}
+#close-drawer{align-self:flex-end;cursor:pointer;color:var(--ash-dim);font-size:18px;line-height:1}
+#close-drawer:hover{color:var(--frost)}
+#search-results{display:none;flex-direction:column;gap:1px;max-height:260px;overflow-y:auto;
+                 margin-top:6px;border:1px solid var(--line);background:var(--slate-2)}
+#search-results.open{display:flex}
+#search-count{font-size:10px;color:var(--ash-dim);letter-spacing:.04em;padding:6px 8px 2px}
+.result-item{display:flex;flex-direction:column;gap:1px;padding:6px 8px;cursor:pointer;border-left:2px solid transparent}
+.result-item:hover,.result-item.sel{background:var(--slate);border-left-color:var(--accent)}
+.result-name{font-size:12px;color:var(--frost);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result-sub{font-size:10px;color:var(--ash-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result-sub em{color:var(--frost);font-style:normal}
+#file-tree{display:flex;flex-direction:column;max-height:260px;overflow-y:auto;font-size:12px}
+#file-tree summary{cursor:pointer;color:var(--ash);padding:2px 0;user-select:none;
+                    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#file-tree summary:hover{color:var(--frost)}
+#file-tree details details,#file-tree .tree-note{margin-left:12px}
+#file-tree .tree-note{width:calc(100% - 12px)}
+/* button reset: the row is a <button> so it is reachable and announces as
+   one, and everything below puts it back to looking like a row */
+.tree-note{display:block;text-align:left;font:inherit;background:none;box-sizing:border-box;
+           color:var(--ash);cursor:pointer;padding:2px 6px;border:0;border-left:2px solid transparent;
+           white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tree-note:focus-visible{outline:1px solid var(--accent);outline-offset:-1px}
+.tree-note:hover{background:var(--slate-2);border-left-color:var(--accent);color:var(--frost)}
+.force-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;
+            color:var(--ash);margin-top:6px}
+.force-row .fv{color:var(--ash-dim);font-size:11px}
+.force-slider{width:100%;accent-color:var(--accent);cursor:pointer;margin-top:2px}
+/* renderer switch — two halves of one control, so it reads as "one of these
+   two", not as two independent buttons */
+.seg{display:flex;border:1px solid var(--line-2);background:var(--slate-2)}
+.seg button{flex:1;padding:6px 4px;background:none;border:none;cursor:pointer;
+             font-family:var(--sans);font-size:11px;letter-spacing:.06em;
+             text-transform:uppercase;color:var(--ash-dim)}
+.seg button:hover{color:var(--frost)}
+.seg button.active{background:var(--line);color:var(--frost)}
+/* 3D hover. `.float-tooltip-kap` is the bundle's own element — the class
+   comes from its float-tooltip dependency, NOT the `.graph-tooltip` the
+   docs mention, which is why this is pinned to the vendored version and
+   why it shouts: the bundle ships its own stylesheet. What it ships is
+   #eee sans-serif on a 60% black 3px-rounded box, three decisions this app
+   does not make anywhere else. Squared off, moved onto the raised plane
+   with its hairline, and typeset like the rest of the chrome.
+   `transform` is deliberately NOT overridden: the bundle rewrites it every
+   frame with a computed percentage that keeps the tooltip on screen near
+   the edges, and a fixed translate would throw that away. */
+.float-tooltip-kap{background:var(--slate-2)!important;
+                border:1px solid var(--line-2)!important;
+                border-radius:0!important;padding:7px 10px!important;
+                font-family:var(--sans)!important;font-size:12px!important;
+                color:var(--frost)!important;box-shadow:var(--lift)!important}
+.g3d-tip{display:flex;flex-direction:column;gap:3px;text-align:left}
+.g3d-tip b{font-weight:600;color:var(--frost)}
+/* the one place uppercase is allowed: a chrome micro-label, never prose */
+.g3d-tip i{font-style:normal;font-size:10px;color:var(--ash-dim);
+            text-transform:uppercase;letter-spacing:.14em}
+/* The second partition gets its own line and the word ZONE, and nothing
+   else: dimming it to rank it below the community was measured at 3.23:1
+   on --slate-2, under the 4.5:1 a 10px label owes. The prefix ranks it. */

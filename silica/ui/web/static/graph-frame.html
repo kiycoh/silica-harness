@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <!-- Which palette, decided before anything paints. Two callers, two answers:
+       embedded in the app the parent puts ?theme= on the src, because the app's
+       own preference (auto/dark/light) has already been resolved there and the
+       two surfaces must not disagree across an iframe boundary; opened straight
+       off disk there is no parent, so the OS answers. The reload is for that
+       second case only — the app never reaches it, since changing the theme
+       there rebuilds this document anyway. -->
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search).get("theme");
+      var mq = window.matchMedia("(prefers-color-scheme: light)");
+      var pinned = q === "light" || q === "dark";
+      document.documentElement.dataset.theme =
+        pinned ? q : (mq.matches ? "light" : "dark");
+      if (!pinned) mq.addEventListener("change", function () { location.reload(); });
+    })();
+  </script>
+  <script>${lib_js}</script>
+  <style>${font_face}
+${graph_css}</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>&#11041; ${title}</h1>
+
+  <!-- Every number states its own rule, not its name: a count whose denominator
+       you cannot name is a number you cannot act on. -->
+  <div class="stat-grid">
+    <div class="stat" title="Files in the graph. Unresolved link targets are not files and are counted under Unresolved instead."><div class="val">${n_notes}</div><div class="lbl">Notes</div></div>
+    <div class="stat" title="Wikilinks whose target file exists, counted once per direction between a pair of notes, not once per occurrence in the text."><div class="val">${n_extracted}</div><div class="lbl">Links</div></div>
+    <div class="stat" title="Louvain communities over the resolved wikilinks. Derived from the structure, never declared by you."><div class="val">${n_communities}</div><div class="lbl">Clusters</div></div>
+    <div class="stat" title="Distinct link targets with no file behind them, counted once per name however many notes point at it."><div class="val">${n_ghost}</div><div class="lbl">Unresolved</div></div>
+  </div>
+
+  <input id="search" type="text" placeholder="Search notes, paths, #tags&#8230;"
+         oninput="onSearch(this.value)" onkeydown="onSearchKey(event)" autocomplete="off">
+  <div id="search-results"></div>
+
+  <div>
+    <div class="section-title" style="margin-bottom:6px">Files</div>
+    ${tree_html}
+  </div>
+</div>
+
+<div id="graph-wrap">
+  <div id="graph"></div>
+  <!-- Zone names ride the DOM, not the canvas and not a three sprite: one
+       positioning path serves both renderers, and the vendored 3d bundle
+       exposes no THREE to build a sprite with anyway. -->
+  <div id="zone-labels"></div>
+  <!-- Note names in 3D ride the same DOM path as the zone names above, for the
+       same reason: one positioning routine serves both renderers, and there is
+       no THREE to build a sprite with. 2D keeps painting its labels on canvas —
+       there the zoom IS the level of detail, and the canvas draw is cheaper. -->
+  <div id="node-labels"></div>
+  <div id="focus-bar"></div>
+  <!-- fit moves the camera, reheat moves the layout, and the line beside them
+       says what both are working on. The count is the SIM's, not the strip's:
+       it includes the similarity overlay and the gap bridges, which is what
+       makes the settle time what it is - so it says so on hover rather than
+       quietly disagreeing with the "1,341 links" in the app's header. -->
+  <div id="gstat">
+    <button type="button" onclick="fitGraph()" title="frame the whole graph">fit</button>
+    <button type="button" onclick="reheat()" title="stir the layout and let it settle again">reheat</button>
+    <span class="num" id="gstat-n" title="everything the layout is solving: wikilinks, the semantic overlay and the gap bridges. The app header's link count is wikilinks only."></span>
+  </div>
+  <div id="hud">
+    <!-- Renderer first: it is the only control that changes what every other
+         row in this panel means (the rings below are a 2D-only channel), so it
+         reads before them, not after. -->
+    <div id="renderer-section">
+      <div class="section-title" style="margin-bottom:6px">Renderer</div>
+      <div class="seg" id="mode-toggle">
+        <button type="button" data-mode="3d" onclick="setMode('3d')">3D</button>
+        <button type="button" data-mode="2d" onclick="setMode('2d')">2D</button>
+      </div>
+    </div>
+
+    <!-- Three questions, in the order you ask them of a picture of a graph:
+         what are the lines, what are the dots, what does the colour mean. The
+         panel used to answer six, four of which were controls rather than
+         legend (a 91-row community list and three force sliders held most of
+         its height), so the reading was buried in its own machinery. Nothing is
+         gone: the list opens from the row that counts it, and the forces are one
+         fold down. -->
+    <div>
+      <div class="section-title" style="margin-bottom:8px">Edges</div>
+      <label class="filter-row" title="A [[wikilink]] whose target file exists.">
+        <input type="checkbox" id="cb-extracted" checked onchange="updateEdgeFilter()">
+        <div class="dot-edge" style="--c:${color_extracted};--cp:${color_extracted_paper}"></div>
+        resolved
+        <span class="ct">${n_extracted}</span>
+      </label>
+      <label class="filter-row" style="margin-top:4px" title="A [[wikilink]] pointing at a name no file carries: the link is written, the note is not.">
+        <input type="checkbox" id="cb-ambiguous" onchange="updateEdgeFilter()">
+        <div class="dot-edge" style="--c:${color_ambiguous};--cp:${color_ambiguous_paper}"></div>
+        unresolved
+        <span class="ct">${n_ambiguous}</span>
+      </label>
+      <label class="filter-row" style="margin-top:4px" title="Well-formed areas with no links between them: a bridge could go here">
+        <input type="checkbox" id="cb-gaps" checked onchange="updateEdgeFilter()">
+        <div class="dot-edge dashed" style="--c:${color_gap};--cp:${color_gap_paper}"></div>
+        structural gaps
+        <span class="ct">${n_gaps}</span>
+      </label>
+      ${similar_row}
+      ${proposed_row}
+      ${coupled_row}
+      ${discord_row}
+    </div>
+
+    <!-- Colour already carries the area, so node STATE rides a second channel:
+         a ring. Only the two states with no marking at all get one; ghost keeps
+         the rendering it already had, and the swatch here shows what each
+         actually looks like on the canvas. 2D only - in 3D a ring means
+         rebuilding every node's geometry, and size already separates hubs
+         there - so the heading rides inside the block that mode hides, or 3D
+         would show a title with nothing under it. -->
+    <div id="state-legend">
+      <div class="section-title" style="margin-bottom:8px" title="What each node IS, on a channel the area colour is not using.">Nodes</div>
+      <div class="filter-row" title="Betweenness in the top tenth of the notes that have any: the crossings the vault routes through.">
+        <span class="ring" style="border-color:var(--accent)"></span>hub<span class="ct" id="st-hub"></span>
+      </div>
+      <div class="filter-row" title="The note exists and no resolved wikilink points at it. Reachable from the file tree, unreachable from the vault.">
+        <span class="ring" style="border-color:var(--ash-dim)"></span>orphan<span class="ct" id="st-orphan"></span>
+      </div>
+      <div class="filter-row" title="Something links here and no file carries the name. Already unlit and undersized in the view, so it takes no ring.">
+        <span class="dot ghost" style="border-radius:50%"></span>ghost<span class="ct" id="st-ghost"></span>
+      </div>
+      <!-- A legend row like the three above it: the ring it names is always
+           drawn, so there is nothing here to switch. It is rendered server-side
+           only because its count comes from the graph, not from the DOM. -->
+      ${cut_row}
+    </div>
+
+    <div>
+      <div class="section-title" style="margin-bottom:8px"
+           title="Two independent groupings over the same notes. The node colour is always the structural one; the semantic zones are drawn as hulls over it, so the two can be read against each other in one frame.">Colour</div>
+      <!-- The 91-row list is the ANSWER to this row, not a section beside it:
+           closed, the row states how many areas there are, which is the legend;
+           open, it is the filter it always was, with every id and handler
+           unchanged. -->
+      <details id="areas-fold">
+        <summary class="filter-row" title="Louvain over the resolved wikilinks: the vault as you linked it. Open to filter to one area.">
+          <span class="dot all"></span>structural areas<span class="ct">${n_communities}</span>
+        </summary>
+        <div class="fold-body">
+          ${discourse_badge}
+          <div class="fold-head">
+            <span>click one to isolate it</span>
+            <span id="sort-communities" onclick="toggleCommunitySort()" title="sort by size">size &#8595;</span>
+          </div>
+          <div id="legend-box">
+${legend_items}      <div class="legend-item active" id="legend-all" onclick="filterCommunity(-2)">
+              <span class="dot all"></span>Show all
+            </div>
+          </div>
+        </div>
+      </details>
+      ${zone_section}
+    </div>
+
+    <!-- Not legend: the three forces and the rebuild are what you reach for
+         once, when the layout itself is wrong. Folded, because a slider you
+         touch once a month should not cost a third of the panel every day. -->
+    <details id="layout-fold">
+      <summary class="section-title">Layout</summary>
+      <div class="fold-body">
+        <div class="force-row">Repel<span class="fv" id="fv-repel">1.0&times;</span></div>
+        <input type="range" class="force-slider" id="sl-repel" min="-0.7" max="0.7" step="0.01" value="0" oninput="onForceSlider()">
+        <div class="force-row">Link distance<span class="fv" id="fv-dist">1.0&times;</span></div>
+        <input type="range" class="force-slider" id="sl-dist" min="-0.7" max="0.7" step="0.01" value="0" oninput="onForceSlider()">
+        <div class="force-row">Center<span class="fv" id="fv-center">1.00</span></div>
+        <input type="range" class="force-slider" id="sl-center" min="0" max="1" step="0.05" value="1" oninput="onForceSlider()">
+        <div class="fold-head" style="margin-top:8px">
+          <span>fit and reheat are on the bar below</span>
+          <span onclick="resetForces()" title="back to auto-scaled defaults" style="cursor:pointer">reset</span>
+        </div>
+        <!-- Fit moved to the bar at the bottom-left, beside reheat and the size
+             it is fitting. What stays here is the rebuild, which is about the
+             VAULT and not the view - and embedded it is the app's own chip. -->
+        <div class="btn" style="margin-top:8px" title="rebuild from the vault (e.g. after editing notes outside silica)"
+             onclick="location.reload()">&#8635; Rebuild</div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div id="drawer">
+  <span id="close-drawer" onclick="closeDrawer()">&#10005;</span>
+  <div id="drawer-title">&#8212;</div>
+  <div id="drawer-path"></div>
+  <div id="drawer-meta"></div>
+  <div class="drawer-section">
+    <div class="drawer-label">Out-links</div>
+    <div id="drawer-out" class="drawer-val">&#8212;</div>
+  </div>
+  <div class="drawer-section">
+    <div class="drawer-label">Backlinks</div>
+    <div id="drawer-in" class="drawer-val">&#8212;</div>
+  </div>
+</div>
+
+<!-- The document's data, parsed by graph-frame.js and never evaluated. `<` is
+     \u003c inside it, so no note title can end this element early
+     (render_html._json_island says why that and not `</` alone). -->
+<script id="graph-data" type="application/json">${graph_data}</script>
+<script>${graph_js}</script>
+</body>
+</html>
