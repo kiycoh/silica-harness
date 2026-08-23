@@ -19,7 +19,7 @@ ever had one.
 The schematic is checked against the tree by check(), because the last one drifted
 for a month: it still drew a CDP backend that had been replaced by the plugin
 bridge, an FSM state that had been deleted, and five kernel groups that are now
-seven lanes.
+eight lanes.
 """
 
 import re
@@ -27,12 +27,27 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
-# GitHub's own dark surface, so the card sits on the page instead of on top of it
-BG, PANEL, LINE = "#0d1117", "#161b22", "#30363d"
-DIM, TEXT, BRIGHT = "#7d8590", "#adbac7", "#e6edf3"
-SKY, VIOLET, GREEN, RED, AMBER = "#38bdf8", "#a371f7", "#3fb950", "#f85149", "#f0883e"
-SANS = "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
-MONO = "ui-monospace, SFMono-Regular, Menlo, monospace"
+# The graphite ramp of docs/specs/visual-identity.md, token for token, so a
+# README diagram and the running app are the same product. They used to be
+# GitHub's own dark surface, which made the card sit on the page rather than on
+# top of it, at the cost of Silica looking like whatever host it was embedded in.
+BG, PANEL, RAISED, LINE = "#0D0E0F", "#1B1E21", "#24272B", "#2F343A"
+DIM, TEXT, BRIGHT = "#969CA6", "#C5CAD2", "#F4F5F7"
+# One signal hue at 189deg, and the three status colours that are older than any
+# brand. There is no --violet in the system any more, so the one thing that still
+# needs a second hue -- the model, marked as data and not as a control -- takes a
+# stop off the community arc the graph itself colours nodes with (212-306deg,
+# 0.66 saturation): here graph_export._community_color(4).
+ACCENT, MODEL = "#22B4CC", "#9C80E5"
+GREEN, RED, AMBER = "#4FD08A", "#EB778E", "#E0A93B"
+# Archivo and Martian Mono are named first and never load: GitHub serves a README
+# image through camo, which runs no script and fetches no font. The stack behind
+# them is what actually renders, so the diagrams are drawn to survive it.
+SANS = "Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif"
+MONO = "'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
+# 90-degree corners on every compartment, per the identity: radius is spent only
+# where you read or aim, and a schematic is all chrome. Badges keep the 4px step.
+BADGE_R = 4
 
 FADE = 0.3  # seconds an element takes to arrive or to leave
 
@@ -79,7 +94,7 @@ def move(path: str, stops: list[tuple[float, float]], loop: float) -> str:
             f'{clock(stops, loop).replace("values=", "keyPoints=", 1)}/>')
 
 
-def panel(x, y, w, h, r=10, fill=PANEL, stroke=LINE, extra="") -> str:
+def panel(x, y, w, h, r=0, fill=PANEL, stroke=LINE, extra="") -> str:
     return (f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" '
             f'fill="{fill}" stroke="{stroke}" stroke-width="1"{extra}/>')
 
@@ -98,11 +113,15 @@ def arrow(x0, x1, y, colour=LINE) -> str:
             f'fill="{colour}"/>')
 
 
-def chip(w, h, stroke, text, size=12, fill="#1d2433", colour=BRIGHT,
+def chip(w, h, stroke, text, size=12, fill=RAISED, colour=BRIGHT,
          family=MONO) -> str:
-    """A card centred on its own origin, so animateMotion can carry it."""
-    return (f'<rect x="{-w / 2}" y="{-h / 2}" width="{w}" height="{h}" rx="8" '
-            f'fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>'
+    """A card centred on its own origin, so animateMotion can carry it.
+
+    One raised fill for every chip and the stroke carrying the meaning, which is
+    how a chip is built in the app. The three hand-tinted fills this replaced
+    were each a colour nothing else in the system could name."""
+    return (f'<rect x="{-w / 2}" y="{-h / 2}" width="{w}" height="{h}" '
+            f'rx="{BADGE_R}" fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>'
             + label(0, 4.5, text, size, colour, 500, "middle", family))
 
 
@@ -110,8 +129,8 @@ def head(w, h, title, aria, desc) -> str:
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
             f'width="{w}" height="{h}" role="img" aria-label="{aria}" '
             f'font-family="{SANS}">\n<title>{title}</title>\n<desc>{desc}</desc>\n'
-            f'<rect width="{w}" height="{h}" rx="12" fill="{BG}"/>\n'
-            f'<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="12" '
+            f'<rect width="{w}" height="{h}" fill="{BG}"/>\n'
+            f'<rect x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" '
             f'fill="none" stroke="{LINE}"/>')
 
 
@@ -144,11 +163,11 @@ def gate_svg() -> str:
 
     out.append(label(28, 36, "Nothing lands unparsed, and what lands is read back",
                      17, BRIGHT, 600))
-    out.append(f'<rect x="28" y="48" width="42" height="3" rx="1.5" fill="{SKY}"/>')
+    out.append(f'<rect x="28" y="48" width="42" height="3" rx="1.5" fill="{ACCENT}"/>')
 
     # the three stations
     out.append(panel(28, 116, 140, 108))
-    out.append(f'<circle cx="48" cy="146" r="3.5" fill="{VIOLET}"/>')
+    out.append(f'<circle cx="48" cy="146" r="3.5" fill="{MODEL}"/>')
     out.append(label(60, 150, "the model", 13, DIM))
     out.append(label(48, 178, "proposes", 13, TEXT))
     out.append(label(48, 202, "write_note()", 11.5, DIM, family=MONO))
@@ -178,11 +197,11 @@ def gate_svg() -> str:
     out.append(f'<g opacity="0"><animate attributeName="opacity" '
                f'{clock(inside, L)}/><g>'
                f'{move(RUN, [(0, 0), (0.6, 0), (1.5, DOOR), (2.9, DOOR), (3.05, EXIT), (3.5, 1)], L)}'
-               f'{chip(76, 26, VIOLET, "+ 2 lines", 11.5, "#1d2433", "#d7c6ff")}</g></g>')
+               f'{chip(76, 26, MODEL, "+ 2 lines", 11.5, RAISED, BRIGHT)}</g></g>')
     # the gate lights up as it swallows the card, or the card just disappears
     for t in (1.4, 7.8):
-        out.append(f'<rect x="336" y="104" width="176" height="132" rx="10" '
-                   f'fill="none" stroke="{SKY}" opacity="0">{fade(t, t + 0.5, L)}</rect>')
+        out.append(f'<rect x="336" y="104" width="176" height="132" '
+                   f'fill="none" stroke="{ACCENT}" opacity="0">{fade(t, t + 0.5, L)}</rect>')
     for i, (name, y) in enumerate(CHECKS):
         t = 1.8 + i * 0.4
         out.append(f'<g opacity="0">{fade(t, 6.2, L)}'
@@ -192,10 +211,10 @@ def gate_svg() -> str:
     # the line it adds stays put for the rest of the loop: that is the point
     out.append(f'<g>{linger(3.5, L)}'
                f'<rect x="700" y="194" width="112" height="6" rx="3" fill="{GREEN}"/></g>')
-    out.append(f'<circle r="4.5" fill="{SKY}" opacity="0">{fade(4.2, 5.5, L)}'
+    out.append(f'<circle r="4.5" fill="{ACCENT}" opacity="0">{fade(4.2, 5.5, L)}'
                f'{move(ARC, [(0, 0), (4.3, 0), (5.4, 1)], L)}</circle>')
     out.append(f'<g opacity="0">{fade(5.1, 6.4, L)}'
-               f'<rect x="700" y="212" width="86" height="22" rx="11" fill="#0f2a17" '
+               f'<rect x="700" y="212" width="86" height="22" rx="{BADGE_R}" fill="{RAISED}" '
                f'stroke="{GREEN}"/>'
                f'{label(743, 227, "verified", 11.5, GREEN, 500, "middle")}</g>')
 
@@ -203,7 +222,7 @@ def gate_svg() -> str:
     out.append(f'<g opacity="0"><animate attributeName="opacity" '
                f'{clock([(0, 0), (7.0, 0), (7.3, 1), (7.9, 1), (8.1, 0)], L)}/><g>'
                f'{move(RUN, [(0, 0), (7.0, 0), (7.9, DOOR), (L, DOOR)], L)}'
-               f'{chip(76, 26, VIOLET, "+ 5 lines", 11.5, "#1d2433", "#d7c6ff")}</g></g>')
+               f'{chip(76, 26, MODEL, "+ 5 lines", 11.5, RAISED, BRIGHT)}</g></g>')
     out.append(f'<g>{linger(8.2, L)}'
                f'<circle cx="364" cy="160" r="6" fill="{GREEN}"/>'
                f'{label(382, 164, "parse", 13, TEXT)}</g>')
@@ -212,9 +231,9 @@ def gate_svg() -> str:
                f'{label(382, 190, "structure", 13, TEXT)}</g>')
     out.append(f'<g opacity="0">{fade(9.0, 11.2, L)}<g>'
                f'{move(BACK, [(0, 0), (9.1, 0), (9.9, 1)], L)}'
-               f'{chip(96, 26, RED, "sent back", 11.5, "#2a1417", "#ffb4ae", SANS)}</g></g>')
+               f'{chip(96, 26, RED, "sent back", 11.5, RAISED, RED, SANS)}</g></g>')
     out.append(f'<g>{linger(8.6, L)}'
-               f'<rect x="700" y="212" width="98" height="22" rx="11" fill="{PANEL}" '
+               f'<rect x="700" y="212" width="98" height="22" rx="{BADGE_R}" fill="{RAISED}" '
                f'stroke="{LINE}"/>'
                f'{label(749, 227, "unchanged", 11.5, DIM, 500, "middle")}</g>')
 
@@ -230,12 +249,15 @@ def grounding_svg() -> str:
     L = 12.0
     W, H = 880, 330
     # (leg, what it is, colour, y, the order it returns, optional)
-    LEGS = (("embeddings", "semantic similarity", VIOLET, 92, ("A", "B", "C"), False),
-            ("co-occurrence", "concept graph, no model", SKY, 152, ("B", "A", "D"), False),
-            ("lexical", "BM25 and fuzzy, no model", SKY, 212, (), True))
+    LEGS = (("embeddings", "semantic similarity", MODEL, 92, ("A", "B", "C"), False),
+            # BM25 term weighting inside this leg is what made it worth fusing at
+            # all: raw tf scored 0.51 recall@10 alone against 0.86 with it
+            # (ADR-0029), which is why it is the default and not a knob.
+            ("co-occurrence", "concept graph, BM25, no model", ACCENT, 152, ("B", "A", "D"), False),
+            ("lexical", "BM25 and fuzzy, no model", ACCENT, 212, (), True))
     # RRF over those two orders, k=60: B .0325, A .0323, D .0161, C .0159
-    FUSED = (("B", (VIOLET, SKY)), ("A", (VIOLET, SKY)),
-             ("D", (SKY,)), ("C", (VIOLET,)))
+    FUSED = (("B", (MODEL, ACCENT)), ("A", (MODEL, ACCENT)),
+             ("D", (ACCENT,)), ("C", (MODEL,)))
 
     out = [head(W, H, "How an answer is grounded",
                 "A question runs down three independent legs. Two return "
@@ -246,7 +268,7 @@ def grounding_svg() -> str:
                 "other two return their own rankings, which fuse by rank, so a "
                 "note both legs found outranks a note only one of them found.")]
     out.append(label(28, 36, "One question, three legs, fused by rank", 17, BRIGHT, 600))
-    out.append(f'<rect x="28" y="48" width="42" height="3" rx="1.5" fill="{SKY}"/>')
+    out.append(f'<rect x="28" y="48" width="42" height="3" rx="1.5" fill="{ACCENT}"/>')
 
     out.append(panel(28, 152, 132, 44))
     out.append(label(94, 179, "your question", 12.5, TEXT, 500, "middle"))
@@ -272,7 +294,7 @@ def grounding_svg() -> str:
     out.append(f'<g>{linger(2.4, L)}'
                f'{label(232, 251, "abstains, nothing to say", 11.5, AMBER, 500)}</g>')
 
-    out.append(panel(508, 140, 152, 68, 9, PANEL, SKY))
+    out.append(panel(508, 140, 152, 68, 9, PANEL, ACCENT))
     out.append(label(584, 168, "RRF fusion", 13, BRIGHT, 600, "middle"))
     out.append(label(584, 187, "by rank, not by score", 11, DIM, anchor="middle"))
     for y, opt in ((118, False), (178, False), (238, True)):
@@ -287,7 +309,7 @@ def grounding_svg() -> str:
             wire = f"M428 {y + 26} C 468 {y + 26}, 468 174, 498 174"
             out.append(f'<g opacity="0">{fade(t0, t0 + 0.9, L)}<g>'
                        f'{move(wire, [(0, 0), (t0 + 0.1, 0), (t0 + 1.0, 1), (L, 1)], L)}'
-                       f'<circle r="11" fill="#1d2433" stroke="{colour}" stroke-width="1.2"/>'
+                       f'<circle r="11" fill="{RAISED}" stroke="{colour}" stroke-width="1.2"/>'
                        f'{label(0, 4, key, 11.5, BRIGHT, 600, "middle", MONO)}</g></g>')
 
     out.append(f'<g>{linger(5.4, L)}'
@@ -295,7 +317,7 @@ def grounding_svg() -> str:
     for i, (key, dots) in enumerate(FUSED):
         y, t0 = 126 + i * 38, 5.6 + i * 0.35
         row = [f'<g>{linger(t0, L)}',
-               f'<rect x="700" y="{y}" width="152" height="30" rx="8" fill="{PANEL}" '
+               f'<rect x="700" y="{y}" width="152" height="30" fill="{PANEL}" '
                f'stroke="{LINE}"/>',
                label(716, y + 20, str(i + 1), 11, DIM, family=MONO),
                label(738, y + 20, key, 12.5, BRIGHT, 600, family=MONO)]
@@ -304,7 +326,10 @@ def grounding_svg() -> str:
             row.append(f'<circle cx="{cx}" cy="{y + 15}" r="4" fill="{colour}"/>')
         out.append("".join(row) + "</g>")
     out.append(f'<g>{linger(7.4, L)}'
-               f'{label(700, 292, "B and A were found by both legs,", 11.5, DIM)}'
+               # Both lines have to clear x=880 in Archivo, which is wider than
+               # the Inter that renders on GitHub: the old wording fit only in
+               # the fallback and would have clipped wherever Archivo is present.
+               f'{label(700, 292, "Both legs found B and A,", 11.5, DIM)}'
                f'{label(700, 307, "so they outrank D and C", 11.5, DIM)}</g>')
 
     out.append("</svg>\n")
@@ -338,6 +363,7 @@ LANES = (("text", "recon, keyphrase,|sanitize, title"),
          ("organize", "classify,|taxonomy"),
          ("write", "ops, provenance,|undo journal"),
          ("code", "AST graph,|code wiki"),
+         ("calendar", "events,|occurrences,|reminders"),
          ("report", "dedup, quiz,|vault energy"))
 # (module under silica/driver, what it drives)
 BACKENDS = (("fs_backend", "fs backend", "the default: plain files, git friendly"),
@@ -347,7 +373,7 @@ CAPABILITIES = ("dedup", "refine", "enrich", "expand", "orphan", "codewiki")
 
 
 def band(x, y, text) -> str:
-    return (f'<text x="{x}" y="{y}" font-size="10.5" fill="{SKY}" font-weight="600" '
+    return (f'<text x="{x}" y="{y}" font-size="10.5" fill="{ACCENT}" font-weight="600" '
             f'letter-spacing="0.09em" font-family="{SANS}">{text.upper()}</text>')
 
 
@@ -364,15 +390,15 @@ def architecture_svg() -> str:
     X, INNER = 24, 832
     MID = X + INNER / 2
     out = [head(W, H, "What a change passes through",
-                "Four ways in, one gate, seven kernel lanes, two backends, and "
+                "Four ways in, one gate, eight kernel lanes, two backends, and "
                 "a vault of plain markdown beside a private index.",
                 "A change enters through the terminal, the web GUI, the Obsidian "
                 "plugin or the MCP server. External content stages in Inbox. "
                 "Everything then passes the Injector FSM, whose states call the "
-                "seven kernel lanes, and the ops it emits reach the vault "
+                "eight kernel lanes, and the ops it emits reach the vault "
                 "through the filesystem backend or the Obsidian plugin.")]
     out.append(label(X, 38, "Every mutation takes the same path", 17, BRIGHT, 600))
-    out.append(f'<rect x="{X}" y="50" width="42" height="3" rx="1.5" fill="{SKY}"/>')
+    out.append(f'<rect x="{X}" y="50" width="42" height="3" rx="1.5" fill="{ACCENT}"/>')
 
     out.append(band(X, 84, "four ways in"))
     w = (INNER - 3 * 12) / 4
@@ -404,8 +430,12 @@ def architecture_svg() -> str:
                                   "and restores the pre-write snapshot", 11, AMBER))
     out.append(down(MID, 412, 450, "calls"))
 
-    out.append(band(X, 446, "kernel, seven lanes"))
-    w = (INNER - 6 * 8) / 7
+    # The lane count is read off LANES, which check() pins to the tree: the
+    # count was written into the band label and the width divisor at three
+    # sites, so the calendar lane landed as an assertion failure rather than
+    # as a re-laid-out row.
+    out.append(band(X, 446, f"kernel, {len(LANES)} lanes"))
+    w = (INNER - (len(LANES) - 1) * 8) / len(LANES)
     for i, (name, gloss) in enumerate(LANES):
         bx = X + i * (w + 8)
         out.append(panel(bx, 456, w, 70))

@@ -1,86 +1,91 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 728" width="880" height="728" role="img" aria-label="Four ways in, one gate, seven kernel lanes, two backends, and a vault of plain markdown beside a private index." font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 728" width="880" height="728" role="img" aria-label="Four ways in, one gate, eight kernel lanes, two backends, and a vault of plain markdown beside a private index." font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">
 <title>What a change passes through</title>
-<desc>A change enters through the terminal, the web GUI, the Obsidian plugin or the MCP server. External content stages in Inbox. Everything then passes the Injector FSM, whose states call the seven kernel lanes, and the ops it emits reach the vault through the filesystem backend or the Obsidian plugin.</desc>
-<rect width="880" height="728" rx="12" fill="#0d1117"/>
-<rect x="0.5" y="0.5" width="879" height="727" rx="12" fill="none" stroke="#30363d"/>
-<text x="24" y="38" font-size="17" fill="#e6edf3" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">Every mutation takes the same path</text>
-<rect x="24" y="50" width="42" height="3" rx="1.5" fill="#38bdf8"/>
-<text x="24" y="84" font-size="10.5" fill="#38bdf8" font-weight="600" letter-spacing="0.09em" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">FOUR WAYS IN</text>
-<rect x="24.0" y="94" width="199.0" height="50" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="40.0" y="118" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica</text>
-<text x="40.0" y="134" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">terminal, Rich TUI</text>
-<rect x="235.0" y="94" width="199.0" height="50" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="251.0" y="118" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica --gui</text>
-<text x="251.0" y="134" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">web GUI, FastAPI and SSE</text>
-<rect x="446.0" y="94" width="199.0" height="50" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="462.0" y="118" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica connect</text>
-<text x="462.0" y="134" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the Obsidian plugin</text>
-<rect x="657.0" y="94" width="199.0" height="50" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="673.0" y="118" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica mcp</text>
-<text x="673.0" y="134" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">memory for another agent</text>
-<path d="M440.0 144 L440.0 168" stroke="#30363d" stroke-width="1.5"/><path d="M435.0 167 L440.0 175 L445.0 167 Z" fill="#30363d"/>
-<text x="24" y="172" font-size="10.5" fill="#38bdf8" font-weight="600" letter-spacing="0.09em" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">WHAT CAN COME IN</text>
-<rect x="24" y="182" width="832" height="56" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="40" y="206" font-size="12.5" fill="#adbac7" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">prose · code · documents · notebooks · transcripts · web pages · web research</text>
-<text x="40" y="226" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">external content normalizes into Inbox/ and reaches the vault only through the gate below</text>
-<path d="M440.0 238 L440.0 268" stroke="#30363d" stroke-width="1.5"/><path d="M435.0 267 L440.0 275 L445.0 267 Z" fill="#30363d"/>
-<text x="24" y="272" font-size="10.5" fill="#38bdf8" font-weight="600" letter-spacing="0.09em" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">THE GATE</text>
-<rect x="24" y="282" width="832" height="130" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="1"/>
-<text x="40" y="306" font-size="13" fill="#e6edf3" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">Injector FSM</text>
-<text x="142" y="306" font-size="11" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">deterministic, per file, the only way in</text>
-<text x="40" y="332" font-size="11" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">reads the vault and the payload</text>
-<text x="240" y="332" font-size="11" fill="#adbac7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">RECON · PAYLOAD · SALIENCE · COLLISION</text>
-<text x="40" y="354" font-size="11" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">decides what to write</text>
-<text x="240" y="354" font-size="11" fill="#adbac7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">DELEGATE · SANITIZE · VALIDATE</text>
-<text x="40" y="376" font-size="11" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">writes, then repairs the graph</text>
-<text x="240" y="376" font-size="11" fill="#adbac7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">SNAPSHOT · WRITE · HUB_UPDATE · AUTOLINK · BACKLINK · LINT · CLEANUP</text>
-<rect x="40" y="384" width="800" height="1" fill="#30363d"/>
-<text x="40" y="403" font-size="11" fill="#f0883e" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">any gate fails, ROLLBACK applies the inverse ops and restores the pre-write snapshot</text>
-<path d="M440.0 412 L440.0 442" stroke="#30363d" stroke-width="1.5"/><path d="M435.0 441 L440.0 449 L445.0 441 Z" fill="#30363d"/><text x="452.0" y="435.0" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">calls</text>
-<text x="24" y="446" font-size="10.5" fill="#38bdf8" font-weight="600" letter-spacing="0.09em" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">KERNEL, SEVEN LANES</text>
-<rect x="24.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="36.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">text</text>
-<text x="36.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">recon, keyphrase,</text>
-<text x="36.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">sanitize, title</text>
-<rect x="144.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="156.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">link</text>
-<text x="156.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">autolink, rename,</text>
-<text x="156.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">correlate, lint</text>
-<rect x="264.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="276.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">recall</text>
-<text x="276.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">embeddings,</text>
-<text x="276.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">co-occurrence,</text>
-<text x="276.0" y="522" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">fusion, rerank</text>
-<rect x="384.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="396.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">organize</text>
-<text x="396.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">classify,</text>
-<text x="396.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">taxonomy</text>
-<rect x="504.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="516.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">write</text>
-<text x="516.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">ops, provenance,</text>
-<text x="516.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">undo journal</text>
-<rect x="624.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="636.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">code</text>
-<text x="636.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">AST graph,</text>
-<text x="636.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">code wiki</text>
-<rect x="744.0" y="456" width="112.0" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="756.0" y="478" font-size="12" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">report</text>
-<text x="756.0" y="496" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">dedup, quiz,</text>
-<text x="756.0" y="509" font-size="9.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">vault energy</text>
-<text x="24" y="545" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the same lanes back six leashed capabilities the FSM work queue feeds: dedup, refine, enrich, expand, orphan, codewiki</text>
-<path d="M440.0 556 L440.0 582" stroke="#30363d" stroke-width="1.5"/><path d="M435.0 581 L440.0 589 L445.0 581 Z" fill="#30363d"/><text x="452.0" y="577.0" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">ops</text>
-<text x="24" y="586" font-size="10.5" fill="#38bdf8" font-weight="600" letter-spacing="0.09em" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">HOW THEY LAND</text>
-<rect x="24.0" y="596" width="410.0" height="48" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="40.0" y="618" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">fs backend</text>
-<text x="40.0" y="634" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the default: plain files, git friendly</text>
-<rect x="446.0" y="596" width="410.0" height="48" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-<text x="462.0" y="618" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">ws backend</text>
-<text x="462.0" y="634" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the Obsidian plugin, over its rpc bridge</text>
-<path d="M440.0 644 L440.0 664" stroke="#30363d" stroke-width="1.5"/><path d="M435.0 663 L440.0 671 L445.0 663 Z" fill="#30363d"/>
-<rect x="24.0" y="672" width="410.0" height="48" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1"/>
-<text x="40.0" y="694" font-size="12.5" fill="#e6edf3" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">your vault</text>
-<text x="40.0" y="710" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">plain .md, readable with or without Silica</text>
-<rect x="446.0" y="672" width="410.0" height="48" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1"/>
-<text x="462.0" y="694" font-size="12.5" fill="#e6edf3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">~/.silica</text>
-<text x="462.0" y="710" font-size="10.5" fill="#7d8590" font-family="Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">index, embeddings, ledgers, undo journal</text>
+<desc>A change enters through the terminal, the web GUI, the Obsidian plugin or the MCP server. External content stages in Inbox. Everything then passes the Injector FSM, whose states call the eight kernel lanes, and the ops it emits reach the vault through the filesystem backend or the Obsidian plugin.</desc>
+<rect width="880" height="728" fill="#0D0E0F"/>
+<rect x="0.5" y="0.5" width="879" height="727" fill="none" stroke="#2F343A"/>
+<text x="24" y="38" font-size="17" fill="#F4F5F7" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">Every mutation takes the same path</text>
+<rect x="24" y="50" width="42" height="3" rx="1.5" fill="#22B4CC"/>
+<text x="24" y="84" font-size="10.5" fill="#22B4CC" font-weight="600" letter-spacing="0.09em" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">FOUR WAYS IN</text>
+<rect x="24.0" y="94" width="199.0" height="50" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="40.0" y="118" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica</text>
+<text x="40.0" y="134" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">terminal, Rich TUI</text>
+<rect x="235.0" y="94" width="199.0" height="50" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="251.0" y="118" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica --gui</text>
+<text x="251.0" y="134" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">web GUI, FastAPI and SSE</text>
+<rect x="446.0" y="94" width="199.0" height="50" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="462.0" y="118" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica connect</text>
+<text x="462.0" y="134" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the Obsidian plugin</text>
+<rect x="657.0" y="94" width="199.0" height="50" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="673.0" y="118" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="500" text-anchor="start">silica mcp</text>
+<text x="673.0" y="134" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">memory for another agent</text>
+<path d="M440.0 144 L440.0 168" stroke="#2F343A" stroke-width="1.5"/><path d="M435.0 167 L440.0 175 L445.0 167 Z" fill="#2F343A"/>
+<text x="24" y="172" font-size="10.5" fill="#22B4CC" font-weight="600" letter-spacing="0.09em" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">WHAT CAN COME IN</text>
+<rect x="24" y="182" width="832" height="56" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="40" y="206" font-size="12.5" fill="#C5CAD2" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">prose · code · documents · notebooks · transcripts · web pages · web research</text>
+<text x="40" y="226" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">external content normalizes into Inbox/ and reaches the vault only through the gate below</text>
+<path d="M440.0 238 L440.0 268" stroke="#2F343A" stroke-width="1.5"/><path d="M435.0 267 L440.0 275 L445.0 267 Z" fill="#2F343A"/>
+<text x="24" y="272" font-size="10.5" fill="#22B4CC" font-weight="600" letter-spacing="0.09em" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">THE GATE</text>
+<rect x="24" y="282" width="832" height="130" rx="10" fill="#1B1E21" stroke="#E0A93B" stroke-width="1"/>
+<text x="40" y="306" font-size="13" fill="#F4F5F7" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">Injector FSM</text>
+<text x="142" y="306" font-size="11" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">deterministic, per file, the only way in</text>
+<text x="40" y="332" font-size="11" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">reads the vault and the payload</text>
+<text x="240" y="332" font-size="11" fill="#C5CAD2" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">RECON · PAYLOAD · SALIENCE · COLLISION</text>
+<text x="40" y="354" font-size="11" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">decides what to write</text>
+<text x="240" y="354" font-size="11" fill="#C5CAD2" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">DELEGATE · SANITIZE · VALIDATE</text>
+<text x="40" y="376" font-size="11" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">writes, then repairs the graph</text>
+<text x="240" y="376" font-size="11" fill="#C5CAD2" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="400" text-anchor="start">SNAPSHOT · WRITE · HUB_UPDATE · AUTOLINK · BACKLINK · LINT · CLEANUP</text>
+<rect x="40" y="384" width="800" height="1" fill="#2F343A"/>
+<text x="40" y="403" font-size="11" fill="#E0A93B" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">any gate fails, ROLLBACK applies the inverse ops and restores the pre-write snapshot</text>
+<path d="M440.0 412 L440.0 442" stroke="#2F343A" stroke-width="1.5"/><path d="M435.0 441 L440.0 449 L445.0 441 Z" fill="#2F343A"/><text x="452.0" y="435.0" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">calls</text>
+<text x="24" y="446" font-size="10.5" fill="#22B4CC" font-weight="600" letter-spacing="0.09em" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">KERNEL, 8 LANES</text>
+<rect x="24.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="36.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">text</text>
+<text x="36.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">recon, keyphrase,</text>
+<text x="36.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">sanitize, title</text>
+<rect x="129.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="141.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">link</text>
+<text x="141.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">autolink, rename,</text>
+<text x="141.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">correlate, lint</text>
+<rect x="234.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="246.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">recall</text>
+<text x="246.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">embeddings,</text>
+<text x="246.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">co-occurrence,</text>
+<text x="246.0" y="522" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">fusion, rerank</text>
+<rect x="339.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="351.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">organize</text>
+<text x="351.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">classify,</text>
+<text x="351.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">taxonomy</text>
+<rect x="444.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="456.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">write</text>
+<text x="456.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">ops, provenance,</text>
+<text x="456.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">undo journal</text>
+<rect x="549.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="561.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">code</text>
+<text x="561.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">AST graph,</text>
+<text x="561.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">code wiki</text>
+<rect x="654.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="666.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">calendar</text>
+<text x="666.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">events,</text>
+<text x="666.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">occurrences,</text>
+<text x="666.0" y="522" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">reminders</text>
+<rect x="759.0" y="456" width="97.0" height="70" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="771.0" y="478" font-size="12" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">report</text>
+<text x="771.0" y="496" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">dedup, quiz,</text>
+<text x="771.0" y="509" font-size="9.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">vault energy</text>
+<text x="24" y="545" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the same lanes back six leashed capabilities the FSM work queue feeds: dedup, refine, enrich, expand, orphan, codewiki</text>
+<path d="M440.0 556 L440.0 582" stroke="#2F343A" stroke-width="1.5"/><path d="M435.0 581 L440.0 589 L445.0 581 Z" fill="#2F343A"/><text x="452.0" y="577.0" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">ops</text>
+<text x="24" y="586" font-size="10.5" fill="#22B4CC" font-weight="600" letter-spacing="0.09em" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif">HOW THEY LAND</text>
+<rect x="24.0" y="596" width="410.0" height="48" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="40.0" y="618" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">fs backend</text>
+<text x="40.0" y="634" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the default: plain files, git friendly</text>
+<rect x="446.0" y="596" width="410.0" height="48" rx="0" fill="#1B1E21" stroke="#2F343A" stroke-width="1"/>
+<text x="462.0" y="618" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">ws backend</text>
+<text x="462.0" y="634" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">the Obsidian plugin, over its rpc bridge</text>
+<path d="M440.0 644 L440.0 664" stroke="#2F343A" stroke-width="1.5"/><path d="M435.0 663 L440.0 671 L445.0 663 Z" fill="#2F343A"/>
+<rect x="24.0" y="672" width="410.0" height="48" rx="10" fill="#1B1E21" stroke="#4FD08A" stroke-width="1"/>
+<text x="40.0" y="694" font-size="12.5" fill="#F4F5F7" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="600" text-anchor="start">your vault</text>
+<text x="40.0" y="710" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">plain .md, readable with or without Silica</text>
+<rect x="446.0" y="672" width="410.0" height="48" rx="10" fill="#1B1E21" stroke="#4FD08A" stroke-width="1"/>
+<text x="462.0" y="694" font-size="12.5" fill="#F4F5F7" font-family="'Martian Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-weight="600" text-anchor="start">~/.silica</text>
+<text x="462.0" y="710" font-size="10.5" fill="#969CA6" font-family="Archivo, Inter, system-ui, -apple-system, 'Segoe UI', sans-serif" font-weight="400" text-anchor="start">index, embeddings, ledgers, undo journal</text>
 </svg>
