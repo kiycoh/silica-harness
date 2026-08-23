@@ -1,0 +1,279 @@
+{
+  "config": {
+    "mode": "locomo",
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "vault": "bench/ab_c26_verbatim/conv-26",
+    "conv": "conv-26",
+    "unmapped": []
+  },
+  "provenance": {
+    "run_id": "20260722T150707",
+    "git_sha": "e91f0e2f508e64b24f481aab3afdfe7504851698",
+    "dataset": {
+      "path": "bench/locomo10.json",
+      "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+  },
+  "notes": [
+    {
+      "rel": "sessions/s0000",
+      "sessions": [
+        "session_1"
+      ],
+      "facts": 43,
+      "judged": 43,
+      "supported": 43,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0001",
+      "sessions": [
+        "session_2"
+      ],
+      "facts": 58,
+      "judged": 51,
+      "supported": 51,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 7,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0002",
+      "sessions": [
+        "session_3"
+      ],
+      "facts": 94,
+      "judged": 94,
+      "supported": 94,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0003",
+      "sessions": [
+        "session_4"
+      ],
+      "facts": 58,
+      "judged": 58,
+      "supported": 58,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0004",
+      "sessions": [
+        "session_5"
+      ],
+      "facts": 67,
+      "judged": 67,
+      "supported": 67,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0005",
+      "sessions": [
+        "session_6"
+      ],
+      "facts": 56,
+      "judged": 56,
+      "supported": 56,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0006",
+      "sessions": [
+        "session_7"
+      ],
+      "facts": 93,
+      "judged": 72,
+      "supported": 72,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 21,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0007",
+      "sessions": [
+        "session_8"
+      ],
+      "facts": 82,
+      "judged": 79,
+      "supported": 79,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 3,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0008",
+      "sessions": [
+        "session_9"
+      ],
+      "facts": 25,
+      "judged": 25,
+      "supported": 24,
+      "score": 0.96,
+      "unsupported": [
+        "Caroline and the teen have"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0009",
+      "sessions": [
+        "session_10"
+      ],
+      "facts": 76,
+      "judged": 76,
+      "supported": 76,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0010",
+      "sessions": [
+        "session_11"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "sessions/s0011",
+      "sessions": [
+        "session_12"
+      ],
+      "facts": 27,
+      "judged": 27,
+      "supported": 27,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0012",
+      "sessions": [
+        "session_13"
+      ],
+      "facts": 64,
+      "judged": 50,
+      "supported": 50,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 14,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0013",
+      "sessions": [
+        "session_14"
+      ],
+      "facts": 130,
+      "judged": 130,
+      "supported": 130,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0014",
+      "sessions": [
+        "session_15"
+      ],
+      "facts": 98,
+      "judged": 98,
+      "supported": 98,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0015",
+      "sessions": [
+        "session_16"
+      ],
+      "facts": 89,
+      "judged": 89,
+      "supported": 89,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0016",
+      "sessions": [
+        "session_17"
+      ],
+      "facts": 73,
+      "judged": 73,
+      "supported": 73,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0017",
+      "sessions": [
+        "session_18"
+      ],
+      "facts": 83,
+      "judged": 83,
+      "supported": 83,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0018",
+      "sessions": [
+        "session_19"
+      ],
+      "facts": 33,
+      "judged": 33,
+      "supported": 33,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    }
+  ],
+  "metrics": {
+    "notes": 19,
+    "notes_scored": 18,
+    "notes_error": 1,
+    "facts_total": 1249,
+    "facts_judged": 1204,
+    "facts_supported": 1203,
+    "judge_failures": 45,
+    "micro_factscore": 0.9991694352159468,
+    "macro_factscore": 0.9977777777777779
+  }
+}

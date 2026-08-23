@@ -1,0 +1,181 @@
+{
+ "benchmark": "locomo",
+ "question": "does a write path that rewrites the source into its own prose answer better than one that keeps the source's words",
+ "answer_mode": "agent",
+ "answer_model": "openrouter/deepseek/deepseek-v4-flash",
+ "judge_model": "openrouter/deepseek/deepseek-v4-flash",
+ "caveats": [
+  "n=2 conversations, one run each, OpenRouter routing unpinned: no CI.",
+  "Arm ranking among the three non-lossy arms does NOT replicate: extractive leads on conv-26 and verbatim leads on conv-47, and the swing within one arm across conversations is larger than the gap between arms. Only the lossy-vs-non-lossy split holds on both.",
+  "The distill arm is a flat slice-distill with no autolink or dedup, so it is a weaker pipeline as well as a lossy one."
+ ],
+ "arms": [
+  {
+   "conversation": "conv-26",
+   "arm": "extractive",
+   "lossy_write_path": false,
+   "ingest_mode": "fsm-extractive",
+   "overall_accuracy": 0.7767,
+   "answerable_n": 152,
+   "abstention_accuracy": 0.9444,
+   "abstention_n": 47,
+   "by_type": {
+    "multi-hop": 0.7222,
+    "open-domain": 0.6667,
+    "single-hop": 0.8846,
+    "temporal": 0.625
+   },
+   "provenance": {
+    "run_id": "20260722T075505",
+    "git_sha": "e91f0e2f508e64b24f481aab3afdfe7504851698",
+    "dataset": {
+     "path": "bench/locomo10.json",
+     "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+   },
+   "source": "bench/ab_extractive.agent.metrics.json"
+  },
+  {
+   "conversation": "conv-26",
+   "arm": "hybrid",
+   "lossy_write_path": false,
+   "ingest_mode": "fsm-hybrid",
+   "overall_accuracy": 0.7174,
+   "answerable_n": 152,
+   "abstention_accuracy": 0.875,
+   "abstention_n": 47,
+   "by_type": {
+    "multi-hop": 0.4737,
+    "open-domain": 0.3333,
+    "single-hop": 0.8542,
+    "temporal": 0.6818
+   },
+   "provenance": {
+    "run_id": "20260722T081233",
+    "git_sha": "e91f0e2f508e64b24f481aab3afdfe7504851698",
+    "dataset": {
+     "path": "bench/locomo10.json",
+     "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+   },
+   "source": "bench/ab_hybrid.agent.metrics.json"
+  },
+  {
+   "conversation": "conv-26",
+   "arm": "verbatim",
+   "lossy_write_path": false,
+   "ingest_mode": "distill",
+   "overall_accuracy": 0.5921,
+   "answerable_n": 152,
+   "abstention_accuracy": 0.383,
+   "abstention_n": 47,
+   "by_type": {
+    "multi-hop": 0.4688,
+    "open-domain": 0.4615,
+    "single-hop": 0.6571,
+    "temporal": 0.6216
+   },
+   "provenance": {
+    "generated_at": "2026-07-22",
+    "note": "predates evals/_shared.provenance (added 2026-07-22): no run_id, no git_sha"
+   },
+   "source": "bench/ab_c26_verbatim_agent.metrics.json"
+  },
+  {
+   "conversation": "conv-26",
+   "arm": "distill",
+   "lossy_write_path": true,
+   "ingest_mode": "distill",
+   "overall_accuracy": 0.4276,
+   "answerable_n": 152,
+   "abstention_accuracy": 0.383,
+   "abstention_n": 47,
+   "by_type": {
+    "multi-hop": 0.3438,
+    "open-domain": 0.2308,
+    "single-hop": 0.5571,
+    "temporal": 0.3243
+   },
+   "provenance": {
+    "generated_at": "2026-07-22",
+    "note": "predates evals/_shared.provenance (added 2026-07-22): no run_id, no git_sha"
+   },
+   "source": "bench/ab_c26_distill_agent.metrics.json"
+  },
+  {
+   "conversation": "conv-47",
+   "arm": "verbatim",
+   "lossy_write_path": false,
+   "ingest_mode": "distill",
+   "overall_accuracy": 0.84,
+   "answerable_n": 150,
+   "abstention_accuracy": 0.8,
+   "abstention_n": 40,
+   "by_type": {
+    "multi-hop": 0.7,
+    "open-domain": 0.4615,
+    "single-hop": 0.988,
+    "temporal": 0.7059
+   },
+   "provenance": {
+    "run_id": "20260724T005240",
+    "git_sha": "85e2da6ea26df2f18b9a53bfd0565e2bedfebb4e",
+    "dataset": {
+     "path": "bench/locomo10.json",
+     "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+   },
+   "source": "bench/v1_c47_verbatim.agent.metrics.json"
+  },
+  {
+   "conversation": "conv-47",
+   "arm": "extractive",
+   "lossy_write_path": false,
+   "ingest_mode": "fsm-extractive",
+   "overall_accuracy": 0.78,
+   "answerable_n": 150,
+   "abstention_accuracy": 0.8974,
+   "abstention_n": 40,
+   "by_type": {
+    "multi-hop": 0.55,
+    "open-domain": 0.5385,
+    "single-hop": 0.9518,
+    "temporal": 0.5882
+   },
+   "provenance": {
+    "run_id": "20260723T221224",
+    "git_sha": "85e2da6ea26df2f18b9a53bfd0565e2bedfebb4e",
+    "dataset": {
+     "path": "bench/locomo10.json",
+     "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+   },
+   "source": "bench/v1_c47_extractive.agent.metrics.json"
+  },
+  {
+   "conversation": "conv-47",
+   "arm": "distill",
+   "lossy_write_path": true,
+   "ingest_mode": "distill",
+   "overall_accuracy": 0.6933,
+   "answerable_n": 150,
+   "abstention_accuracy": 0.875,
+   "abstention_n": 40,
+   "by_type": {
+    "multi-hop": 0.45,
+    "open-domain": 0.3846,
+    "single-hop": 0.8554,
+    "temporal": 0.5588
+   },
+   "provenance": {
+    "run_id": "20260724T041250",
+    "git_sha": "85e2da6ea26df2f18b9a53bfd0565e2bedfebb4e",
+    "dataset": {
+     "path": "bench/locomo10.json",
+     "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+   },
+   "source": "bench/v1_c47_distill.agent.metrics.json"
+  }
+ ]
+}

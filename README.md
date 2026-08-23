@@ -16,20 +16,34 @@
 
 
 <h3 align="center">
-Silica is a multi-agent framework that allows one and more agents (human or artificial ) to autonomously access and manage a knowledge base of information.
+Silica is a multi-agent framework that allows one and more agents (human or artificial) to access and autonomously manage a knowledge base of information.
 </h3>
 
 <p align="center">
   <sub>
-  An LLM harness to safely govern your digital notes. Auto-connections, custom 
-  BSM-25, optional embedding with ~6% accuracy difference from CPU only fallback.
-  <b>82.1%</b> answerable accuracy and <b>~90%</b> correct refusals on LoCoMo
+  An LLM harness to safely govern your digital notes. Auto-connections, a
+  hand-rolled BM25, optional embedding with ~6% accuracy difference from a
+  CPU-only fallback.
+  <b>82.1%</b> answerable accuracy and <b>87.2%</b> correct refusals on LoCoMo, one run, both numbers
   &nbsp;·&nbsp;
-  <b>100%</b> write integrity across a real 758-note vault <a href="#measured">(how these were measured)</a>
+  <b>100%</b> write integrity across a real 796-note vault <a href="#measured">(how these were measured)</a>
   Silica act as a transactional write path for a folder of markdown: the harness guides (e.g. ingestion, report..), the LLM proposes, a parser
   and an FSM verify and execute, and every write is verified against a source, reverted if corrupted. Codebases docs, Obsidian Vaults, Research material and more to come. Supports local inference.
   <sub>
 <p>
+
+<p align="center">
+  <a href="#why-silica">Why</a> &nbsp;·&nbsp;
+  <a href="#how-the-guardrail-works">Guardrail</a> &nbsp;·&nbsp;
+  <a href="#what-you-can-do">What you can do</a> &nbsp;·&nbsp;
+  <a href="#command-reference">Commands</a> &nbsp;·&nbsp;
+  <a href="#four-interfaces-to-use-it">Interfaces</a> &nbsp;·&nbsp;
+  <a href="#install">Install</a> &nbsp;·&nbsp;
+  <a href="#configuration">Configuration</a> &nbsp;·&nbsp;
+  <a href="#measured">Measured</a> &nbsp;·&nbsp;
+  <a href="#point-it-at-code">Codebases</a> &nbsp;·&nbsp;
+  <a href="#references">References</a>
+</p>
 
 
 <p align="center">
@@ -64,11 +78,14 @@ Silica is a multi-agent framework that allows one and more agents (human or arti
 
 ### Silica's answer
 
-- **Verify or revert on the memory substrate itself.** 2026 produced an entire memory-poisoning literature proposing exactly [the loop above](#how-the-guardrail-works), stage the write, validate it, commit or roll back: Cordon, MOSS, MemLineage, MemAudit, SMSR. Every one of them is a research prototype. Silica ships it, scope of the claim included.
-- **A core that survives with no models at all.** The co-occurrence concept graph, the BM25 leg, and MinHash dedup need no embedder. Competitor cores are LLM-mandatory by construction, and the incentive runs that way: their business is the model call.
-- **Notes and code as one substrate, behind one gate.** The split in the field is clean and nobody crosses it. Memory agents never touch a codebase; wiki agents never curate a human's notes.
+- **A whole library goes through the gate one file at a time.** Point it at 200 PDFs and it is 200 transactions: this means that error compounding has nothing to accumulate in. The run is resumable and every file is separately revertible.
+- **It does not summarize your documents, and that is worth 15 points.** Same pipeline either side, one variable: whether the note keeps the source's words or paraphrases them. The summarizing arm loses by [16.5 and 14.7 points](#measured) on two conversations, and is last in all four question categories on both.
+- **Verify or revert on the memory substrate itself.** 2026 produced an entire memory-poisoning literature proposing exactly [a guardrail](#how-the-guardrail-works), stage the write, validate it, commit or roll back.
+- **A core that survives with no models at all.** The co-occurrence concept graph, the BM25 leg, and MinHash dedup need no embedder.
+- **Notes and code as one substrate, behind one gate.** The split in the field is clean and nobody crosses it. Memory agents never touch a codebase; wiki agents never curate a human's notes. Silica can.
 - **Graph-safe mutation of links a human wrote.** Obsidian redirects links but has no agent driving it. Agents have no human link graph to keep intact. Silica has both.
-- **Abstention as a published number.** Mem0's own 2026 benchmark write-up concedes the market underreports it. Silica prints correct refusals next to accuracy, and ships the [unflattering rows](#measured) unedited.
+- **Abstention as a published number.** Silica prints correct refusals next to accuracy, and ships the [unflattering rows](#measured) unedited.
+- **The vault gets mapped holistically.** Communities are clustered over the links you wrote; zones are clustered over what the notes actually say.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/gate.svg" alt="An edit proposed by the model passes parse, structure and link checks, lands in the note and is read back after it lands. A second edit fails the structure check and is sent back, leaving the note unchanged." width="880" />
@@ -86,6 +103,8 @@ A question is not handed to one index and hoped for. It runs down independent le
 Fusing by rank is what lets legs that measure nothing comparable sit in the same pool: a cosine and an unbounded BM25 score never have to agree on a scale. And a leg with nothing useful to say **abstains** rather than emitting a flat ranking that would poison the pool, so fusion degrades to whichever legs survived.
 
 That is the whole reason the two legs marked *no model* matter. They are deterministic and embedder-free, so with no embedding model at all, retrieval keeps working instead of failing. Each hit records its provenance, so an answer can name the note it came from.
+
+The co-occurrence leg weighs concepts with BM25 rather than raw frequency, which is what makes it worth fusing: on the test vault the same leg scores 0.51 recall@10 on raw counts and 0.86 with BM25, and once it does, per-leg weights and the fusion constant stop moving the result at all (ADR-0029). A third leg, note-to-note derived edges, was measured inside the same composition and removed: it recovered zero pairs the embedding leg did not already have.
 
 The lexical leg is dotted because it is exactly that: optional. Build it with `/lexical` and it joins the same fusion, strong on the rare tokens, proper nouns, and dates that a semantic index is weakest on.
 
@@ -106,77 +125,116 @@ The lexical leg is dotted because it is exactly that: optional. Build it with `/
 
 ## What you can do
 
-**Clear an inbox without losing anything.**<br/>
-Drop raw clippings, drafts, PDFs, or Jupyter Notebooks (`.ipynb`) in a folder. `/nucleate Inbox/*` distills each one into an atomic note, checks it against what you already have so you do not end up with a fifth copy of the same idea, and files it. Hand it twenty files at once and each one still goes through the same gate.
+- **Turn a folder of 200 PDFs into a vault, in one command.**<br/>
+Drop raw clippings, drafts, papers, or Jupyter Notebooks (`.ipynb`) in a folder. `/nucleate Inbox/` takes the whole tree, and a glob, and a single file. Each one is its own transaction through the same gate, checked against what you already have so the fortieth paper does not become a fifth copy of an idea you already wrote down. What lands is the source's own sentences, not a summary of them, [measured at 0.961 atomic-fact precision](#measured) across a 237-note vault. Nothing is deleted: a finished source moves to `Done/` with its inbox folder structure intact, which is also how a run you stopped picks up where it left off, and `/revert --source <file>` takes one document's notes back out however far they spread.<br/>
+Before you commit the afternoon, `scripts/bench_nucleate.py <folder> --sample 3` nucleates three files spread across the size distribution and extrapolates the rest by page count, so "how long would this library take" is answerable in minutes rather than by starting it and hoping.
 
-**Ask your notes instead of your memory.**<br/>
-`/explain "<concept>"`, `/compare "A" "B"`, `/summarize <folder>`, `/quiz [note]`, `/learn <target>`. All grounded in the vault. Graded answers feed a learner model that estimates what you still retain from when each note was written and how you have scored since, so untargeted `/quiz` re-tests what is decaying and probes what was never measured, and `/learn` turns the same estimate into a step-by-step study plan over your own notes: what you did not know comes back, what you still know stays out of the way.
+- **Learn from your own documents, and be told when you are wrong.**<br/>
+`/explain "<concept>"`, `/compare "A" "B"`, `/summarize <folder>`, `/quiz [note]`, `/learn <target>`. All grounded in the vault, and only in the vault: what it does not find there it refuses rather than fills in, and the [refusal rate is published](#measured) next to the accuracy, 87.2% correct on the questions a benchmark plants to be unanswerable. Graded answers feed a learner model that estimates what you still retain, so untargeted `/quiz` re-tests what is decaying and probes what was never measured, and `/learn` turns the same estimate into a step-by-step syllabus over your own notes.<br/>
+It counts writing as learning and reading as nothing, which is the whole point: a note you wrote yourself starts with months of assumed retention, a note the model wrote for you starts with none until you answer a question about it correctly, and passive exposure never counts at all. Citing a note in a chat is not evidence you know it.
 
-**When the vault does not have it.**<br/>
+- **Ask what two notes have to do with each other.**<br/>
+`/path <A> <B>` walks the shortest reading path between any two notes, over your wikilinks *and* the concept graph, so it finds routes through notes you never linked by hand. `/relate <note>` names the kind of each relationship rather than just its strength, and `/compare` puts two notes in a table and surfaces where they contradict each other, which `/contested` then keeps as a standing list. This is the part that is hard to do by hand: the connection between two ideas you had four years apart is exactly the one you cannot remember you made.
+
+- **When the vault does not have it.**<br/>
 If every search a turn ran came back empty, Silica says so instead of answering thin, and names `/web`. Typing it is the consent: the answer comes from the web, with citations appended from the pages that were actually opened rather than from what the model claims it read. Fetching is direct, with no third-party reader in the path. That turn writes nothing; `/keep` saves it to the inbox when it was worth keeping, and `/web-search "<topic>"` does the same in bulk for a whole question.
 
-**See the structure your notes already have.**<br/>
+- **See the structure your notes already have.**<br/>
 `/graph out.html` renders the vault as an interactive page, notes as nodes, communities colored and named, no server needed. `/map <note>` grows a radial mind-map out from a single note, written as an Obsidian canvas plus an SVG. Both local, both drawn from the same co-occurrence graph retrieval uses.
 
-Reorganizing by intent, typed relation maps, reading paths, diagrams, contested claims, dedup, and the rest are in the [command reference](#command-reference).
+- **Take a write back out, however far it spread.**<br/>
+Every note records where it came from, and the journal keeps that link, so `/revert --source <file>` takes back *every* run derived from one dropped PDF, not just the last one. `/undo` is the per-note step and `/revert <run-id>` the per-run one; `/changes` lists what this session touched with added and removed line counts, the same tally the GUI opens as a diff.
+
+- **See time the way the vault already records it.**<br/>
+`/agenda` merges one day's events, dated notes, agent activity, and what is due for review into a single column. Events are notes like any other, so the calendar is the vault read along its dates rather than a second store to keep in sync.
+
+Reorganizing by intent, typed relation maps, reading paths, diagrams, contested claims, dedup, and the rest are below, and `/help` prints the same list in any driver.
 
 ---
 
-## Install
+## Command reference
 
-The [one-liner above](#why-silica) writes the MCP server into your client's own config, and from the next session on your assistant can search, recall, and read your notes. That is the whole read path.
-
-Writing notes needs a model. That is what the wizard is for:
-
-```bash
-uv tool install silica-harness    # or: pipx install silica-harness
-silica init                     # interactive setup: vault, model, embeddings
-silica                          # start the interactive session
-```
-
-If a provider key is already exported in your shell (`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`), Silica picks a model for it and `silica init` stops asking which one.
-
-`silica` curates the folder you launch it in (the repository root, when that folder is inside one). Your settings live in `~/.silica/.env` and follow you between folders. That file is the only one Silica reads: a `.env` belonging to whatever repository your shell happens to sit in is ignored, and a setting you want for one directory is that directory's job to export (`set -a; source .env; set +a`), which outranks the file.
-
-Make a read-only audit your first move. It touches none of your notes (the report itself lands in `GRAPH_REPORT.md` at the vault root), and it shows you the hubs, bridges, and orphans already sitting in your vault:
-
-```
-/report
-```
+Every verb the registry knows, which is what `tests/test_readme_sync.py` compares this section against: a command that ships without a row here fails the suite rather than going unmentioned.
 
 <details>
-<summary><b>Optional features and development setup</b></summary>
+<summary><b>All 54 commands, grouped</b></summary>
 
 <br/>
 
-Extras install alone or combined, for example `'silica-harness[gui,mcp]'`:
+**Workflow: the ones that plan, read widely, or write**
 
-```bash
-uv tool install 'silica-harness[gui]'      # web GUI: silica --gui
-uv tool install 'silica-harness[mcp]'      # MCP server: silica mcp
-uv tool install 'silica-harness[connect]'  # Obsidian plugin bridge: silica connect
-uv tool install 'silica-harness[pdf]'      # PDF nucleation
-uv tool install 'silica-harness[rerank]'   # in-process cross-encoder rerank
-uv tool install 'silica-harness[all]'      # everything above except dev
-```
+| Command | What it does |
+| :--- | :--- |
+| `/report [folder] [--top-k=N] [--embeddings]` | structural audit of the vault -> steering loop |
+| `/nucleate <file...> [--target=DIR] [--hub=H]` | bring files in: notes via Injector FSM, code as skeleton stubs |
+| `/promote [<key>]` | session memory -> a note: list what keeps recurring, promote one through the gate |
+| `/web [keywords]` | answer from the web instead of the vault, cited; bare /web re-asks your last question |
+| `/organize "<intent>" [--scope=FOLDER] [--file=taxonomy.yaml] [--merge] [--move-uncategorized] [--apply]` | classify and reorganize vault notes according to a taxonomy |
+| `/summarize <note|folder...>` | read-only digest of one or more notes in chat (key points, tables) |
+| `/explain "<concept>" [--level=intro|expert]` | explain a concept grounded in the vault, at the chosen register |
+| `/compare "<A>" "<B>" [...]` | comparison table of notes/concepts; surfaces contradictions |
+| `/quiz [note|folder] [--n=10]` | active-recall quiz; graded answers resurface the notes you miss. No target = review queue |
+| `/learn <area|folder|note|topic>` | guided re-learning: builds (or resumes) a syllabus note calibrated on what you still retain, then teaches step by step with quiz gates |
+| `/relate <note> [--n=8]` | typed relationship map: how/why one note relates to its vault neighbors |
+| `/schematize <note|folder|topic> [--save=<path>]` | Markdown table schematizing a note, folder, or topic |
+| `/diagram <note|folder|topic> [--save=<path>]` | Mermaid diagram of a note, folder, or topic |
 
-`[all]` inherits `[pdf]` and `[rerank]`, so it pulls torch and downloads several GB of model weights the first time those run.
+**Direct: one action, no agent loop**
 
-Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted). The exit code is 0 when every check passed, 1 when one failed, and 2 when nothing failed but a row needs reading (a warning, or a check that could not answer): a script should treat 2 as neither.
+| Command | What it does |
+| :--- | :--- |
+| `/episodes [--save=<path>]` | show what session memory holds: live chains, dated, grouped by key; writes nothing |
+| `/agenda [today|week|YYYY-MM-DD]` | per-day merge of events, dated notes, agent activity and review due |
+| `/convert <file...> [--target=DIR]` | transcode a non-.md file (PDF) into a markdown note in the inbox |
+| `/web-search "<concept>" [--max-searches=N]` | research a concept on the web -> cited findings note in the Inbox (then /nucleate) |
+| `/keep` | save the last /web answer as a cited note in the Inbox (then /nucleate) |
+| `/fetch <url>` | read one URL (YouTube gives its transcript) -> verbatim note in the Inbox |
+| `/status [run_id]` | progress digest of the last run |
+| `/embed [folder] [--force]` | build/update embedding index |
+| `/cooccur [folder] [--force]` | build/update co-occurrence index (without embedder) |
+| `/lexical [folder] [--force]` | build/update lexical (BM25/fuzzy) index |
+| `/wiki [folder|path] [--overview-only] [--force]` | behavioral code wiki: ARCHITECTURE.md + one note per subsystem |
+| `/graph [out.html] [folder]` | export knowledge graph |
+| `/map <note> [--force]` | radial mind-map rooted on a note -> maps/<stem>.canvas |
+| `/find <query> [--k=N]` | semantic search |
+| `/changes` | notes this session wrote to, with added/removed line counts |
+| `/undo [note-path]` | undo the last patch on a note |
+| `/review [--flush=HASH]` | inspect the async review queue (deferred ops) |
+| `/revert [run-id | --source <file>]` | revert a whole injection (per-run, LIFO), or every run derived from one source |
+| `/dedup [folder]` | deduplicate (sub-agent) |
+| `/curate [folder] [--apply]` | curate the vault: plan autolink/orphan/dedup/refine work (dry-run; --apply executes) |
+| `/aliases [folder] [--apply]` | propose frontmatter aliases for note titles (abbreviations, spellings); dry-run, --apply writes |
+| `/refine [folder]` | enrich and normalize notes (sub-agent) |
+| `/enrich [folder]` | enrich note semantics (sub-agent) |
+| `/stale [--all]` | list notes whose documents: sources changed structurally (--all includes cosmetic) |
+| `/impact [<git-range>]` | changed files -> affected notes (documenting + 1-hop import neighbors); no range = uncommitted changes |
+| `/plans` | list plans/ notes grouped by status: (todo\|in-progress\|blocked\|done) |
+| `/path <noteA> <noteB>` | shortest reading path between two notes (wikilinks + co-occurrence) |
+| `/contested` | list notes flagged contested: true with their unresolved contradictions |
 
-For development, clone and install editable instead (adds tests and linters), then prefix commands with `uv run`:
+**Session and settings**
 
-```bash
-git clone https://github.com/kiycoh/silica-harness.git
-cd silica-harness
-uv pip install -e '.[dev]'
-```
+| Command | What it does |
+| :--- | :--- |
+| `/sessions [prune <days>d]` | list saved conversations (narration + legacy); prune deletes old ones |
+| `/resume <n|id>` | reopen a saved conversation and continue it |
+| `/new` | start a fresh conversation (same as /clear); the old one stays resumable |
+| `/vault [path]` | show the active vault, or switch to another for this session |
+| `/settings [<key> <value|none>]` | view or edit vault.yaml settings (language, tags) without the wizard |
+| `/help` | show this help |
+| `/model` | show the current LLM model |
+| `/tools` | list registered tools |
+| `/clear` | reset conversation history |
+| `/verbose` | cycle tool progress: off -> new -> all -> verbose |
+| `/thinking` | toggle display of the reasoning block |
+| `/incognito` | toggle capture of this session off |
+| `/exit` | exit silica |
 
 </details>
 
 ---
 
-## Four ways in
+## Four interfaces to use it
 
 One vault model, four drivers. What changes is who holds the write key.
 
@@ -188,19 +246,19 @@ flowchart LR
     M["Any MCP client<br/>silica mcp"] --> FSM
     FSM["Injector FSM<br/>the single write path<br/>verify or revert"] --> V["Your folder of<br/>plain .md files"]
 
-    style FSM fill:none,stroke:#3987e5,stroke-width:2px
-    style V fill:none,stroke:#3987e5,stroke-width:2px
+    style FSM fill:none,stroke:#22B4CC,stroke-width:2px
+    style V fill:none,stroke:#22B4CC,stroke-width:2px
 ```
 
 <sub>Four front doors, one gate. Switching driver changes the interface, never the rules a write has to pass.</sub>
 
 ### 1. Web GUI &nbsp;·&nbsp; `silica --gui`
 
-A chat-first interface at `http://localhost:8765`. Query and curate from the browser, watch answers stream in, open the graph. Start here if you are new.
+A chat-first interface at `http://localhost:8765`. Query and curate from the browser, watch answers stream in, and switch to three other tabs on the same vault: the **graph**, in 2D or 3D, with communities and semantic zones as separate colour keys; a **calendar** that shows what already happened next to what is booked; and **metrics**, which reports what moved since the last run rather than only the current state. A long job narrates itself while it runs, and every write it makes lands in a drawer with its own diff. Start here if you are new.
 
 ### 2. Terminal &nbsp;·&nbsp; `silica`
 
-The interactive REPL. Every command in the [reference](#command-reference) lives here, and it is the fastest driver once you know the verbs.
+The interactive REPL. Every command lives here, `/help` lists them grouped, and it is the fastest driver once you know the verbs.
 
 <p align="center">
   <img src="assets/demo-test.gif" alt="Silica answering, auditing, writing to and reverting a real vault" width="900" />
@@ -292,7 +350,77 @@ Add `SILICA_VAULT` to the entry (an `env` table for Codex, `env` under `config` 
 
 ---
 
+## Install
 
+The [plugin install above](#4-agent-memory--silica-mcp) writes the MCP server into your client's own config, and from the next session on your assistant can search, recall, and read your notes. That is the whole read path.
+
+Writing notes needs a model. That is what the wizard is for:
+
+```bash
+uv tool install silica-harness    # or: pipx install silica-harness
+silica init                     # interactive setup: vault, model, embeddings
+silica                          # start the interactive session
+```
+
+If a provider key is already exported in your shell (`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`), Silica picks a model for it and `silica init` stops asking which one.
+
+`silica` curates the folder you launch it in (the repository root, when that folder is inside one). Your settings live in `~/.silica/.env` and follow you between folders. That file is the only one Silica reads: a `.env` belonging to whatever repository your shell happens to sit in is ignored, and a setting you want for one directory is that directory's job to export (`set -a; source .env; set +a`), which outranks the file.
+
+Make a read-only audit your first move. It touches none of your notes (the report itself lands in `GRAPH_REPORT.md` at the vault root), and it shows you the hubs, bridges, and orphans already sitting in your vault:
+
+```
+/report
+```
+
+<details>
+<summary><b>Optional features and development setup</b></summary>
+
+<br/>
+
+Extras install alone or combined, for example `'silica-harness[gui,mcp]'`:
+
+```bash
+uv tool install 'silica-harness[gui]'      # web GUI: silica --gui
+uv tool install 'silica-harness[mcp]'      # MCP server: silica mcp
+uv tool install 'silica-harness[connect]'  # Obsidian plugin bridge: silica connect
+uv tool install 'silica-harness[pdf]'      # OCR, for documents with no text layer
+uv tool install 'silica-harness[rerank]'   # in-process cross-encoder rerank
+uv tool install 'silica-harness[bi]'       # SQL over a .csv/.parquet/.xlsx you point at
+uv tool install 'silica-harness[all]'      # gui, mcp, connect, pdf, rerank
+```
+
+PDF, DOCX, EPUB and the legacy office formats need no extra: the base install converts them. `[pdf]` buys OCR for the scanned ones, and it is opt-in because it pulls torch, 3.8 GB against the default's 60 MB. `[all]` inherits it and `[rerank]`, so it downloads several GB of model weights the first time those run. `[bi]` stays outside `[all]` until the tabular lane has an accuracy gate: a wrong number reads as authoritative.
+
+Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted). The exit code is 0 when every check passed, 1 when one failed, and 2 when nothing failed but a row needs reading (a warning, or a check that could not answer): a script should treat 2 as neither.
+
+For development, clone and install editable instead (adds tests and linters), then prefix commands with `uv run`:
+
+```bash
+git clone https://github.com/kiycoh/silica-harness.git
+cd silica-harness
+uv pip install -e '.[dev]'
+```
+
+</details>
+
+---
+
+## Configuration
+
+`silica init` writes the essentials. The full list with defaults is in [`.env.example`](.env.example).
+
+| Variable | Description |
+| :--- | :--- |
+| `SILICA_MODEL` | Chat model, litellm format (e.g. `openrouter/anthropic/claude-sonnet-4`) |
+| `SILICA_PROVIDER` | `lmstudio` or `openrouter` |
+| `SILICA_VAULT` | Vault path, adopted as-is. The working directory wins over this value unless it is exported in the environment (`SILICA_VAULT=... silica`, or an MCP client's `env` block). Reads cover the whole folder; writes are confined by `write_dir` in `vault.yaml` (a source tree declares `docs/silica`; a note folder declares `silica/`, a staging mirror of the vault tree you merge by pasting its contents over the root, and one toggle in `/settings` switches to writing in place) |
+| `SILICA_EMBEDDING_MODEL` | Embedding model for semantic tasks (default `qwen3-embedding-4b`) |
+| `SILICA_PROVIDER_SERVE_CMD` | Start command for the model endpoint; when set, Silica brings the server up itself whenever it finds it down. Same for `SILICA_EMBEDDING_SERVE_CMD` and `SILICA_RERANK_SERVE_CMD` |
+| `SILICA_BACKEND` | `fs` (default, headless). The Obsidian bridge installs `ws` live at dial-in |
+| `SILICA_GIT_COMMIT` | Git safety net for writes (`off`, `auto`) |
+| `SILICA_TAVILY_API_KEY` | Optional: a backstop for `/web-search`, used only when DuckDuckGo rate-limits us. Search scrapes DuckDuckGo first either way, no key needed |
+| `SILICA_WORKER_MODEL` | Sub-agent worker model, used for dedup and refinement |
+| `SILICA_COOCCUR_BM25` | BM25 term weighting in the co-occurrence leg, on by default. `0` is the kill switch, and the only reason it exists is that the lift was measured on retrieval and never re-measured answer-side |
 
 ---
 
@@ -303,13 +431,28 @@ Every number below comes from the harness in [`evals/`](evals/), run against the
 | What was measured | Result | Sample |
 | :--- | :--- | :--- |
 | **LoCoMo**, questions the memory can answer | **82.1%** and **83.2%** accuracy | conv-26 (152 q) and conv-47 (150 q) |
-| **LoCoMo**, questions it should refuse | **94.4%** and **89.7%** correct abstention | 47 q and 40 q |
+| **LoCoMo**, questions it should refuse | **87.2%** and **82.1%** correct abstention | the same two runs, 47 q and 40 q |
+| **Keeping the source's words beats summarizing them**, same pipeline either side | **+16.5** and **+14.7** points of accuracy | conv-26 and conv-47, 302 q total |
+| **FActScore**, atomic-fact precision of what actually landed in the vault | **0.999**, **0.991**, **0.961** micro, by write path | conv-26, 5,855 facts judged across 3 vaults |
 | **MuSiQue** multi-hop retrieval | **61.3%** recall@10, **0.83** MRR | 50 questions over an 11,654-note vault |
-| **Link recall** on a real vault: wikilinks stripped, then recovered | **68.8%** of the human's own links found again | 1,196 links across 393 notes |
-| **Fused retrieval** on the same vault, masked pairs | **77.6%** recall@10 | 522 pairs |
-| **Write integrity** on the same vault | **100%** (758 of 758) notes where no write transform introduces a new structural violation | 758 notes |
+| **Link recall** on a real vault: wikilinks stripped, then recovered | **72.3%** of the human's own links found again | 1,384 links across 442 notes |
+| **Fused retrieval** on the same vault, masked pairs | **73.1%** recall@10, **0.40** MRR | 609 pairs |
+| **Write integrity** on the same vault | **100%** (796 of 796) notes where no write transform introduces a new structural violation | 796 notes |
 
-**How they were run.** LoCoMo ingests two of the ten conversations through the production FSM (`fsm-extractive`) and answers them with the production agent loop, `deepseek-v4-flash` as both answer and judge model, retrieval top-10 through the `bge-reranker-v2-m3` cross-encoder. MuSiQue is retrieval only, no answer model, embeddings plus co-occurrence fused at k=10. The three vault rows are the deterministic tier of the golden harness against a live 758-note Obsidian vault, frozen in [`evals/golden/baseline.json`](evals/golden/baseline.json). Additional evaluation probes in [`evals/`](evals/) measure **FactScore** factual precision (`factscore.py`), claim span attribution (`probe_explain_spans.py`), **LongMemEval** long-memory retention, and paired statistical significance testing (`paired_stats.py`).
+**How they were run.** LoCoMo ingests two of the ten conversations through the production FSM (`fsm-extractive`) and answers them with the production agent loop, `deepseek-v4-flash` as both answer and judge model, retrieval top-10 through the `bge-reranker-v2-m3` cross-encoder. Both LoCoMo rows come from those same two runs, and both runs ship: [`evals/locomo/c26.json`](evals/locomo/c26.json) and [`c47.json`](evals/locomo/c47.json). MuSiQue is retrieval only, no answer model, embeddings plus co-occurrence fused at k=10. The three vault rows are the deterministic tier of the golden harness against a live 796-note Obsidian vault, frozen in [`evals/golden/baseline.json`](evals/golden/baseline.json). Additional probes in [`evals/`](evals/) measure claim span attribution (`probe_explain_spans.py`), **LongMemEval** long-memory retention, and paired statistical significance testing (`paired_stats.py`).
+
+**The row about summarizing.** The one design question underneath all of this is whether a write path should be allowed to rewrite a source into its own prose. Seven arms answer it in [`evals/locomo/substrate.json`](evals/locomo/substrate.json), and the controlled pair is the flat one: identical pipeline, identical read path, one note per session either way, and the only difference is whether that note is the session's own words or a summary of them.
+
+| | conv-26 | conv-47 |
+| :--- | :--- | :--- |
+| the source's words | **0.592** | **0.840** |
+| a summary of them | 0.428 | 0.693 |
+
+The lossy arm is last on both conversations, and last in every question category on both. That is the one result here that replicated. What did **not** replicate is the ranking *among* the non-lossy arms: atomizing into linked notes leads on conv-26 by 18 points and trails plain verbatim on conv-47 by 6, and the swing within a single arm across two conversations is larger than any gap between arms. So the honest claim is the split, not the winner, and Silica's default is the simpler side of it.
+
+**And what actually lands in the note.** FActScore decomposes each written note into atomic facts and asks a judge whether the source supports each one, which needs no external gold because the source document *is* the reference ([Min et al., 2023](https://arxiv.org/abs/2305.14251)). Across three vaults built from the same conversation: 0.999 for verbatim (the control, and it behaves like one), 0.991 for distilled, 0.961 for the 237-note extractive vault. All three sit in the same band, which is the point: the structure Silica adds does not cost groundedness. The residual 4% is a floor rather than a hallucination rate, and the file says why, note by note, in [`evals/factscore/`](evals/factscore/). An earlier run of the same vault read 0.669 and that number was a harness artifact, not a model failure: entity notes were judged against one attributed session instead of the whole conversation. The correction is recorded rather than quietly overwritten.
+
+**What the frozen baseline predates.** It was frozen on 2026-08-11, against the three-leg fusion. ADR-0029 then dropped the edges leg and turned BM25 on by default, and the runner refuses a baseline comparison across that change by design, so these rows stand until the next `--freeze-baseline`. The direction is known and recorded: on the same vault the per-leg ablation moved note-to-note recall@10 from 0.8233 to 0.8815 and mean cost from 5 ms to 1.7 ms per call. The rows above are the older, lower numbers, and stay until a run replaces them.
 
 ```bash
 uv run python -m evals.golden --vault ~/path/to/vault
@@ -318,7 +461,7 @@ uv run python -m evals.locomo --data locomo10.json --run-root RUN_DIR \
   --conversations conv-26,conv-47 --ingest fsm-extractive --answer agent
 ```
 
-**And the numbers that do not flatter.** The same frozen baseline reports 0.33 agreement between `/organize` and the folders the human had already chosen, and 0.11 recall for concept-expanded correlation. They ship unedited next to the good ones.
+**And the numbers that do not flatter.** The same frozen baseline reports 0.32 agreement between `/organize` and the folders the human had already chosen, and 0.11 recall for concept-expanded correlation. They ship unedited next to the good ones.
 
 ---
 
@@ -341,8 +484,8 @@ flowchart TD
     D -- "cosmetic only" --> Q["Stays quiet"]
     D -- "signature or control flow" --> SRC
 
-    style D fill:none,stroke:#3987e5,stroke-width:2px
-    style Q fill:none,stroke:#3987e5,stroke-width:2px
+    style D fill:none,stroke:#22B4CC,stroke-width:2px
+    style Q fill:none,stroke:#22B4CC,stroke-width:2px
 ```
 
 <sub>A reformat is not a documentation debt. Only a real shape change is, and that is the difference `/stale` is built to make. `/impact` cuts the same question the other way: from a diff to the notes that document those files, plus their 1-hop neighbors.</sub>
@@ -351,25 +494,7 @@ One artifact, two readers: a human reads it as a current map of the repository, 
 
 ---
 
-## Configuration
-
-`silica init` writes the essentials. The full list with defaults is in [`.env.example`](.env.example).
-
-| Variable | Description |
-| :--- | :--- |
-| `SILICA_MODEL` | Chat model, litellm format (e.g. `openrouter/anthropic/claude-sonnet-4`) |
-| `SILICA_PROVIDER` | `lmstudio` or `openrouter` |
-| `SILICA_VAULT` | Vault path, adopted as-is. The working directory wins over this value unless it is exported in the environment (`SILICA_VAULT=... silica`, or an MCP client's `env` block). Reads cover the whole folder; writes are confined by `write_dir` in `vault.yaml` (a source tree declares `docs/silica`; a note folder declares `silica/`, a staging mirror of the vault tree you merge by pasting its contents over the root, and one toggle in `/settings` switches to writing in place) |
-| `SILICA_EMBEDDING_MODEL` | Embedding model for semantic tasks (default `qwen3-embedding-4b`) |
-| `SILICA_PROVIDER_SERVE_CMD` | Start command for the model endpoint; when set, Silica brings the server up itself whenever it finds it down. Same for `SILICA_EMBEDDING_SERVE_CMD` and `SILICA_RERANK_SERVE_CMD` |
-| `SILICA_BACKEND` | `fs` (default, headless). The Obsidian bridge installs `ws` live at dial-in |
-| `SILICA_GIT_COMMIT` | Git safety net for writes (`off`, `auto`) |
-| `SILICA_TAVILY_API_KEY` | Optional: a backstop for `/web-search`, used only when DuckDuckGo rate-limits us. Search scrapes DuckDuckGo first either way, no key needed |
-| `SILICA_WORKER_MODEL` | Sub-agent worker model, used for dedup and refinement |
-
----
-
-## LLM Wiki and OKF aknowledgments
+## LLM Wiki and OKF acknowledgments
 
 In April 2026 Andrej Karpathy wrote down the [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern: keep the raw sources immutable, have the model compile them into a cross-linked markdown wiki, and have it maintain that wiki instead of rediscovering everything on every question. What a retrieval system would go looking for at query time is already synthesized, and the model does the bookkeeping a person will not: *"LLMs don't get bored, don't forget to update a cross-reference, and can touch 15 files in one pass."*
 
@@ -381,6 +506,8 @@ Two months later Google Cloud published the [Open Knowledge Format](https://clou
 
 ## References
 
+**Why the gate exists.**
+
 * **[Why Language Models Hallucinate](https://arxiv.org/abs/2509.04664)** (arXiv:2509.04664, 2025)
 * **[LLMs Corrupt Your Documents When You Delegate](https://arxiv.org/abs/2604.15597)** (arXiv:2604.15597, 2026)
 * **[From Agent Loops to Structured Graphs: A Scheduler-Theoretic Framework for LLM Agent Execution](https://arxiv.org/abs/2604.11378)** (arXiv:2604.11378, 2026)
@@ -389,7 +516,27 @@ Two months later Google Cloud published the [Open Knowledge Format](https://clou
 * **[Reliable Graph-RAG for Codebases: AST-Derived Graphs vs LLM-Extracted Knowledge Graphs](https://arxiv.org/abs/2601.08773)** (arXiv:2601.08773, 2026)
 * **[Predicting new research directions in materials science using large language models and concept graphs](https://doi.org/10.1038/s42256-026-01206-y)** (*Nature Machine Intelligence*, 2026)
 
-The lineage of the artifact itself, as described in [The pattern, and the format](#the-pattern-and-the-format):
+**What the machinery is made of.** Silica's core is formally well-understood: retrieval and graph work. Each of these is load-bearing in a named part of the codebase, so this doubles as a reading list for that part:
+
+* **[Reciprocal Rank Fusion outperforms Condorcet and individual Rank Learning Methods](https://doi.org/10.1145/1571941.1572114)** (Cormack, Clarke and Büttcher, SIGIR 2009), the fusion itself, damping constant included, and the reason legs on incomparable scales can share one pool (ADR-0029)
+* **[The Probabilistic Relevance Framework: BM25 and Beyond](https://doi.org/10.1561/1500000019)** (Robertson and Zaragoza, *FnTIR* 2009), the term weighting in both the co-occurrence leg and the opt-in lexical index, hand-rolled rather than pulled in as a dependency
+* **[On the resemblance and containment of documents](https://doi.org/10.1109/SEQUEN.1997.666900)** (Broder, SEQUENCES 1997), MinHash, the embedder-free half of duplicate detection
+* **[Fast unfolding of communities in large networks](https://doi.org/10.1088/1742-5468/2008/10/P10008)** (Blondel, Guillaume, Lambiotte and Lefebvre, *J. Stat. Mech.* 2008), Louvain, run twice over two partitions that never mix: the wikilink graph and the embedding k-NN (ADR-0023)
+* **[BERTopic: neural topic modeling with a class-based TF-IDF procedure](https://arxiv.org/abs/2203.05794)** (Grootendorst, 2022), the c-TF-IDF that names a community and derives the taxonomy `/organize` classifies against
+* **[Friends and neighbors on the Web](https://doi.org/10.1016/S0378-8733(03)00009-1)** (Adamic and Adar, *Social Networks* 2003), the link-prediction score the typed-edge decision was measured with, and one of the seven inter-note variables (ADR-0027)
+* **[YAKE! Keyword extraction from single documents using multiple local features](https://doi.org/10.1016/j.ins.2019.09.013)** (Campos et al., *Information Sciences* 2020), the unsupervised keyphrase pass that feeds the concept graph without a model call
+* **[A Trainable Spaced Repetition Model for Language Learning](https://doi.org/10.18653/v1/P16-1174)** (Settles and Meeder, ACL 2016), the exponential-decay retention estimate behind `/quiz` and `/learn`
+* **[Passage Re-ranking with BERT](https://arxiv.org/abs/1901.04085)** (Nogueira and Cho, 2019), the cross-encoder precision pass over the fused pool
+* **[Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401)** (Lewis et al., NeurIPS 2020), the shape of the read path the write gate was built to make safe
+
+**What the numbers are measured on.** Every benchmark in [Measured](#measured), with its own paper:
+
+* **[Evaluating Very Long-Term Conversational Memory of LLM Agents](https://arxiv.org/abs/2402.17753)** (Maharana et al., ACL 2024), LoCoMo
+* **[MuSiQue: Multihop Questions via Single-hop Question Composition](https://arxiv.org/abs/2108.00573)** (Trivedi et al., *TACL* 2022)
+* **[LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory](https://arxiv.org/abs/2410.10813)** (Wu et al., 2024)
+* **[FActScore: Fine-grained Atomic Evaluation of Factual Precision in Long Form Text Generation](https://arxiv.org/abs/2305.14251)** (Min et al., EMNLP 2023)
+
+**The lineage of the artifact itself**, as described in [LLM Wiki and OKF](#llm-wiki-and-okf-acknowledgments):
 
 * **[LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** (Andrej Karpathy, April 2026), the pattern Silica extends
 * **[Introducing the Open Knowledge Format](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)** (McVeety and Hormati, Google Cloud, June 2026)

@@ -1,0 +1,285 @@
+{
+  "config": {
+    "mode": "locomo",
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "vault": "bench/ab_c26_distill/conv-26",
+    "conv": "conv-26",
+    "unmapped": []
+  },
+  "provenance": {
+    "run_id": "20260722T151540",
+    "git_sha": "e91f0e2f508e64b24f481aab3afdfe7504851698",
+    "dataset": {
+      "path": "bench/locomo10.json",
+      "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+  },
+  "notes": [
+    {
+      "rel": "sessions/s0000",
+      "sessions": [
+        "session_1"
+      ],
+      "facts": 54,
+      "judged": 54,
+      "supported": 54,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0001",
+      "sessions": [
+        "session_2"
+      ],
+      "facts": 30,
+      "judged": 30,
+      "supported": 30,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0002",
+      "sessions": [
+        "session_3"
+      ],
+      "facts": 29,
+      "judged": 29,
+      "supported": 29,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0003",
+      "sessions": [
+        "session_4"
+      ],
+      "facts": 57,
+      "judged": 39,
+      "supported": 39,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 18,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0004",
+      "sessions": [
+        "session_5"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0005",
+      "sessions": [
+        "session_6"
+      ],
+      "facts": 23,
+      "judged": 23,
+      "supported": 23,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0006",
+      "sessions": [
+        "session_7"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0007",
+      "sessions": [
+        "session_8"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "sessions/s0008",
+      "sessions": [
+        "session_9"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 2,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0009",
+      "sessions": [
+        "session_10"
+      ],
+      "facts": 71,
+      "judged": 71,
+      "supported": 71,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0010",
+      "sessions": [
+        "session_11"
+      ],
+      "facts": 77,
+      "judged": 73,
+      "supported": 73,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 4,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0011",
+      "sessions": [
+        "session_12"
+      ],
+      "facts": 75,
+      "judged": 75,
+      "supported": 75,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0012",
+      "sessions": [
+        "session_13"
+      ],
+      "facts": 79,
+      "judged": 79,
+      "supported": 79,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0013",
+      "sessions": [
+        "session_14"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 5,
+      "score": 0.5,
+      "unsupported": [
+        "Caroline expresses a desire to adopt.",
+        "The desire to adopt is part of Caroline's family-building goals.",
+        "Caroline shares her experience with a transgender community support group.",
+        "The transgender community support group is focused on acceptance.",
+        "The transgender community support group is focused on shared understanding."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0014",
+      "sessions": [
+        "session_15"
+      ],
+      "facts": 96,
+      "judged": 96,
+      "supported": 96,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0015",
+      "sessions": [
+        "session_16"
+      ],
+      "facts": 92,
+      "judged": 92,
+      "supported": 92,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0016",
+      "sessions": [
+        "session_17"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0017",
+      "sessions": [
+        "session_18"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 2,
+      "score": 0.6666666666666666,
+      "unsupported": [
+        "Melanie said they"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "sessions/s0018",
+      "sessions": [
+        "session_19"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    }
+  ],
+  "metrics": {
+    "notes": 19,
+    "notes_scored": 18,
+    "notes_error": 1,
+    "facts_total": 717,
+    "facts_judged": 695,
+    "facts_supported": 689,
+    "judge_failures": 22,
+    "micro_factscore": 0.9913669064748202,
+    "macro_factscore": 0.9537037037037037
+  }
+}

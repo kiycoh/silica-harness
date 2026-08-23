@@ -1,0 +1,135 @@
+{
+ "generated_at": "2026-07-30",
+ "benchmark": "locomo",
+ "provenance": {
+  "run_id": "20260730T150802",
+  "git_sha": "116188285aaa253f94a0abf8321f031103e32a7d",
+  "dataset": {
+   "path": "bench/locomo10.json",
+   "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+  }
+ },
+ "config": {
+  "answer_model": "openrouter/deepseek/deepseek-v4-flash",
+  "primary_metric": "overall_accuracy",
+  "judge_model": "openrouter/deepseek/deepseek-v4-flash",
+  "retrieval": "facade-top10",
+  "retrieval_only": false,
+  "distill": false,
+  "reuse": true,
+  "key_schema": true,
+  "categories": "all",
+  "ingest_mode": "fsm-extractive",
+  "answer_mode": "agent",
+  "timeline": false,
+  "improve": false,
+  "assemble": false,
+  "lexical": false,
+  "seen_override": "session-date",
+  "fsm": {
+   "conv-26": {
+    "anneal": {
+     "bundles": 4,
+     "written": 0,
+     "still_deferred": 7
+    },
+    "partial_sessions": [
+     "session_2",
+     "session_4",
+     "session_8",
+     "session_9",
+     "session_11",
+     "session_13",
+     "session_14",
+     "session_15",
+     "session_16",
+     "session_17"
+    ],
+    "runs": "fsm_runs.json"
+   }
+  },
+  "failed_conversations": [],
+  "max_iterations": 10,
+  "agent_tools": [
+   "silica_recall",
+   "silica_search",
+   "silica_semantic_search",
+   "silica_search_context",
+   "silica_related",
+   "silica_read_note",
+   "silica_outline",
+   "silica_links",
+   "silica_concepts",
+   "silica_graph_explain",
+   "silica_props",
+   "silica_exists",
+   "silica_files"
+  ],
+  "agent_temperature": 0.0,
+  "tainted": [],
+  "context": "windowed",
+  "windows": 3,
+  "window_chars": 1000,
+  "facts_position": "first",
+  "episodic_ttl": 0,
+  "provider_pin": null,
+  "embedder": true,
+  "embedding_model": "text-embedding-qwen3-embedding-4b",
+  "reranker": "bge-reranker-v2-m3-Q8_0"
+ },
+ "metrics": {
+  "overall_accuracy": 0.8212,
+  "answerable_n": 152,
+  "answerable_graded_n": 151,
+  "abstention_accuracy": 0.8723,
+  "abstention_n": 47,
+  "abstention_graded_n": 47,
+  "judge_fail_n": 1,
+  "by_type": {
+   "multi-hop": {
+    "n": 32,
+    "graded_n": 32,
+    "accuracy": 0.75,
+    "session_recall": 0.3432
+   },
+   "open-domain": {
+    "n": 13,
+    "graded_n": 13,
+    "accuracy": 0.6923,
+    "session_recall": 0.5909
+   },
+   "single-hop": {
+    "n": 70,
+    "graded_n": 70,
+    "accuracy": 0.9,
+    "session_recall": 0.3429
+   },
+   "temporal": {
+    "n": 37,
+    "graded_n": 36,
+    "accuracy": 0.7778,
+    "session_recall": 0.3243
+   }
+  },
+  "session_recall_mean": 0.3566,
+  "ephemeral_hit_mean": null,
+  "gold_in_context_mean": null,
+  "agent": {
+   "iterations_mean": 2.9,
+   "tool_calls": {
+    "silica_recall": 201,
+    "silica_read_note": 126,
+    "silica_search_context": 104,
+    "silica_semantic_search": 26,
+    "silica_search": 25,
+    "silica_props": 2
+   },
+   "budget_exhausted_n": 4,
+   "budget_exhausted_by_type": {
+    "temporal": 2,
+    "adversarial": 2
+   },
+   "error_n": 0
+  }
+ }
+}

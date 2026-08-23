@@ -1,0 +1,3311 @@
+{
+  "config": {
+    "mode": "locomo",
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "vault": "bench/ab_extractive/conv-26",
+    "conv": "conv-26",
+    "unmapped": []
+  },
+  "provenance": {
+    "run_id": "20260722T161418",
+    "git_sha": "e91f0e2f508e64b24f481aab3afdfe7504851698",
+    "dataset": {
+      "path": "bench/locomo10.json",
+      "sha256": "79fa87e90f04081343b8c8debecb80a9a6842b76a7aa537dc9fdf651ea698ff4"
+    }
+  },
+  "notes": [
+    {
+      "rel": "memory/'person holding' (stained glass and drawing details)",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Absolutely",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Abstract art and emotional expression",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 22,
+      "judged": 22,
+      "supported": 21,
+      "score": 0.9545454545454546,
+      "unsupported": [
+        "The text references \"Serenity in art and family volunteering\" for more on serenity in art."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Activists",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Art and the beauty of imperfections",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Art created and shared by Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 28,
+      "judged": 28,
+      "supported": 28,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Autumn yellow leaves in Melanie's camping photo",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 20,
+      "judged": 20,
+      "supported": 20,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Awesome family moments",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 12,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Being happy with family",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Blue skies and beach memories",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Books as personal guides and sources of hope",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 12,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Bringing",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 55,
+      "judged": 55,
+      "supported": 55,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline Shares Favorite Book",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Mel's biking and camping outings",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 6,
+      "score": 0.5,
+      "unsupported": [
+        "Caroline and Melanie's biking and camping outings is the title.",
+        "Caroline and Melanie recently went biking.",
+        "Caroline and Melanie saw \"pretty cool stuff\".",
+        "The photo of a beach with a fence and a sunset is linked to session_16.",
+        "The photo of a dirt road surrounded by trees with yellow leaves is linked to melanie_camping.",
+        "Correlati: [[Caroline]]"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie discuss live music and bands",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie on music uplifting feelings",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 13,
+      "judged": 13,
+      "supported": 13,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's Grand Canyon trip outcomes",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "Caroline and Melanie went on a trip to the Grand Canyon.",
+        "Melanie said that Caroline and the other person(s) mean the world to her.",
+        "Melanie is thankful to have Caroline and the other person(s).",
+        "Melanie is thankful that Caroline and the other person(s) enjoyed the Grand Canyon a lot."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's Pride fest experience",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 24,
+      "judged": 24,
+      "supported": 24,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's art sessions",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 13,
+      "judged": 13,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "Melanie and Caroline love painting together lately.",
+        "Melanie and Caroline especially love nature-inspired paintings.",
+        "Melanie shared their latest work from last weekend, which is a painting of a sunset with a palm tree.",
+        "Melanie thanked Caroline for the painting.",
+        "Both Melanie and Caroline helped with the painting.",
+        "The painting was a great bonding activity for Melanie and Caroline.",
+        "Melanie and Caroline chatted about nature while painting.",
+        "Melanie shared a painting of a field of purple flowers with green leaves.",
+        "Caroline said the painting is sweet.",
+        "Caroline said the cup in the painting is cute.",
+        "Caroline said it is awesome to see how kids show their personalities through art.",
+        "Caroline asked Melanie what other creative projects Melanie does with the kids besides pottery.",
+        "The text references a related note called \"Caroline and Melanie's picnic\"."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's family plans",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's mutual agreement on the value of happiness",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's picnic",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 34,
+      "judged": 34,
+      "supported": 34,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline and Melanie's summer outing ideas",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 15,
+      "judged": 15,
+      "supported": 15,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline comments on children's resilience after the accident",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline joins new LGBTQ activist group",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 4,
+      "score": 0.8,
+      "unsupported": [
+        "The group meeting snapshot is a photo."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline meeting cool people in activism",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline on respect and support for LGBTQ+ youth",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 22,
+      "judged": 22,
+      "supported": 22,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline passing adoption agency interviews",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline shares adoption interview breakthrough and family vision in session_19",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Caroline updates Melanie on her school event",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's LBGTQ art advocacy and projects",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 5,
+      "score": 0.8333333333333334,
+      "unsupported": [
+        "Caroline called for action to make the event happen."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's LGBTQ art show",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's LGBTQ art show featuring LGBTQ artists",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Caroline's LGBTQ support group experience",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 45,
+      "judged": 45,
+      "supported": 45,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's acoustic guitar practice",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's adoption agency interviews last Friday",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 5,
+      "score": 0.5,
+      "unsupported": [
+        "There is a photo of wooden dolls on a table at https://example.com/photo.webp.",
+        "There is a parent note linking to Caroline's adoption agency research.",
+        "There is a related link to Caroline's adoption agency research.",
+        "There is a related link to Caroline's LGBTQ support group experience.",
+        "There is a related link to memory."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's adoption agency research",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 17,
+      "judged": 17,
+      "supported": 17,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's adoption agency's inclusivity and support",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 34,
+      "judged": 34,
+      "supported": 34,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's adoption choice",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's advocacy for LGBTQ+ mental health",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 13,
+      "judged": 13,
+      "supported": 13,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's advocacy through storytelling",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 17,
+      "judged": 17,
+      "supported": 17,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's biking adventure",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 7,
+      "score": 0.7777777777777778,
+      "unsupported": [
+        "Biking provides a pleasant contrast to urban environments.",
+        "Biking provides a pleasant contrast to daily routines."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's career aspirations",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's character and motivations",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's drawing of flowers",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 15,
+      "judged": 15,
+      "supported": 15,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's experience at the pride parade",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 19,
+      "judged": 19,
+      "supported": 19,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's experience of Pride Month through local art",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 16,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's experience with pottery",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's family camping trip",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 20,
+      "judged": 20,
+      "supported": 20,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's future library",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's inspirational posters",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's instrument experience",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's interest in counseling and LGBTQ+ advocacy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 28,
+      "judged": 28,
+      "supported": 28,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's mentor consultation for adoption",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's necklace gift",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's painting Red and blue background",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's painting titled 'Embracing Identity'",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 13,
+      "score": 0.9285714285714286,
+      "unsupported": [
+        "Caroline has a painting referred to as \"Caroline's painting Red and blue background\"."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's paintings and tools",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 12,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's personal ambitions and volunteering",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's photos of balloons at the parade",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Caroline's pride parade and hiking memories",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's pursuit of counseling and mental health advocacy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's reaction to Melanie's family trip",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 1,
+      "score": 0.5,
+      "unsupported": [
+        "Caroline reacted to Gavin's safety."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's reaction to the accident",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Caroline's reading and inspiration from books",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 14,
+      "score": 0.875,
+      "unsupported": [
+        "The text includes a backlink to \"LGBTQ community and Caroline’s advocacy\".",
+        "The text includes a related link to \"memory\"."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's recent hike experience",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's singing",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 22,
+      "judged": 22,
+      "supported": 19,
+      "score": 0.8636363636363636,
+      "unsupported": [
+        "Melanie says that Caroline's singing is cool.",
+        "Melanie says that Caroline's singing is a great way to show off and be proud of everyone's skills.",
+        "Melanie cannot wait to hear about Caroline's singing."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's sunset painting",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's support from mentors",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's transgender journey",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline's visit to the LGBTQ center",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 4,
+      "score": 0.8,
+      "unsupported": [
+        "Caroline thanked Melanie."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline_and_Melanie_s_rainbow_sidewalk",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 2,
+      "score": 0.125,
+      "unsupported": [
+        "The rainbow sidewalk was made for a local church.",
+        "The sidewalk shows time changing our lives.",
+        "Caroline made the sidewalk to show her own journey as a transgender woman.",
+        "Caroline made the sidewalk to show how we should accept growth and change.",
+        "Melanie said the colors are incredible.",
+        "Melanie said the story the sidewalk tells is inspiring.",
+        "Caroline said she is glad Melanie likes the sidewalk.",
+        "Caroline said the sidewalk is a symbol of togetherness.",
+        "Caroline said the sidewalk celebrates differences.",
+        "Caroline said the sidewalk brings people closer.",
+        "Caroline said she would love to make something like the sidewalk next.",
+        "Melanie said that is nice of Caroline.",
+        "Melanie said art can be in the most unlikely places.",
+        "Melanie said love and acceptance can be found everywhere."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline’s LGBTQ activism group engagement",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 7,
+      "score": 0.875,
+      "unsupported": [
+        "Correlati: [[LGBTQ community and Caroline’s advocacy]]"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline’s Lessons from Becoming Nicole",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline’s favorite song and music",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline’s hand-painted bowl",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 15,
+      "judged": 15,
+      "supported": 10,
+      "score": 0.6666666666666666,
+      "unsupported": [
+        "Caroline painted the bowl after she visited the beach last week.",
+        "Caroline saw the sun dip below the horizon at the beach.",
+        "The sunset had amazing colors.",
+        "The sunset was amazing and calming.",
+        "Caroline tried to capture that feeling in her painting on the bowl."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Caroline’s transition and support network",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Cat named Bailey",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Concert poster for Matt Patterson",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 4,
+      "score": 0.6666666666666666,
+      "unsupported": [
+        "There is a note titled \"Note aggiuntive — poster (da session_11.md)\".",
+        "The note says: \"Concert poster with a photo of a man for a Matt Patterson concert.\""
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Congratulating Melanie on her wedding",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 2,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Early morning serenity in camping trips",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 4,
+      "score": 0.8,
+      "unsupported": [
+        "This moment complements the broader camping experience described in Caroline's family camping trip."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Events",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Family creation via adoption",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Family time with Melanie and Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 13,
+      "judged": 13,
+      "supported": 13,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/First steps milestone reflections",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 17,
+      "judged": 17,
+      "supported": 17,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Friendship and family support during Caroline’s transition",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Gathering documents and emotional preparation for adoption",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Glad",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 99,
+      "judged": 99,
+      "supported": 99,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Hey Caroline (hike incident)",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/How Pets Bring Joy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Inclusion and acceptance in Caroline's advocacy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "The heading is \"Inclusion and acceptance in Caroline's advocacy\".",
+        "The text contains a note that says \"fixme — this should be a body in the appendix, not a snippet\"."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Inclusive conversations about gender and identity",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Inclusivity in Caroline’s advocacy and life",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 26,
+      "judged": 26,
+      "supported": 26,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Insights and examples of drawing practices",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 16,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Inspiring Book Guides",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/LGBTQ",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 64,
+      "judged": 64,
+      "supported": 64,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/LGBTQ advocacy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 19,
+      "judged": 19,
+      "supported": 19,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/LGBTQ community and Caroline’s advocacy",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 2,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Life's brevity as a shared value",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Live music",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 12,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Love learning",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Luna the cat",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "Melanie introduced her cat Luna as one of her pets.",
+        "Luna brightens Melanie's day.",
+        "Luna brings joy to Melanie's family."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Matt Patterson's talent",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Meaning of symbolic objects",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Meet people and community engagement",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 81,
+      "judged": 81,
+      "supported": 81,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie appreciates her family support",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 7,
+      "score": 0.875,
+      "unsupported": [
+        "There is a correlation to Caroline's family camping trip."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie reflects on the accident and family importance",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's abstract painting",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's art as sanctuary and source of comfort",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's charity race for mental health",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's children enjoyed the Grand Canyon",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Melanie's children's park visit and Caroline's volunteering update",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's children's pottery and creative activities",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's colorful pottery design inspiration",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's creative outlets",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's daily me-time routines",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's daughter's birthday concert",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's family outdoor adventure",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 10,
+      "score": 0.8333333333333334,
+      "unsupported": [
+        "The camping trip took place in the mountain range near Melanie's self-care journey.",
+        "The camping trip is related to Melanie's self-care journey."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's farewell to Caroline amid her adoption journey",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 14,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's favorite musical genres and artists",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's gratitude for life and family",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 42,
+      "judged": 42,
+      "supported": 42,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's pink sneakers",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 14,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's post-accident reflections",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's pottery hobby and creative expression",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 2,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's pottery journey",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's pottery setback and recovery",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 6,
+      "score": 0.8571428571428571,
+      "unsupported": [
+        "Melanie said she will do that."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's pottery workshop with kids",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's reflections on family after the accident",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 26,
+      "judged": 26,
+      "supported": 26,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's running shoes",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's self-care journey",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Melanie's sheet music",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's summer family activities",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 18,
+      "judged": 18,
+      "supported": 18,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's thoughtful consideration",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's volunteer work and Caroline's transition story",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 4,
+      "score": 0.5714285714285714,
+      "unsupported": [
+        "Melanie is actively involved in volunteer work that celebrates inclusivity.",
+        "Melanie often engages with local events and spaces that promote pride and visibility.",
+        "Examples of such events and spaces include rallies and community board areas featuring rainbow flags."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's wedding and family moments",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie's wedding anniversary",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie_pottery_break_crafts",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie’s Pet Appreciation",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Melanie’s Pet Companions",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Melanie’s café outing safety concern",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Melanie’s wedding dress and family milestones",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 16,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Modern music and instruments",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 8,
+      "score": 0.8888888888888888,
+      "unsupported": [
+        "Melanie shared a photo of a laptop computer with a graph on it."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Music brings people together",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 14,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Nah",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 28,
+      "judged": 28,
+      "supported": 28,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Navigating the adoption process with a lawyer",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Nice time in sentimental conversation",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Oliver the dog",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 1,
+      "score": 0.2,
+      "unsupported": [
+        "Oliver is a dog.",
+        "Melanie described both pets as sweet.",
+        "Melanie described both pets as playful.",
+        "Melanie noted that both pets liven up her house."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Oops — response to Melanie's accident",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 3,
+      "score": 0.6,
+      "unsupported": [
+        "The text is a response to Melanie's accident.",
+        "Caroline apologized to Melanie for the accident."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Painting animals",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 32,
+      "judged": 32,
+      "supported": 31,
+      "score": 0.96875,
+      "unsupported": [
+        "Caroline says that is so funny."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Painting landscapes and still life",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 4,
+      "score": 0.5714285714285714,
+      "unsupported": [
+        "There is a wikilink to Caroline and Melanie's picnic.",
+        "There is a wikilink to bonding through shared painting.",
+        "There is a wikilink to memory."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Parenting responsibility",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Perseid meteor shower memory",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 1,
+      "judged": 1,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "Melanie will always remember the camping trip she took with her friends"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Photo sharing and pets Caroline and Melanie’s pet updates",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 4,
+      "judged": 4,
+      "supported": 4,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Pride parade in the city",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 6,
+      "score": 0.75,
+      "unsupported": [
+        "Melanie called the parade fantastic.",
+        "Melanie bet the atmosphere was incredible."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Realizing",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 22,
+      "judged": 22,
+      "supported": 22,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Self-expression through art",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 39,
+      "judged": 39,
+      "supported": 22,
+      "score": 0.5641025641025641,
+      "unsupported": [
+        "Melanie made the bowl in her class.",
+        "Melanie said the bowl took some work.",
+        "Melanie said she is pretty proud of the bowl.",
+        "Caroline said Melanie put in the work.",
+        "Caroline said Melanie's creativity looks great.",
+        "Melanie said Caroline's kind words mean a lot.",
+        "Melanie said pottery is a huge part of her life, not just a hobby.",
+        "Melanie said pottery helps her express her emotions.",
+        "Melanie said clay is incredible.",
+        "Melanie said clay brings her so much joy.",
+        "Caroline said she is stoked for Melanie that art is helping Melanie express herself.",
+        "Caroline said art is bringing Melanie joy.",
+        "Caroline told Melanie to keep it up.",
+        "Melanie said she is excited to see where pottery takes her.",
+        "Melanie said she is obsessed with certain things.",
+        "Melanie made something to catch the eye and make people smile.",
+        "Melanie said painting helps her express her feelings."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Serenity in art and family volunteering",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 19,
+      "judged": 19,
+      "supported": 18,
+      "score": 0.9473684210526315,
+      "unsupported": [
+        "Melanie remembered spending the day with her family volunteering at a homeless shelter yesterday."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Shared appreciation and family memories",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 16,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Shared photos in conversation",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 28,
+      "judged": 28,
+      "supported": 28,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Shares in Melanie and Caroline's conversations",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 30,
+      "judged": 30,
+      "supported": 30,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Sharing photos at Birthday Concert",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Sounds fun",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 37,
+      "judged": 37,
+      "supported": 27,
+      "score": 0.7297297297297297,
+      "unsupported": [
+        "Caroline said \"Wow, fantastic, Caroline!\"",
+        "Caroline said \"Bet the atmosphere was incredible.\"",
+        "Caroline said \"Oh yeah, we went to the beach recently.\"",
+        "Caroline said \"It was awesome!\"",
+        "Caroline said \"The kids had such a blast.\"",
+        "Melanie said \"Wow, fantastic, Caroline!\"",
+        "Melanie said \"Bet the atmosphere was incredible.\"",
+        "Melanie said \"Oh yeah, we went to the beach recently.\"",
+        "Melanie said \"It was awesome!\"",
+        "Caroline said \"Create those memories!\""
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Start adoption preparation",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/The meaning of flowers to Caroline and Melanie",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/The power of sharing personal stories for community building",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 19,
+      "judged": 19,
+      "supported": 19,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/The role of friendship and compassion",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 31,
+      "judged": 31,
+      "supported": 31,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/The significance of Caroline’s family necklace",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/The value of family moments",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 32,
+      "judged": 32,
+      "supported": 32,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Time flies",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 16,
+      "judged": 16,
+      "supported": 16,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Transition and courage",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Upcoming paintings and projects",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/Volunteering as a way to meet people",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 18,
+      "judged": 18,
+      "supported": 16,
+      "score": 0.8888888888888888,
+      "unsupported": [
+        "Caroline's kids had so much fun at the park.",
+        "Being outdoors can be really enjoyable."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Volunteering at LGBTQ+ youth center",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Volunteering with family at a homeless shelter",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Wow Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Wow Mel",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 8,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Yeah — Confirmations and exchanges of excitement",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 5,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/Yesterday's shared moments with Mel and Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 0,
+      "score": 0.0,
+      "unsupported": [
+        "The speaker has been looking into counseling or mental health work more since their last chat with Mel and Caroline.",
+        "The speaker is passionate about helping people and making a positive impact.",
+        "The speaker finds counseling or mental health work tough but really rewarding.",
+        "Yesterday, the speaker took the kids to the museum.",
+        "The speaker enjoyed spending time with the kids and seeing their eyes light up at the museum.",
+        "The kids were excited for the dinosaur exhibit.",
+        "The kids love learning about animals.",
+        "The kids thought the bones at the dinosaur exhibit were cool.",
+        "The experience at the museum reminds the speaker why they love being a mom.",
+        "The speaker thinks being a mom is awesome.",
+        "The speaker is creating a library for when they have kids.",
+        "The speaker is looking forward to reading to their future kids and opening up their minds."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/balloons",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/bonding through shared painting",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 43,
+      "judged": 43,
+      "supported": 43,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/busy week",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 5,
+      "judged": 5,
+      "supported": 3,
+      "score": 0.6,
+      "unsupported": [
+        "The discussion took place during a busy week.",
+        "Caroline and Melanie noted the busy week in their conversation on 15 July 2023."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/calming",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 27,
+      "judged": 27,
+      "supported": 27,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/campaigns",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 18,
+      "judged": 18,
+      "supported": 18,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/camping",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 26,
+      "judged": 26,
+      "supported": 26,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/carries",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 24,
+      "judged": 24,
+      "supported": 24,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/chat",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/community",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 33,
+      "judged": 33,
+      "supported": 33,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/community and supporting",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 40,
+      "judged": 40,
+      "supported": 40,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/counseling and mental",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 21,
+      "judged": 21,
+      "supported": 21,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/counselor",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 36,
+      "judged": 36,
+      "supported": 36,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/creating art",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 20,
+      "judged": 20,
+      "supported": 16,
+      "score": 0.8,
+      "unsupported": [
+        "The photo is titled \"Melanie's pottery\".",
+        "The photo is linked to https://obsidian.md.",
+        "The text includes wikilinks to [[Caroline and Melanie's picnic]].",
+        "The text includes a correlati link to [[bonding through shared painting]]."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/creativity",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 23,
+      "judged": 23,
+      "supported": 23,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/environment",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 14,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/exciting LGBTQ",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/experiences",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 3,
+      "judged": 3,
+      "supported": 3,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/feel accepted",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 51,
+      "judged": 51,
+      "supported": 51,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/finding peace",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 28,
+      "judged": 28,
+      "supported": 28,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/friends",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 24,
+      "judged": 24,
+      "supported": 24,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/fun exploring with Caroline",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 12,
+      "judged": 12,
+      "supported": 11,
+      "score": 0.9166666666666666,
+      "unsupported": [
+        "The text is related to memory."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/guide",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 9,
+      "judged": 9,
+      "supported": 9,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/happened",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 22,
+      "judged": 22,
+      "supported": 22,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/health jobs",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 23,
+      "judged": 23,
+      "supported": 23,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/helped",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 67,
+      "judged": 67,
+      "supported": 67,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/horse grace",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 7,
+      "judged": 7,
+      "supported": 7,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/inspired",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 50,
+      "judged": 50,
+      "supported": 50,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/journeys",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 35,
+      "judged": 35,
+      "supported": 35,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/kids",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 13,
+      "judged": 13,
+      "supported": 13,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/love",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 88,
+      "judged": 88,
+      "supported": 88,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/memory",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 165,
+      "judged": 165,
+      "supported": 165,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/mental health career",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 25,
+      "judged": 25,
+      "supported": 25,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/painting",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 60,
+      "judged": 60,
+      "supported": 60,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/people",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 82,
+      "judged": 82,
+      "supported": 82,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/people sitting at a pride event",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 6,
+      "judged": 6,
+      "supported": 6,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/photo sharing session between Caroline and Melanie",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 20,
+      "judged": 20,
+      "supported": 20,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/pic",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 46,
+      "judged": 46,
+      "supported": 43,
+      "score": 0.9347826086956522,
+      "unsupported": [
+        "Melanie said that the thing looks awesome.",
+        "Melanie said that the thing shows the togetherness and power Caroline was talking about.",
+        "Caroline talked about togetherness and power."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/picture",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 2,
+      "judged": 2,
+      "supported": 1,
+      "score": 0.5,
+      "unsupported": [
+        "Caroline attended a pride parade the same week as Melanie's daughter's birthday celebration."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/poetry reading",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 11,
+      "judged": 11,
+      "supported": 11,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/pottery project",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 30,
+      "judged": 30,
+      "supported": 30,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/pretty cool stuff",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 15,
+      "judged": 15,
+      "supported": 15,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/pride",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 19,
+      "judged": 19,
+      "supported": 19,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/rainbow",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 17,
+      "judged": 17,
+      "supported": 16,
+      "score": 0.9411764705882353,
+      "unsupported": [
+        "The text has a heading 'rainbow'."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/rainbow flag in LGBTQ context",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 10,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/safe",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 35,
+      "judged": 35,
+      "supported": 35,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/self-expression",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 23,
+      "judged": 23,
+      "supported": 23,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/shares a photo",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 119,
+      "judged": 119,
+      "supported": 119,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/situations",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 29,
+      "judged": 29,
+      "supported": 29,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/special moments",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 14,
+      "judged": 14,
+      "supported": 14,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/sunset",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 7,
+      "score": 0.875,
+      "unsupported": [
+        "The image was initially shared with Caroline during a discussion about outdoor activities."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/support",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 0,
+      "judged": 0,
+      "supported": 0,
+      "score": null,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": "decompose_failed"
+    },
+    {
+      "rel": "memory/therapeutic",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 18,
+      "judged": 18,
+      "supported": 16,
+      "score": 0.8888888888888888,
+      "unsupported": [
+        "The text has a heading \"# therapeutic\".",
+        "Caroline greeted Melanie by saying \"Hey Mel, what's up?\"."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/trans",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 37,
+      "judged": 37,
+      "supported": 37,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/transgender",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 8,
+      "judged": 8,
+      "supported": 7,
+      "score": 0.875,
+      "unsupported": [
+        "Correlati references transgender stories."
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/transgender stories",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 33,
+      "judged": 33,
+      "supported": 33,
+      "score": 1.0,
+      "unsupported": [],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/traumatizing",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 10,
+      "judged": 10,
+      "supported": 9,
+      "score": 0.9,
+      "unsupported": [
+        "Caroline says"
+      ],
+      "judge_failures": 0,
+      "error": null
+    },
+    {
+      "rel": "memory/true",
+      "sessions": [
+        "<full-conversation>"
+      ],
+      "facts": 40,
+      "judged": 40,
+      "supported": 36,
+      "score": 0.9,
+      "unsupported": [
+        "Melanie thanked Caroline and said she is glad Caroline likes something.",
+        "Melanie said she loves to do something.",
+        "Melanie said it is peaceful and special.",
+        "Melanie said horses have such grace."
+      ],
+      "judge_failures": 0,
+      "error": null
+    }
+  ],
+  "metrics": {
+    "notes": 237,
+    "notes_scored": 221,
+    "notes_error": 16,
+    "facts_total": 3956,
+    "facts_judged": 3956,
+    "facts_supported": 3803,
+    "judge_failures": 0,
+    "micro_factscore": 0.961324570273003,
+    "macro_factscore": 0.9268949056653086
+  }
+}
