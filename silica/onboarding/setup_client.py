@@ -15,12 +15,15 @@ change. A file that does not parse is refused rather than overwritten.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import time
 import tomllib
+from importlib.resources import files
 from pathlib import Path
 
+import yaml
 from rich.markup import escape
 
 from silica.ui.console import CONSOLE
@@ -28,30 +31,63 @@ from silica.ui.console import CONSOLE
 # Everything this module prints carries a payload full of square brackets: the
 # `[mcp]` extra, TOML table headers, a parser error quoting a `]`. rich reads a
 # bracketed word as a style tag and drops it, which silently turned the printed
-# install command into `--from silica-agent` — a command that runs and installs
+# install command into `--from silica-harness` — a command that runs and installs
 # the wrong thing. Every interpolated value goes through escape(), and the
 # config block (which has no styling of its own) prints with markup off.
 
 # What every client is told to run. uvx keeps the server at one command with no
 # install step of its own, which is the whole point of the generated block.
-MCP_COMMAND = ["uvx", "--from", "silica-agent[mcp]", "silica", "mcp"]
+MCP_COMMAND = ["uvx", "--from", "silica-harness[mcp]", "silica", "mcp"]
 
-# No SILICA_VAULT in the generated block, deliberately. All three clients are
-# CLIs launched from a project and spawn the stdio server with that working
-# directory, which is already the answer (`cli.resolve_cwd_vault`), so the
-# server serves the project you opened — the Claude Code model, one vault per
-# place. Writing the vault that happened to be active at `silica setup` time
-# would pin it into every project afterwards, which is what `_activate_repo_mode`
-# warns against. A fixed vault is still expressible: export SILICA_VAULT, or add
-# the env block by hand to the file this wrote.
+# No SILICA_VAULT in the generated block, deliberately. Claude Code, Codex and
+# opencode are CLIs launched from a project and spawn the stdio server with
+# that working directory, which is already the answer (`cli.resolve_cwd_vault`),
+# so the server serves the project you opened — the Claude Code model, one
+# vault per place. Writing the vault that happened to be active at `silica
+# setup` time would pin it into every project afterwards, which is what
+# `_activate_repo_mode` warns against. A fixed vault is still expressible:
+# export SILICA_VAULT, or add the env block by hand to the file this wrote.
+# DeepSeek Harness is the one client where that pin is worth considering: its
+# `dsh web` process spawns the server once, in its own launch folder, for
+# every session it serves (see `_setup_dsh`).
 
-CLIENTS = ("claude", "codex", "opencode")
+CLIENTS = ("claude", "codex", "opencode", "dsh")
+
+# Codex gives a stdio server `startup_timeout_sec` (default 10) to answer
+# `initialize`. A cold `uvx` resolves and installs silica-harness[mcp] first,
+# which takes longer than that on a first run, and a server that misses the
+# window is simply absent for that session, with one line in a log nobody
+# reads.
+CODEX_STARTUP_TIMEOUT_SEC = 60
+
+
+def skill_path() -> Path:
+    """The one SKILL.md. It ships inside the package so an installed `silica`
+    can copy it into a client's skill root, and the plugin manifests point at
+    the same file, so there is nothing to keep in step."""
+    return Path(str(files("silica") / "skills" / "silica" / "SKILL.md"))
+
+
+def install_skill() -> Path:
+    """Copy the skill to ~/.agents/skills, the user root both Codex and
+    DeepSeek Harness scan, so one copy serves both. Claude Code gets the skill
+    from the plugin instead. A copy and not a symlink: the package path moves
+    on upgrade and symlinks need privileges on Windows; rerunning setup
+    refreshes it."""
+    dest = Path.home() / ".agents" / "skills" / "silica" / "SKILL.md"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(skill_path(), dest)
+    return dest
 
 
 def _default_path(client: str) -> Path:
     home = Path.home()
     if client == "codex":
         return home / ".codex" / "config.toml"
+    if client == "dsh":
+        # resolveDshHome in the harness: $DSH_HOME, else ~/.dsh. The home-level
+        # patch file is the layer applied over every profile.
+        return Path(os.environ.get("DSH_HOME") or home / ".dsh") / "cordis.patch.yml"
     return home / ".config" / "opencode" / "opencode.json"
 
 
@@ -79,6 +115,7 @@ def _codex_block() -> str:
         "\n[mcp_servers.silica]\n"
         f'command = "{MCP_COMMAND[0]}"\n'
         f"args = [{args}]\n"
+        f"startup_timeout_sec = {CODEX_STARTUP_TIMEOUT_SEC}\n"
     )
 
 
@@ -108,6 +145,57 @@ def _setup_codex(path: Path, dry_run: bool) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     sep = "" if not existing or existing.endswith("\n") else "\n"
     path.write_text(existing + sep + block, encoding="utf-8")
+    return _report(path, block, False, backup)
+
+
+def _dsh_row() -> dict:
+    return {
+        "id": "mcp-silica",
+        "name": "@deepseek-ai/dsh-mcp-client",
+        "config": {
+            "serverName": "silica",
+            "transport": "stdio",
+            "command": MCP_COMMAND[0],
+            "args": MCP_COMMAND[1:],
+        },
+    }
+
+
+def _setup_dsh(path: Path, dry_run: bool) -> int:
+    """Insert the MCP client row into the harness's user patch file.
+
+    DeepSeek Harness composes one `dsh-mcp-client` row per server and reads
+    `cordis.patch.yml` as a top-level list of patches, so the row rides an
+    `insert` entry appended to that list. Re-serialised through yaml rather
+    than appended as text: the file is one YAML document, and text appended
+    after a list can land inside the previous entry's indentation. Comments
+    do not survive the round trip, which is what the backup is for.
+
+    The harness spawns this child once per process, in the folder `dsh web`
+    was launched from, so on this client the vault is that folder.
+    """
+    patches: list = []
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if existing.strip():
+        try:
+            patches = yaml.safe_load(existing) or []
+        except yaml.YAMLError as e:
+            CONSOLE.print(f"  [red]✗[/] {escape(str(path))} is not valid YAML ({escape(str(e))}) — not touching it")
+            return 1
+        if not isinstance(patches, list):
+            CONSOLE.print(f"  [red]✗[/] {escape(str(path))} is not a list of patches — not touching it")
+            return 1
+        rows = [r for p in patches if isinstance(p, dict) for r in p.get("insert") or [] if isinstance(r, dict)]
+        if any(r.get("id") == "mcp-silica" for r in rows):
+            CONSOLE.print(f"  [dim]silica is already configured in {escape(str(path))} — nothing to do[/]")
+            return 0
+    patches.append({"insert": [_dsh_row()]})
+    block = yaml.safe_dump(patches, sort_keys=False, allow_unicode=True)
+    if dry_run:
+        return _report(path, block, True, None)
+    backup = _backup(path) if path.exists() else None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(block, encoding="utf-8")
     return _report(path, block, False, backup)
 
 
@@ -167,8 +255,8 @@ def _setup_claude(dry_run: bool) -> int:
         return result.returncode
     CONSOLE.print("  [green]✓[/] registered with Claude Code (user scope: every project, vault from its folder)")
     CONSOLE.print(
-        "  [dim]for the recall/capture skill too: "
-        "claude plugin marketplace add kiycoh/silica-agent && "
+        "  [dim]for the skill and the session hooks too: "
+        "claude plugin marketplace add kiycoh/silica-harness && "
         "claude plugin install silica@silica[/]"
     )
     return 0
@@ -189,6 +277,10 @@ def run_setup(args: list[str]) -> int:
         i = args.index("--config")
         override = args[i + 1] if i + 1 < len(args) else ""
     path = Path(override).expanduser() if override else _default_path(client)
-    if client == "codex":
-        return _setup_codex(path, dry_run)
-    return _setup_opencode(path, dry_run)
+    writers = {"codex": _setup_codex, "dsh": _setup_dsh, "opencode": _setup_opencode}
+    rc = writers[client](path, dry_run)
+    # Also on "already configured": rerunning setup is how the skill copy
+    # follows a package upgrade.
+    if rc == 0 and not dry_run and client in ("codex", "dsh"):
+        CONSOLE.print(f"  [green]✓[/] skill installed at {escape(str(install_skill()))}")
+    return rc

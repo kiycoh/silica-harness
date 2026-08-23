@@ -282,7 +282,7 @@ class TestCheckRerank:
         monkeypatch.setattr(checks, "has_local_rerank", lambda: False)
         r = checks.check_rerank(self._rr_cfg())
         assert r.status == "warn"
-        assert "silica-agent[rerank]" in r.hint
+        assert "silica-harness[rerank]" in r.hint
 
     def test_configured_endpoint_reachable_is_ok(self, monkeypatch):
         import silica.onboarding.checks as checks
@@ -335,10 +335,12 @@ class TestCheckLanguage:
         assert r.status == "ok"
         assert "no vault" in r.detail
 
-    def test_no_notes_is_ok(self, tmp_path):
+    def test_no_notes_is_unknown(self, tmp_path):
+        """Nothing sampled is nothing known: a walk that reached no notes is
+        not evidence of a language, so the row holds instead of passing."""
         from silica.onboarding.checks import check_language
         r = check_language(_cfg(vault_path=str(tmp_path)))
-        assert r.status == "ok"
+        assert r.status == "unknown"
         assert "no notes" in r.detail
 
     def test_no_store_is_ok_and_names_detected_language(self, tmp_path, monkeypatch):
@@ -522,7 +524,7 @@ class TestAggregation:
         assert [r.name for r in results] == [
             "chat model", "chat endpoint", "vault", "memory lane", "vault manifest",
             "language", "embeddings", "rerank", "quarantine", "converters", "OKF §11",
-            "session capture", "own sessions",
+            "session capture", "own sessions", "narration store",
         ]
 
     def test_check_quarantine_surfaces_corrupt_files(self, tmp_path):
@@ -973,3 +975,38 @@ class TestIgnoredEnv:
         (tmp_path / ".env").write_text("SILICA_NOT_A_REAL_KEY=x\n")
         monkeypatch.delenv("SILICA_NOT_A_REAL_KEY", raising=False)
         assert [r for r in run_checks(_cfg()) if r.name == "stray .env"]
+
+
+class TestEveryCheckIsWired:
+    """A check written and never listed in run_checks does not exist: no row,
+    no exit code, no --json entry. The list is hand-kept, so this guard is the
+    registry: a producer the sweep has no entry for fails the suite instead of
+    being skipped in silence."""
+
+    @staticmethod
+    def _unwired(module) -> list[str]:
+        import inspect
+        import re
+
+        source = inspect.getsource(module.run_checks)
+        return sorted(
+            name for name, fn in vars(module).items()
+            if name.startswith("check_") and inspect.isfunction(fn)
+            and fn.__module__ == module.__name__
+            and not re.search(rf"\b{name}\b", source)
+        )
+
+    def test_every_check_function_is_listed_in_run_checks(self):
+        import silica.onboarding.checks as checks
+
+        assert self._unwired(checks) == []
+
+    def test_the_guard_sees_an_unlisted_check(self, monkeypatch):
+        import silica.onboarding.checks as checks
+
+        def check_nothing(config):
+            return checks.CheckResult("nothing", "ok", "")
+
+        check_nothing.__module__ = checks.__name__
+        monkeypatch.setattr(checks, "check_nothing", check_nothing, raising=False)
+        assert self._unwired(checks) == ["check_nothing"]

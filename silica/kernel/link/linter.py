@@ -176,6 +176,12 @@ if __name__ == "__main__":
             if f.endswith('.md'):
                 files_to_check.append((os.path.join(args.target, f), None, None))
 
+    if not files_to_check:
+        # A zero-file run printed "All files validated successfully.": a typo
+        # in --target passed the gate. Nothing scanned is an invocation error.
+        msg = f"no .md files to validate under {args.target or args.operations}"
+        print(json.dumps({"error": msg}) if args.format == "json" else f"Error: {msg}")
+        sys.exit(1)
 
     error_results = {}
     warning_results = {}

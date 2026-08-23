@@ -155,3 +155,35 @@ class TestTheEmbeddingsEndpoint:
                     embedding_model="emb"))
 
         assert result.status == "warn"
+
+
+class TestTheExitCode:
+    """0 = every row ok, 1 = a row failed, 2 = nothing failed but a row needs
+    reading. Before this `warn` and `unknown` exited 0, so a script could not
+    tell "clean" from "a fallback was taken" without parsing the table: the
+    hold is the third verdict the report already drew but never returned."""
+
+    def test_clean_is_zero(self):
+        assert checks.exit_code([checks.CheckResult("a", "ok", "")]) == 0
+
+    def test_a_warning_is_a_hold_not_a_pass(self):
+        results = [checks.CheckResult("a", "ok", ""),
+                   checks.CheckResult("b", "warn", "fallback taken")]
+        assert checks.exit_code(results) == 2
+
+    def test_unknown_is_a_hold_not_a_pass(self):
+        assert checks.exit_code([checks.CheckResult("a", "unknown", "not probed")]) == 2
+
+    def test_a_failure_beats_a_hold(self):
+        results = [checks.CheckResult("a", "warn", ""),
+                   checks.CheckResult("b", "fail", "broken")]
+        assert checks.exit_code(results) == 1
+
+    def test_the_payload_carries_the_same_verdict(self):
+        """The MCP tool and --json read report_payload, not the exit code: an
+        agent sent to silica_doctor must see the hold without re-deriving the
+        policy from the rows. One resolver, three surfaces."""
+        ok = checks.CheckResult("a", "ok", "")
+        assert checks.report_payload([ok])["verdict"] == "ok"
+        assert checks.report_payload([ok, checks.CheckResult("b", "warn", "")])["verdict"] == "hold"
+        assert checks.report_payload([ok, checks.CheckResult("b", "fail", "")])["verdict"] == "fail"

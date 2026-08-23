@@ -255,9 +255,13 @@ def integrity_probe(vault: Path, *, verbose: bool = False) -> dict:
             else:
                 clean += 1
 
-    rate = round(clean / notes, 4) if notes else 1.0
+    # None, not 1.0, over zero notes: a walk that reached nothing (wrong vault,
+    # every folder ignored) measured nothing, and 1.0 is the exact value the
+    # golden gate passes on. compare() fails a None; doctor-style readers show it.
+    rate = round(clean / notes, 4) if notes else None
     if verbose:
-        print(f"\nintegrity: rate {clean}/{notes} = {rate:.3f} | "
+        shown = "not measured" if rate is None else f"{rate:.3f}"
+        print(f"\nintegrity: rate {clean}/{notes} = {shown} | "
               f"vault structural={vault_structural} style={vault_style} "
               f"notes_with_structural={notes_with_structural}")
 

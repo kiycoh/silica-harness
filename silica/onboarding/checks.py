@@ -326,7 +326,7 @@ def check_rerank(config: SilicaConfig) -> CheckResult:
             return CheckResult(
                 "rerank", "warn",
                 f"{config.rerank_base_url} unreachable",
-                "start the reranker, or unset SILICA_RERANK_* and `pip install silica-agent[rerank]`",
+                "start the reranker, or unset SILICA_RERANK_* and `pip install silica-harness[rerank]`",
             )
         return CheckResult(
             "rerank", "ok", f"{config.rerank_model} @ {config.rerank_base_url}",
@@ -336,7 +336,7 @@ def check_rerank(config: SilicaConfig) -> CheckResult:
     return CheckResult(
         "rerank", "warn",
         "disabled (no cross-encoder available)",
-        "`pip install silica-agent[rerank]` sharpens recall; LM Studio and Ollama cannot serve one",
+        "`pip install silica-harness[rerank]` sharpens recall; LM Studio and Ollama cannot serve one",
     )
 
 
@@ -519,7 +519,9 @@ def check_language(config: SilicaConfig) -> CheckResult:
 
     authority, store_lang, drift = language_status(vault)
     if authority is None:
-        return CheckResult("language", "ok", "no notes yet")
+        # unknown, not ok: nothing was sampled, so nothing is known about the
+        # language, and a walk that reached no notes is not evidence of one.
+        return CheckResult("language", "unknown", "no notes sampled yet")
     if store_lang is None:
         return CheckResult("language", "ok", f"language={authority}, no store frozen yet")
     if not drift:
@@ -666,13 +668,21 @@ def check_okf(config: SilicaConfig) -> CheckResult:
     never produces one, and in repo mode the vault is a source tree whose
     README and prompt templates are markdown by right — warning about those
     every run would be noise nobody can clear.
+
+    A census that saw no notes is `unknown`, never `ok`: "conformant bundle"
+    over zero files says nothing about the vault and everything about the walk
+    (a path that is not there, an ignore rule that swallowed every folder).
     """
     from silica.kernel.write.notetype import okf_conformance
 
     vault = config.vault_path.strip()
     if not vault:
         return CheckResult("OKF §11", "ok", "no vault — nothing to census")
-    violations = okf_conformance(vault)
+    if not Path(vault).is_dir():
+        return CheckResult("OKF §11", "unknown", f"{vault} is not a directory; nothing censused")
+    scanned, violations = okf_conformance(vault)
+    if scanned == 0:
+        return CheckResult("OKF §11", "unknown", "no notes censused; an empty walk proves nothing")
     if not violations:
         return CheckResult("OKF §11", "ok", "conformant bundle")
     def tally(vs: list) -> str:
@@ -779,6 +789,26 @@ def _guarded(name: str, check: Callable[[SilicaConfig], CheckResult],
         return CheckResult(name, "fail", f"check raised: {type(exc).__name__}: {exc}")
 
 
+def check_narration_store(config: SilicaConfig) -> CheckResult:
+    """Warn at 1GB store / 100MB single session (spec ticket 06). Numbers,
+    not conditions: eviction is never automatic, so the doctor is the one
+    place growth becomes visible before it becomes a surprise."""
+    from silica.agent.narration import store_stats
+    st = store_stats()
+    gb, mb = st["total_bytes"] / 1e9, st["biggest_bytes"] / 1e6
+    if st["biggest_bytes"] > 100e6:
+        return CheckResult(
+            "narration store", "warn",
+            f"session {st['biggest_sid']} is {mb:.0f}MB (threshold 100MB)",
+            hint="a runaway session, not history — consider /sessions prune")
+    if st["total_bytes"] > 1e9:
+        return CheckResult(
+            "narration store", "warn", f"{gb:.1f}GB on disk (threshold 1GB)",
+            hint="prune old sessions with /sessions prune <days>d")
+    return CheckResult("narration store", "ok",
+                       f"{st['total_bytes'] / 1e6:.1f}MB across sessions")
+
+
 def run_checks(config: SilicaConfig) -> list[CheckResult]:
     checks: list[tuple[str, Callable[[SilicaConfig], CheckResult]]] = [
         # Listed only when there is one to list: a row reading "no stray .env"
@@ -800,12 +830,38 @@ def run_checks(config: SilicaConfig) -> list[CheckResult]:
         ("OKF §11", check_okf),
         ("session capture", check_capture_hook),
         ("own sessions", check_session_capture),
+        ("narration store", check_narration_store),
     ]
     return [_guarded(name, c, config) for name, c in checks]
 
 
 def has_failures(results: list[CheckResult]) -> bool:
     return any(r.status == "fail" for r in results)
+
+
+def verdict(results: list[CheckResult]) -> Literal["ok", "hold", "fail"]:
+    """ok = every row ok; fail = a row failed; hold = nothing failed, but a
+    row needs reading (a fallback was taken, or a check could not answer).
+
+    One resolver for the three surfaces that report it (the CLI exit code,
+    the --json and MCP payload, the GUI): a consumer that re-derived the rule
+    from the rows is the consumer that folds warn back into ok, which is how
+    `silica doctor && run` started on the half-answering endpoint the table
+    had flagged in yellow. The wizard keeps has_failures: its exit says
+    whether init finished, not whether the environment is clean.
+    """
+    statuses = {r.status for r in results}
+    if "fail" in statuses:
+        return "fail"
+    if statuses & {"warn", "unknown"}:
+        return "hold"
+    return "ok"
+
+
+def exit_code(results: list[CheckResult]) -> int:
+    """0 = ok, 1 = fail, 2 = hold: 2 is neither success nor failure and a
+    script must not fold it into either."""
+    return {"ok": 0, "fail": 1, "hold": 2}[verdict(results)]
 
 
 # `?` and not `⚠`: a warning says a fallback was taken, unknown says nothing
@@ -829,6 +885,10 @@ def report_payload(results: list[CheckResult]) -> dict:
             for r in results
         ],
         "ok": not has_failures(results),
+        # `ok` stays for the consumers that key on it; `verdict` is the same
+        # three-way answer the exit code gives, so an agent reading the MCP
+        # payload sees a hold instead of an `ok: true` over yellow rows.
+        "verdict": verdict(results),
     }
 
 
@@ -841,7 +901,7 @@ def render_report(results: list[CheckResult]) -> None:
     table = Table(show_header=False, box=None, padding=(0, 1))
     for r in results:
         glyph, style = _STATUS_GLYPH[r.status]
-        # escape: detail/hint carry data (paths, model ids, `silica-agent[rerank]`), and
+        # escape: detail/hint carry data (paths, model ids, `silica-harness[rerank]`), and
         # rich reads a bare [word] as a style tag and swallows it.
         hint = f"[dim]→ {escape(r.hint)}[/]" if r.hint else ""
         table.add_row(f"[{style}]{glyph}[/]", f"[bold]{r.name}[/]", escape(r.detail), hint)

@@ -80,7 +80,7 @@ def _today() -> str:
 
 
 def resolve_vault(cli: str | None) -> Path:
-    """--vault > SILICA_VAULT; expanduser+resolve; exit 2 if missing."""
+    """--vault > SILICA_VAULT; expanduser+resolve; exit 2 if missing or empty."""
     raw = cli or os.getenv("SILICA_VAULT")
     if not raw:
         print("no vault: pass --vault or set SILICA_VAULT")
@@ -88,6 +88,13 @@ def resolve_vault(cli: str | None) -> Path:
     p = Path(raw).expanduser().resolve()
     if not p.is_dir():
         print(f"vault not found: {p}")
+        raise SystemExit(2)
+    if not iter_notes(p):
+        # Refused here, before any probe: a zero-note run would hand compare()
+        # a 0.0 agreement and an unmeasured integrity rate, and --freeze-baseline
+        # would write them down as the baseline. The per-probe None is the
+        # defence for library callers; this is the one gate for the CLI.
+        print(f"vault has 0 notes: {p} (a zero-note run is an invocation error)")
         raise SystemExit(2)
     return p
 
@@ -270,7 +277,11 @@ def compare(baseline: dict, doc: dict) -> list[str]:
         if key in b and key in d and d[key] > b[key] + 0.02:
             fails.append(f"{key}: {d[key]:.3f} > baseline {b[key]:.3f} + 2pp")
     for key in GATED_EXACT_ONE:
-        if key in d and d[key] != 1.0:
+        if key in d and d[key] is None:
+            # The probe saw zero notes: not a 1.0 and not a 0.0, an invocation
+            # error (wrong vault, everything ignored) that must not pass the gate.
+            fails.append(f"{key}: not measured, zero notes scanned (never a pass)")
+        elif key in d and d[key] != 1.0:
             fails.append(f"{key}: {d[key]:.3f} != 1.0 (any new violation fails)")
     for key in GATED_EXACT_ZERO:
         if key in d and d[key] != 0:
@@ -295,10 +306,12 @@ def print_table(doc: dict, baseline: dict | None) -> None:
     for key in sorted(doc["metrics"]):
         val = doc["metrics"][key]
         base = base_m.get(key)
-        delta = f"{val - base:+.3f}" if isinstance(base, (int, float)) else "—"
+        measured = isinstance(val, (int, float))  # None: the probe saw zero notes
+        delta = f"{val - base:+.3f}" if measured and isinstance(base, (int, float)) else "—"
         base_s = f"{base:.3f}" if isinstance(base, (int, float)) else "—"
+        val_s = f"{val:.3f}" if measured else "—"
         mark = "GATE" if key in gated else ""
-        print(f"{key:<38} {val:>10.3f} {base_s:>10} {delta:>9}  {mark}")
+        print(f"{key:<38} {val_s:>10} {base_s:>10} {delta:>9}  {mark}")
 
 
 def _write_json(path: Path, doc: dict) -> None:
