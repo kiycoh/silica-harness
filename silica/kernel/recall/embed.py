@@ -743,7 +743,8 @@ def build_index(
         notes: list of (path, name, body) tuples — vault-relative path (no .md),
                display name (title), and body text.
         store: existing EmbedStore to update (loads from disk if None).
-        batch_size: number of texts to embed per API call.
+        batch_size: number of NOTES per API call — the call carries twice that
+               many texts, since each note contributes a full and a title vector.
         force: if True, re-embed ALL notes regardless of existing entries.
         prune: if True, `notes` is the AUTHORITATIVE live set for `folder` —
                drop index entries under `folder` whose note is absent from it
