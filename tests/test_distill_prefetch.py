@@ -44,10 +44,15 @@ def test_shutdown_cancels_pending():
     assert 1 in p            # but submitted-history survives (no re-dispatch)
 
 
-def test_config_knob_default():
+def test_config_knob_default(monkeypatch):
     # Default flipped 1 -> 3 after the 2026-07-18 k=1-vs-k=3 staleness A/B.
-    from silica.config import CONFIG
-    assert getattr(CONFIG, "distill_concurrency", None) == 3
+    # Built fresh with the knob unset instead of read off the module-level
+    # CONFIG: that one was constructed under ~/.silica/.env, so it reports
+    # whatever the machine pins (mine pins 1) and the assertion measured the
+    # environment, not the default.
+    from silica.config import SilicaConfig
+    monkeypatch.delenv("SILICA_DISTILL_CONCURRENCY", raising=False)
+    assert SilicaConfig().distill_concurrency == 3
 
 
 def test_handle_collision_honors_prefetch_marker():

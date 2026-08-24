@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -54,7 +55,11 @@ def test_review_queue_replaces_weak_notes(tmp_vault, log):
 
 
 def test_review_queue_target_mode_scopes_and_reports_known(tmp_vault, log):
-    tmp_vault.note("Area/Fresh.md", "---\ndate: 2026-08-14\n---\njust written\n")
+    # Dated off the clock, not frozen: R = exp(-dt / 90 days), so a literal
+    # date crosses the 0.9 line about ten days after someone typed it and the
+    # test fails on a calendar, not on a regression.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tmp_vault.note("Area/Fresh.md", f"---\ndate: {today}\n---\njust written\n")
     tmp_vault.note("Elsewhere/Old.md", "---\ndate: 2024-01-01\n---\nout of scope\n")
     rows = TOOLS["silica_review_queue"].fn(target="Area/")
     assert [r["path"] for r in rows] == ["Area/Fresh.md"]
