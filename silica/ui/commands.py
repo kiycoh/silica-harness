@@ -259,6 +259,13 @@ COMMANDS: tuple[Command, ...] = (
         summary="inspect the async review queue (deferred ops)",
     ),
     Command(
+        name="/anneal",
+        group="direct",
+        usage="[--steer] [--limit=N]",
+        summary="retry every deferred bundle against the current vault; --steer escalates what still fails",
+        examples=("/anneal", "/anneal --steer", "/anneal --limit=5"),
+    ),
+    Command(
         name="/revert",
         group="direct",
         usage="[run-id | --source <file>]",

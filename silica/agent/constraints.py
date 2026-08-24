@@ -36,14 +36,19 @@ class AgentConstraints:
 # silica_curate"). Hiding a tool that a visible tool tells the model to call
 # turns that instruction into a dead end. That constraint is what keeps
 # silica_curate, silica_dedup and silica_graph_export in the set despite each
-# having a slash command, and why this list is 12 entries rather than 30.
+# having a slash command, and why this list is 14 entries rather than 30.
+#
+# silica_anneal was here until 2026-08-23 and is deliberately NOT: it is the
+# only tool that resolves a deferred bundle, and the nucleate summary tells the
+# user how many are still deferred. Hidden, the obvious follow-up ("resolve the
+# 24 deferred notes") reached a turn with no tool that could do it — the same
+# dead end _summoned was written for, except no slash command names it.
 #
 # ponytail: one explicit list, not a per-tool flag. A tool added later defaults
 # to being visible in chat, which costs tokens but never breaks — the safe
 # direction. Revisit if this grows past ~20 entries.
 _CHAT_EXCLUDED = frozenset({
     "silica_aliases",            # /aliases
-    "silica_anneal",             # vault-wide maintenance pass, FSM-driven
     "silica_code_pack",          # MCP-facing (external rewrite agents); no chat flow
     "silica_deferred_list",      # deferred-ops bookkeeping, surfaced by the FSM
     "silica_deferred_flush",

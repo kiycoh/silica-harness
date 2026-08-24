@@ -110,6 +110,15 @@ def test_the_summoned_tools_survive_the_follow_up_turn():
     assert "silica_run_organizer" in set(chat_tools(history))
 
 
+def test_prose_can_reach_the_tool_that_resolves_deferred_bundles():
+    """Measured 2026-08-23: "Resolve the 24 deferred notes" is prose, so
+    _summoned returns nothing, and every tool touching the deferred queue was
+    excluded — the turn had no move and answered with an empty string.
+    silica_anneal is the one that stays visible so the ask lands somewhere."""
+    history = [{"role": "user", "content": "Resolve the 24 deferred notes"}]
+    assert "silica_anneal" in set(chat_tools(history))
+
+
 def test_prose_quoting_a_tool_name_does_not_summon_it():
     # Only a cli-origin directive summons. A human asking *about* the organizer
     # must not silently hand the model a bulk-move tool.

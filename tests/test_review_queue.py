@@ -3,7 +3,7 @@
 Covers:
 - DeferredStore.queue_depth()
 - queue_depth emitted in ledger digest
-- /review command registered in COMMANDS
+- /review and /anneal registered in COMMANDS and dispatchable
 """
 from __future__ import annotations
 
@@ -86,6 +86,18 @@ def test_review_command_is_direct_group():
     from silica.ui.commands import COMMANDS
     cmd = next(c for c in COMMANDS if c.name == "/review")
     assert cmd.group == "direct"
+
+
+def test_anneal_command_is_dispatchable():
+    """/review only looks; /anneal is the one that acts. Advertised without a
+    dispatch row it would answer "not available" in the GUI and fall through to
+    the agent in the REPL."""
+    from silica.cli import _DIRECT
+    from silica.ui.commands import COMMANDS
+
+    cmd = next(c for c in COMMANDS if c.name == "/anneal")
+    assert cmd.group == "direct" and not cmd.repl_only
+    assert "/anneal" in _DIRECT
 
 
 # ---------------------------------------------------------------------------

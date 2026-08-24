@@ -23,6 +23,7 @@ from silica.tools.pipeline import (  # noqa: F401
     PayloadArgs,
     ReconArgs,
     SanitizeArgs,
+    SubmitRepairedOpsArgs,
     ValidateOpsArgs,
     _same_note,
     silica_anneal,
@@ -33,6 +34,7 @@ from silica.tools.pipeline import (  # noqa: F401
     silica_recon,
     silica_sanitize,
     silica_validate_ops,
+    submit_repaired_ops,
 )
 from silica.tools.notes import (  # noqa: F401
     PatchNoteArgs,

@@ -1,4 +1,6 @@
 """silica_anneal: mechanical sweep of all deferred bundles + escalation steer."""
+from types import SimpleNamespace
+
 import orjson
 
 LONG = (
@@ -14,6 +16,42 @@ def _park(monkeypatch, tmp_path):
     monkeypatch.setattr(deferred, "_store_dir", lambda: tmp_path / "deferred")
     deferred._stores.clear()
     return deferred.get_deferred_store()
+
+
+# --- steer = a bounded run_agent loop (docs/specs/anneal-steer-loop.md) -------
+# The LLM seam for steer is the loop's call_llm, same stub point as the other
+# run_agent suites, NOT get_provider: steer no longer owns a provider call.
+
+def _submit_resp(content_hash, ops, call_id="t1"):
+    """One assistant turn calling submit_repaired_ops with `ops`."""
+    args = {"content_hash": content_hash, "ops": ops}
+    return SimpleNamespace(
+        assistant_message={"role": "assistant", "content": None, "tool_calls": [
+            {"id": call_id, "type": "function", "function": {
+                "name": "submit_repaired_ops",
+                "arguments": orjson.dumps(args).decode()}}]},
+        tool_calls=[SimpleNamespace(id=call_id, name="submit_repaired_ops",
+                                    args=args)],
+        text=None, reasoning=None, usage={})
+
+
+def _final_resp(text="done"):
+    return SimpleNamespace(
+        assistant_message={"role": "assistant", "content": text},
+        tool_calls=[], text=text, reasoning=None, usage={})
+
+
+def _steer_llm(monkeypatch, responses):
+    """Script the loop's LLM; returns per-call snapshots of the history."""
+    calls = []
+    it = iter(responses)
+
+    def fake(model, messages, **kw):
+        calls.append([dict(m) for m in messages])
+        return next(it)
+
+    monkeypatch.setattr("silica.agent.loop.call_llm", fake)
+    return calls
 
 
 def test_anneal_sweeps_all_bundles(tmp_vault, tmp_path, monkeypatch):
@@ -60,20 +98,12 @@ def test_anneal_steer_fixes_with_stamped_reason(tmp_vault, tmp_path, monkeypatch
         phase="VALIDATE",
     )
 
-    prompts = []
-
-    class _Resp:
-        text = orjson.dumps([{
+    calls = _steer_llm(monkeypatch, [
+        _submit_resp("ccc3", [{
             "op": "write", "heading": "Broker", "source_basename": "c.md",
-            "path": "Reti/Broker.md", "title": "Broker", "snippet": LONG,
-        }]).decode()
-
-    class _Provider:
-        def call_llm(self, messages, tools=None, **kw):
-            prompts.append(messages[0]["content"])
-            return _Resp()
-
-    monkeypatch.setattr("silica.agent.providers.get_provider", lambda *a, **k: _Provider())
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": LONG}]),
+        _final_resp(),
+    ])
 
     res = pipeline.silica_anneal(steer=True)
 
@@ -81,8 +111,47 @@ def test_anneal_steer_fixes_with_stamped_reason(tmp_vault, tmp_path, monkeypatch
     assert row["steer"]["status"] == "committed", row
     assert res["written"] == 1
     assert store.get("ccc3") is None  # written op removed → bundle gone
-    # the stamped per-op reason reached the escalation prompt
-    assert "snippet too short" in prompts[0]
+    # the stamped per-op reason reached the repair task
+    assert "snippet too short" in calls[0][0]["content"]
+
+
+def test_anneal_steer_iterates_on_the_validator_verdict(tmp_vault, tmp_path, monkeypatch):
+    # The loop's reason to exist: the one-shot path threw the validator's
+    # verdict away (1/24 ops recovered on the 2026-08-23 run). A fix rejected
+    # by submit_repaired_ops must come back to the model as the tool result,
+    # and the corrected resubmission must land in the SAME steer turn.
+    from silica.tools import pipeline
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "kkkb", "inbox/c.md", "Reti", None,
+        [{"op": "write", "heading": "Broker", "source_basename": "c.md",
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+        rejection_reasons={"Reti/Broker.md": "snippet too short"},
+        phase="VALIDATE",
+    )
+
+    still_short = {"op": "write", "heading": "Broker", "source_basename": "c.md",
+                   "path": "Reti/Broker.md", "title": "Broker", "snippet": "ancora corto"}
+    fixed = dict(still_short, snippet=LONG)
+    calls = _steer_llm(monkeypatch, [
+        _submit_resp("kkkb", [still_short], call_id="t1"),
+        _submit_resp("kkkb", [fixed], call_id="t2"),
+        _final_resp(),
+    ])
+
+    res = pipeline.silica_anneal(steer=True)
+
+    [row] = res["results"]
+    assert row["steer"]["status"] == "committed", row
+    assert row["steer"]["written"] == 1
+    assert store.get("kkkb") is None
+    # the verdict of submit #1 was in the history the model saw before #2
+    tool_msgs = [m for m in calls[1] if m.get("role") == "tool"]
+    assert tool_msgs, "no tool result reached the model"
+    assert '"rejected"' in tool_msgs[-1]["content"]
+    assert '"reason"' in tool_msgs[-1]["content"]
 
 
 def test_anneal_recovered_write_is_autolinked_not_orphan(tmp_vault, tmp_path, monkeypatch):
@@ -165,17 +234,13 @@ def test_anneal_steer_validates_on_the_same_evidence_that_rejected(tmp_vault, tm
         payloads=payloads,
     )
 
-    class _Resp:  # the model pivots to a concept the evidence never grounded
-        text = orjson.dumps([{
+    # the model pivots to a concept the evidence never grounded, then gives up
+    calls = _steer_llm(monkeypatch, [
+        _submit_resp("ggg7", [{
             "op": "write", "heading": "Ghost", "source_basename": "c.md",
-            "path": "Reti/Ghost.md", "title": "Ghost", "snippet": LONG,
-        }]).decode()
-
-    class _Provider:
-        def call_llm(self, messages, tools=None, **kw):
-            return _Resp()
-
-    monkeypatch.setattr("silica.agent.providers.get_provider", lambda *a, **k: _Provider())
+            "path": "Reti/Ghost.md", "title": "Ghost", "snippet": LONG}]),
+        _final_resp("unfixable"),
+    ])
 
     res = pipeline.silica_anneal(steer=True)
 
@@ -187,49 +252,48 @@ def test_anneal_steer_validates_on_the_same_evidence_that_rejected(tmp_vault, tm
     from silica.driver import DRIVER
     with _pytest.raises(Exception):
         DRIVER.read_note("Reti/Ghost.md")
+    # the gate's verdict was fed back, not swallowed
+    tool_msgs = [m for m in calls[1] if m.get("role") == "tool"]
+    assert any("not present in payload" in m["content"] for m in tool_msgs)
+    # ...and the model's closing report survives as the row's summary: it is
+    # the only trace of WHY the ops stayed deferred.
+    assert row["steer"]["summary"] == "unfixable"
 
 
-def test_anneal_steer_offers_and_honors_the_body_appendix(tmp_vault, tmp_path, monkeypatch):
-    """The steer turn is free text (no constrained decode), so it is the one
-    seam where the Body Appendix is executable: bodies outside the JSON keep
-    single backslashes, and a repair cannot JSON-corrupt a healthy body. The
-    prompt must OFFER the format (a model won't invent it), and the parse
-    chain must honor it end-to-end."""
+def test_anneal_steer_healthy_latex_survives_the_tool_transport(tmp_vault, tmp_path, monkeypatch):
+    """Successor of the Body-Appendix test. The appendix existed because the
+    one-shot steer turn was free text and JSON-escape decoding corrupted
+    bodies ("\\top" → TAB). With ops travelling as tool arguments the
+    transport marker is gone; what must hold instead is that a healthy
+    single-backslash body in the args reaches the vault verbatim."""
     from silica.tools import pipeline
 
     tmp_vault.note("Reti/Reti.md", "# Reti\n")
     store = _park(monkeypatch, tmp_path)
+    body = LONG + "\nVincolo: $\\top \\neq \\frac{1}{2}$."
+    payloads = [{"batches": [{"inbox_file": "inbox/e.md", "concepts": [
+        {"name": "Broker", "inbox_excerpt": "vincolo $\\top \\neq \\frac{1}{2}$"},
+    ]}]}]
     store.put(
         "hhh8", "inbox/e.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "e.md",
           "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
+        payloads=payloads,
     )
 
-    prompts = []
-    body = LONG + "\nVincolo: $\\top \\neq \\frac{1}{2}$."
-
-    class _Resp:
-        text = (
-            orjson.dumps([{
-                "op": "write", "heading": "Broker", "source_basename": "e.md",
-                "path": "Reti/Broker.md", "title": "Broker", "snippet_ref": 1,
-            }]).decode()
-            + "\n===SILICA-BODY 1===\n" + body
-        )
-
-    class _Provider:
-        def call_llm(self, messages, tools=None, **kw):
-            prompts.append(messages[0]["content"])
-            return _Resp()
-
-    monkeypatch.setattr("silica.agent.providers.get_provider",
-                        lambda *a, **k: _Provider())
+    calls = _steer_llm(monkeypatch, [
+        _submit_resp("hhh8", [{
+            "op": "write", "heading": "Broker", "source_basename": "e.md",
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": body}]),
+        _final_resp(),
+    ])
 
     res = pipeline.silica_anneal(steer=True)
 
-    assert "===SILICA-BODY" in prompts[0]
+    # the old transport protocol must be gone from the prompt
+    assert "===SILICA-BODY" not in calls[0][0]["content"]
     assert res["written"] == 1
     from silica.driver import DRIVER
     note = DRIVER.read_note("Reti/Broker.md").content
@@ -259,33 +323,27 @@ def test_anneal_steer_prompt_lists_allowed_headings(tmp_vault, tmp_path, monkeyp
         payloads=payloads,
     )
 
-    prompts = []
-
-    class _Resp:
-        text = orjson.dumps([{
+    calls = _steer_llm(monkeypatch, [
+        _submit_resp("iii9", [{
             "op": "write", "heading": "Broker", "source_basename": "c.md",
-            "path": "Reti/Broker.md", "title": "Broker", "snippet": LONG,
-        }]).decode()
-
-    class _Provider:
-        def call_llm(self, messages, tools=None, **kw):
-            prompts.append(messages[0]["content"])
-            return _Resp()
-
-    monkeypatch.setattr("silica.agent.providers.get_provider", lambda *a, **k: _Provider())
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": LONG}]),
+        _final_resp(),
+    ])
 
     res = pipeline.silica_anneal(steer=True)
 
-    assert "ALLOWED HEADINGS" in prompts[0]
-    assert "- Broker" in prompts[0] and "- Topic" in prompts[0]
+    prompt = calls[0][0]["content"]
+    assert "ALLOWED HEADINGS" in prompt
+    assert "- Broker" in prompt and "- Topic" in prompt
     assert res["written"] == 1
 
 
 def test_anneal_steer_output_gets_the_sanitize_repairs(tmp_vault, tmp_path, monkeypatch):
     # The steer path used to feed the model's JSON straight to parse_ops,
     # skipping normalize_ops entirely — over-escaped LaTeX (`\\top`, `\\{`)
-    # landed verbatim in the vault (8 committed notes, 2026-08-05). The
-    # bundle's own excerpts anchor the per-site collapse.
+    # landed verbatim in the vault (8 committed notes, 2026-08-05). Tool-arg
+    # transport does not change this: the over-escape is content-level, so the
+    # bundle's own excerpts still anchor the per-site collapse.
     from silica.tools import pipeline
 
     tmp_vault.note("Reti/Reti.md", "# Reti\n")
@@ -302,18 +360,13 @@ def test_anneal_steer_output_gets_the_sanitize_repairs(tmp_vault, tmp_path, monk
         payloads=payloads,
     )
 
-    class _Resp:  # JSON body over-escaped by the model INSIDE the string
-        text = orjson.dumps([{
+    _steer_llm(monkeypatch, [
+        _submit_resp("jjja", [{  # body over-escaped by the model
             "op": "write", "heading": "Broker", "source_basename": "c.md",
             "path": "Reti/Broker.md", "title": "Broker",
-            "snippet": LONG + " Vincolo: $\\\\top$ su $\\\\{a\\\\}$.",
-        }]).decode()
-
-    class _Provider:
-        def call_llm(self, messages, tools=None, **kw):
-            return _Resp()
-
-    monkeypatch.setattr("silica.agent.providers.get_provider", lambda *a, **k: _Provider())
+            "snippet": LONG + " Vincolo: $\\\\top$ su $\\\\{a\\\\}$."}]),
+        _final_resp(),
+    ])
 
     res = pipeline.silica_anneal(steer=True)
     assert res["written"] == 1
@@ -462,3 +515,160 @@ def test_a_standalone_retry_still_opens_its_own_revertible_unit(tmp_vault, monke
     assert journal.recorded == ["fresh-anneal-run"]
     rec = [r for r in read_records() if r.get("sha256") == "sha-y"]
     assert rec and rec[0]["run_id"] == "anneal"
+
+
+# --- steer-loop seam guarantees (docs/specs/anneal-steer-loop.md) ------------
+
+def test_submit_repaired_ops_is_internal_and_keeps_its_verdict(tmp_vault):
+    # internal: reachable only when AgentConstraints names it, never from chat.
+    # lazy collapse: the verdict IS the feedback — an eager stub would erase
+    # the rejection reasons from the very history the model iterates on.
+    from silica.tools import TOOLS
+
+    t = TOOLS["submit_repaired_ops"]
+    assert t.internal is True
+    assert t.collapse == "lazy"
+
+
+def test_anneal_steer_commits_are_journaled_and_provenanced(tmp_vault, tmp_path, monkeypatch):
+    # The old steer commit path called NEITHER _link_recovered_writes NOR
+    # _record_recovered_writes: steered notes were invisible to /revert and to
+    # provenance (the same 2026-08-18 defect the mechanical retry already
+    # fixed). The tool path must do both.
+    from silica.kernel.write.provenance import read_records
+    from silica.kernel.write.undo_journal import get_undo_journal
+    from silica.tools import pipeline
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "mmmc", "inbox/c.md", "Reti", None,
+        [{"op": "write", "heading": "Broker", "source_basename": "c.md",
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+        rejection_reasons={"Reti/Broker.md": "snippet too short"},
+        phase="VALIDATE",
+    )
+
+    _steer_llm(monkeypatch, [
+        _submit_resp("mmmc", [{
+            "op": "write", "heading": "Broker", "source_basename": "c.md",
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": LONG}]),
+        _final_resp(),
+    ])
+
+    assert pipeline.silica_anneal(steer=True)["written"] == 1
+
+    journal = get_undo_journal()
+    run_id = journal.last_active_run()
+    assert run_id, "the steer commit opened no journal run"
+    assert "Reti/Broker.md" in {inv.path for inv, _ in journal.inverses_for(run_id)}
+
+    recovered = [r for r in read_records() if r.get("sha256") == "mmmc"]
+    assert recovered, "no provenance record for the steered source"
+    assert recovered[0]["source"] == "c.md"
+
+
+def test_anneal_steer_reports_a_dead_loop_and_keeps_the_bundle(tmp_vault, tmp_path, monkeypatch):
+    # An escalation endpoint with broken tool-calling (the Ollama seam) must
+    # surface as an error row, never as a silent no_fix, and must not consume
+    # the bundle: /anneal --steer is rerunnable once the endpoint is fixed.
+    from silica.tools import pipeline
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "nnnd", "inbox/c.md", "Reti", None,
+        [{"op": "write", "heading": "Broker", "source_basename": "c.md",
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+        rejection_reasons={"Reti/Broker.md": "snippet too short"},
+        phase="VALIDATE",
+    )
+
+    def boom(model, messages, **kw):
+        raise RuntimeError("tool-calling unsupported")
+
+    monkeypatch.setattr("silica.agent.loop.call_llm", boom)
+
+    res = pipeline.silica_anneal(steer=True)
+
+    [row] = res["results"]
+    assert row["steer"]["status"] == "error", row
+    assert "tool-calling unsupported" in row["steer"]["error"]
+    assert row["steer"]["written"] == 0
+    assert store.get("nnnd") is not None  # still parked, rerunnable
+
+
+def test_anneal_steer_cost_is_bounded_by_the_iteration_cap(tmp_vault, tmp_path, monkeypatch):
+    # The economic promise of the loop: a model that NEVER converges (garbage
+    # resubmits, rejection verdicts every round — no error, so the convergence
+    # guard stays silent) costs exactly max_iterations tool rounds plus ONE
+    # tool-less landing call, then the sweep moves on with the bundle intact.
+    from silica.tools import pipeline
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "oooe", "inbox/c.md", "Reti", None,
+        [{"op": "write", "heading": "Broker", "source_basename": "c.md",
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+        rejection_reasons={"Reti/Broker.md": "snippet too short"},
+        phase="VALIDATE",
+    )
+    monkeypatch.setenv("ANNEAL_STEER_ITERATIONS", "3")
+
+    tools_per_call = []
+
+    def relentless(model, messages, **kw):
+        tools_per_call.append(kw.get("tools"))
+        return _submit_resp("oooe", [{
+            "op": "write", "heading": "Broker", "source_basename": "c.md",
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": "ancora corto"}],
+            call_id=f"t{len(tools_per_call)}")
+
+    monkeypatch.setattr("silica.agent.loop.call_llm", relentless)
+
+    res = pipeline.silica_anneal(steer=True)
+
+    [row] = res["results"]
+    assert row["steer"]["status"] == "no_fix", row
+    assert row["steer"]["written"] == 0
+    assert store.get("oooe") is not None      # bundle intact, re-annealable
+    assert len(tools_per_call) == 4           # 3 tool rounds + 1 landing
+    assert all(t for t in tools_per_call[:3])  # tools offered while in budget
+    assert tools_per_call[-1] is None         # landing call: tools removed
+    # the landing produced no real text, so no summary is fabricated
+    assert "summary" not in row["steer"]
+
+
+def test_submit_repaired_ops_names_a_renamed_write_instead_of_looping(tmp_vault, tmp_path, monkeypatch):
+    # A payload-less bundle has no heading gate, so a model that renames a
+    # heading writes a REAL note the bundle cannot account for: remove_op
+    # matches by heading and the parked original stays (idempotent re-anneal,
+    # the safe direction). The verdict must NAME the rename, or the model
+    # reads the unchanged `remaining` as a failed write and resubmits the
+    # same op until the cap.
+    import json
+
+    from silica.tools import TOOLS
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "pppf", "inbox/c.md", "Reti", None,
+        [{"op": "write", "heading": "Broker", "source_basename": "c.md",
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+        rejection_reasons={"Reti/Broker.md": "snippet too short"},
+        phase="VALIDATE",
+    )
+
+    res = json.loads(TOOLS["submit_repaired_ops"].run(
+        content_hash="pppf",
+        ops=[{"op": "write", "heading": "Mediatore", "source_basename": "c.md",
+              "path": "Reti/Mediatore.md", "title": "Mediatore", "snippet": LONG}]))
+
+    assert res["written"] == ["Mediatore"]
+    assert res["renamed"] == ["Mediatore"]
+    assert res["remaining"] == 1              # the parked original is untouched
+    assert store.get("pppf") is not None
+    from silica.driver import DRIVER
+    assert "Mediatore" in DRIVER.read_note("Reti/Mediatore.md").content

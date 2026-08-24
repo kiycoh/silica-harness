@@ -208,6 +208,7 @@ Every verb the registry knows, which is what `tests/test_readme_sync.py` compare
 | `/changes` | notes this session wrote to, with added/removed line counts |
 | `/undo [note-path]` | undo the last patch on a note |
 | `/review [--flush=HASH]` | inspect the async review queue (deferred ops) |
+| `/anneal [--steer] [--limit=N]` | retry every deferred bundle against the current vault; --steer escalates what still fails |
 | `/revert [run-id | --source <file>]` | revert a whole injection (per-run, LIFO), or every run derived from one source |
 | `/dedup [folder]` | deduplicate (sub-agent) |
 | `/curate [folder] [--apply]` | curate the vault: plan autolink/orphan/dedup/refine work (dry-run; --apply executes) |

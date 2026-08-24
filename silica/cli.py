@@ -1268,6 +1268,46 @@ def _dc_review(args: list[str], **_) -> bool:
     return True
 
 
+def _dc_anneal(args: list[str], **_) -> bool:
+    """/anneal [--steer] [--limit=N] — sweep the deferred queue.
+
+    The counterpart to /review, which only looks. Kept a direct command and not
+    an agent turn: the sweep is mechanical (re-validate, write what now passes),
+    so routing it through the model would only add a round-trip. --steer is the
+    one leg that calls a model: a bounded repair loop per bundle that still fails.
+    """
+    from silica.tools import TOOLS
+
+    steer = any(p == "--steer" for p in args)
+    limit = _int_flag(args, "--limit=", 0)
+    scope = f"{limit} bundle(s)" if limit else "every bundle"
+    CONSOLE.print(f"  Annealing {scope}{' with escalation' if steer else ''}…")
+    res = json.loads(TOOLS["silica_anneal"].run(steer=steer, limit=limit))
+    if "error" in res:
+        CONSOLE.print(f"  [yellow]{res['error']}[/]")
+        return True
+
+    if not res.get("bundles"):
+        CONSOLE.print("  Review queue is empty — nothing to anneal.")
+        return True
+
+    for row in res.get("results", []):
+        mark = "cleared" if row.get("cleared") else f"{row['still_deferred']} left"
+        line = f"  · [bold]{row['content_hash']}[/]  {row['written']} written, {mark}"
+        if row.get("error"):
+            line += f"  [yellow]{row['error']}[/]"
+        CONSOLE.print(line)
+    CONSOLE.print(
+        f"  [bold]{res['bundles']}[/] bundle(s): {res['written']} op(s) written, "
+        f"{res['still_deferred']} still deferred."
+    )
+    # A sweep that wrote nothing and cleared nothing is the case worth naming:
+    # silence there reads as success when the queue is untouched.
+    if not res["written"] and res["still_deferred"] and not steer:
+        CONSOLE.print("  [dim]Nothing became writable. Try [bold]/anneal --steer[/].[/]")
+    return True
+
+
 def _dc_curate(args: list[str], **_) -> bool:
     """/curate [folder] [--apply] — the curation pass over a folder."""
     from silica.tools import TOOLS
@@ -1390,6 +1430,7 @@ _DIRECT: dict[str, Callable[..., bool]] = {
     "/undo": _dc_undo,
     "/revert": _dc_revert,
     "/review": _dc_review,
+    "/anneal": _dc_anneal,
     "/curate": _dc_curate,
     "/aliases": _dc_aliases,
     "/keep": _dc_keep,
