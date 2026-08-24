@@ -67,8 +67,8 @@ class TestAgentGuardsAndProvider(unittest.TestCase):
         with patch.object(CONFIG, "openrouter_provider", "DeepInfra, Together"):
             call_llm(model="openrouter/xiaomi/mimo-v2.5", messages=[])
         self.assertEqual(
-            mock_completion.call_args[1].get("extra_body"),
-            {"provider": {"order": ["DeepInfra", "Together"], "allow_fallbacks": False}},
+            mock_completion.call_args[1]["extra_body"]["provider"],
+            {"order": ["DeepInfra", "Together"], "allow_fallbacks": False},
         )
 
         # Non-openrouter model: no routing injected even when set.
@@ -76,10 +76,11 @@ class TestAgentGuardsAndProvider(unittest.TestCase):
             call_llm(model="lmstudio/local", messages=[])
         self.assertNotIn("extra_body", mock_completion.call_args[1])
 
-        # Unset → default behaviour, no extra_body.
+        # Unset → default behaviour, no pin. extra_body still exists: every
+        # openrouter call carries the session_id OpenRouter groups by.
         with patch.object(CONFIG, "openrouter_provider", ""):
             call_llm(model="openrouter/xiaomi/mimo-v2.5", messages=[])
-        self.assertNotIn("extra_body", mock_completion.call_args[1])
+        self.assertNotIn("provider", mock_completion.call_args[1]["extra_body"])
 
     @patch("litellm.completion")
     def test_max_tokens_and_finish_reason_in_provider(self, mock_completion):
@@ -111,8 +112,8 @@ class TestAgentGuardsAndProvider(unittest.TestCase):
                         model="openrouter/xiaomi/mimo-v2.5")
         prov.call_llm(messages=[], openrouter_provider="DigitalOcean")
         self.assertEqual(
-            mock_completion.call_args[1].get("extra_body"),
-            {"provider": {"order": ["DigitalOcean"], "allow_fallbacks": False}},
+            mock_completion.call_args[1]["extra_body"]["provider"],
+            {"order": ["DigitalOcean"], "allow_fallbacks": False},
         )
 
         # No explicit override: falls back to CONFIG.openrouter_provider.
@@ -122,8 +123,8 @@ class TestAgentGuardsAndProvider(unittest.TestCase):
                             model="openrouter/m")
             prov.call_llm(messages=[])
         self.assertEqual(
-            mock_completion.call_args[1].get("extra_body"),
-            {"provider": {"order": ["Together"], "allow_fallbacks": False}},
+            mock_completion.call_args[1]["extra_body"]["provider"],
+            {"order": ["Together"], "allow_fallbacks": False},
         )
 
         # Local (non-openrouter) model: never injected.

@@ -100,6 +100,12 @@ ToolProgressCallback = Callable[[RenderEvent], None] | None
 # number only changes the right move once finishing IS the right move.
 BUDGET_NOTICE_AT = 2
 
+# What a turn that produced neither text nor a tool call returns. A sentinel and
+# not "": every caller gates its output on the returned string being truthy, so
+# an empty return renders as silence and the user cannot tell a broken provider
+# call from a turn that never ran.
+_EMPTY_COMPLETION = "(silica: the model returned an empty response)"
+
 _FINAL_TURN_INSTRUCTION = (
     "The tool phase of this turn is over and no tools are available now. "
     "Answer from what you already have: report what you found, and name any "
@@ -367,7 +373,13 @@ def run_agent(
 
         # No tool calls → model produced a final text response
         if not resp.tool_calls:
-            return resp.text or ""
+            # ...or produced NOTHING: measured 2026-08-23 on
+            # openrouter/stealth/ox-alpha, finish=stop with tool_calls=0 and
+            # content='' after 21s. `or ""` sent that straight into the REPL's
+            # `if answer:`, which prints nothing — a failed turn rendered
+            # exactly like no turn at all. Same shape as the cancelled and
+            # max-iterations sentinels: the caller always gets text back.
+            return resp.text or _EMPTY_COMPLETION
 
         # Tool calls, so whatever text this iteration streamed was a preamble and
         # not the answer — but its deltas are already painted. Retract them with

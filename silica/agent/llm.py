@@ -21,6 +21,7 @@ import re
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -217,6 +218,129 @@ def _bounded_stream(make_iter, per_chunk_timeout: float, model: str):
         if kind == "done":
             return
         yield payload
+
+
+# Models whose endpoint answered the `reasoning: {enabled: False}` block with a
+# 400. Process-lived and keyed by model string: the refusal is a property of the
+# endpoint, so paying it once per process is enough, and nothing persists a
+# judgement about a model id that may be repointed tomorrow.
+_REASONING_MANDATORY: set[str] = set()
+
+
+def _without_refused_reasoning(model: str, kwargs: dict, call):
+    """Run `call()`, and if the endpoint 400s over the reasoning knob, strip it
+    and run once more with thinking left on.
+
+    `reasoning=False` is a request, not a guarantee: measured 2026-08-24 on
+    openrouter/stealth/ox-alpha, "Reasoning is mandatory for this endpoint and
+    cannot be disabled" (400). BadRequestError is not transient, so it took the
+    whole lane down for every caller of the knob — and forms.py catches Exception
+    and returns "", so on that model form sniffing was silently off with nothing
+    on screen to say why. A thinking model that answers is strictly better than a
+    lane that does not run; the budget, not the knob, is the caller's defence
+    against a trace eating max_tokens.
+    """
+    try:
+        return call()
+    except litellm.BadRequestError as e:
+        text = str(e).lower()
+        if "reasoning" not in text or not ("mandator" in text or "cannot be disabled" in text):
+            raise
+        rt = kwargs.get("extra_body") or {}
+        if "reasoning" not in rt:
+            raise
+        _REASONING_MANDATORY.add(model)
+        logger.warning("%s refuses reasoning: {enabled: false} — retrying with "
+                       "thinking on; budget the trace against max_tokens", model)
+        rt.pop("reasoning")
+        if rt:
+            kwargs["extra_body"] = rt
+        else:
+            kwargs.pop("extra_body", None)
+        return call()
+
+
+def _reject_cut_stream(built, streamed_reasoning: list[str], model: str) -> None:
+    """Raise a transient error when the reassembled stream carried nothing.
+
+    stream_chunk_builder cannot tell a stream that ENDED from one that was CUT:
+    a connection dropped after the opening chunk reassembles into a well-formed
+    message with content='', a *synthesised* finish_reason='stop', and usage
+    counted locally. Nothing downstream can tell that apart from a model that
+    chose to say nothing, so the loop returned it as the answer and the turn
+    rendered as silence (measured 2026-08-24 on openrouter/stealth/ox-alpha:
+    three turns of 5.6s / 8.5s / 21.3s, completion_tokens=0, cached_tokens=0 —
+    the shape of a usage litellm had to count itself).
+
+    Billed completion tokens are what separate the two: a model that generated
+    anything, even a trace that ate the whole budget, is charged for it
+    (measured on the same model: finish=length, completion_tokens=5, text='').
+    So a turn with zero of everything is a transport failure and belongs in the
+    retry path, not in the caller's answer.
+    """
+    try:
+        message = built.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        message = None
+    if message is not None and (
+        (getattr(message, "content", None) or "")
+        or getattr(message, "tool_calls", None)
+        or streamed_reasoning
+    ):
+        return
+    usage = getattr(built, "usage", None)
+    if getattr(usage, "completion_tokens", 0) or (
+        isinstance(usage, dict) and usage.get("completion_tokens")
+    ):
+        return
+    raise litellm.APIConnectionError(
+        message=f"stream from {model} ended without generating a single token "
+                "(cut connection, not an empty answer)",
+        model=model, llm_provider=model.split("/", 1)[0])
+
+
+# How OpenRouter names this app — in the user's own dashboard and in the public
+# app rankings, where the other harnesses (opencode, Hermes) appear. Not passing
+# them is not "unattributed": litellm builds
+# {"HTTP-Referer": "https://litellm.ai", "X-Title": "liteLLM"} for every
+# openrouter/ call and then `update`s the caller's headers over its own
+# (main.py), so silence files every silica generation under liteLLM.
+_OPENROUTER_ATTRIBUTION = {
+    "HTTP-Referer": "https://github.com/kiycoh/silica-harness",
+    "X-Title": "Silica",
+}
+
+# Session key for the lanes that never open a narration session — a nucleate
+# batch, a subagent, the distill pool. One per process, so such a run still
+# arrives as one session instead of N loose generations nothing groups.
+_PROCESS_SESSION = f"silica-{uuid.uuid4().hex[:12]}"
+
+
+def _openrouter_session_id() -> str:
+    """The id OpenRouter groups a conversation's generations under (max 256).
+
+    The narration sid whenever one is open, so the session in OpenRouter's
+    dashboard and the file under ~/.silica/narration carry the SAME id and each
+    can be read against the other — which is the whole reason to send one rather
+    than a fresh uuid per call.
+
+    It is also OpenRouter's sticky-routing key: after the first success every
+    later call in the session prefers the provider that served it, which is what
+    makes the prompt-cache breakpoints pay off across turns (a cache lives on one
+    provider). A preference, not a pin — OpenRouter falls back when that provider
+    is unavailable rather than failing the request.
+
+    It does not cost the parallel lanes anything. Measured 2026-08-24, 6
+    concurrent calls x 6 rounds per condition on stealth/ox-alpha: wall clock
+    stayed far under the sum of the individual calls under a SHARED session id
+    (21.3s against 67.1s, and so on for every round), i.e. sharing the id
+    serialises nothing; errors were 0/36 shared against 2/36 with distinct ids.
+    Latency showed no separable effect — a single burst swung 3s to 108s on that
+    free shared pool, which swamps anything the routing does.
+    """
+    from silica.agent.narration import NARRATOR  # lazy, as call_llm's own beat does
+
+    return NARRATOR.sid or _PROCESS_SESSION
 
 
 def openrouter_routing(provider_list: str | None = None) -> dict | None:
@@ -607,9 +731,13 @@ def _call_llm(
     if temperature is not None:
         kwargs["temperature"] = temperature
     if model.startswith("openrouter/"):
+        if model in _REASONING_MANDATORY:
+            reasoning = None  # the endpoint refused the knob once; don't re-pay the 400
         if reasoning is not False and (CONFIG.show_thinking or CONFIG.verbose):
             kwargs["include_reasoning"] = True
+        kwargs["extra_headers"] = _OPENROUTER_ATTRIBUTION
         rt = openrouter_routing(openrouter_provider) or {}
+        rt["session_id"] = _openrouter_session_id()
         if reasoning is False:
             # `enabled: False` is the knob that lands; `max_tokens: 0` is
             # accepted and ignored (measured on deepseek-v4-flash: 12208 chars
@@ -670,9 +798,11 @@ def _call_llm(
     # guaranteed to exist, so keep them for the history.
     streamed_reasoning: list[str] = []
     if on_delta is None:
-        response = retry_transient(
-            lambda: _bounded(lambda: litellm.completion(**kwargs), _LOCAL_LLM_TIMEOUT, model),
-            _TRANSIENT, cancel=cancel)
+        response = _without_refused_reasoning(
+            model, kwargs,
+            lambda: retry_transient(
+                lambda: _bounded(lambda: litellm.completion(**kwargs), _LOCAL_LLM_TIMEOUT, model),
+                _TRANSIENT, cancel=cancel))
     else:
         def _stream_once():
             on_delta("reset", "")
@@ -702,9 +832,12 @@ def _call_llm(
                     on_delta("text", c)
             # Reassemble the canonical response (content, tool_calls, usage) so
             # everything below is identical to the non-streaming path.
-            return litellm.stream_chunk_builder(chunks, messages=messages)
+            built = litellm.stream_chunk_builder(chunks, messages=messages)
+            _reject_cut_stream(built, streamed_reasoning, model)
+            return built
 
-        response = retry_transient(_stream_once, _TRANSIENT, cancel=cancel)
+        response = _without_refused_reasoning(
+            model, kwargs, lambda: retry_transient(_stream_once, _TRANSIENT, cancel=cancel))
         if response is None:
             raise RuntimeError(f"LLM stream from {model} produced no chunks")
 

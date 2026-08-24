@@ -310,25 +310,29 @@ def test_llm_openrouter_include_reasoning(mock_completion, monkeypatch):
         CONFIG.show_thinking = True
         CONFIG.verbose = False
         call_llm(model="openrouter/some-model", messages=messages)
-        mock_completion.assert_called_with(
-            model="openrouter/some-model",
-            messages=messages,
-            max_tokens=256000,
-            include_reasoning=True,
-            timeout=120.0
-        )
+        # Named kwargs, not assert_called_with: every openrouter call also
+        # carries the attribution headers and the session_id, and this test is
+        # about include_reasoning and the pinned budget.
+        sent = mock_completion.call_args.kwargs
+        assert sent["model"] == "openrouter/some-model"
+        assert sent["messages"] == messages
+        assert sent["max_tokens"] == 256000
+        assert sent["include_reasoning"] is True
+        assert sent["timeout"] == 120.0
 
         # Test openrouter model with show_thinking=False and verbose=True
         CONFIG.show_thinking = False
         CONFIG.verbose = True
         call_llm(model="openrouter/some-model", messages=messages)
-        mock_completion.assert_called_with(
-            model="openrouter/some-model",
-            messages=messages,
-            max_tokens=256000,
-            include_reasoning=True,
-            timeout=120.0
-        )
+        # Named kwargs, not assert_called_with: every openrouter call also
+        # carries the attribution headers and the session_id, and this test is
+        # about include_reasoning and the pinned budget.
+        sent = mock_completion.call_args.kwargs
+        assert sent["model"] == "openrouter/some-model"
+        assert sent["messages"] == messages
+        assert sent["max_tokens"] == 256000
+        assert sent["include_reasoning"] is True
+        assert sent["timeout"] == 120.0
         
         # Test non-openrouter model
         call_llm(model="openai/gpt-4o", messages=messages)
