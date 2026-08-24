@@ -46,11 +46,7 @@ Silica is a multi-agent framework that allows one and more agents (human or arti
 </p>
 
 
-<p align="center">
-  <a href="https://youtu.be/nYLiKTtMZuY">
-    <img src="assets/gui_presentation_poster.png" alt="The Silica web GUI, showing a real vault as a graph with semantic zones" width="900" />
-  </a>
-</p>
+<img src="assets/export-1787588889796.gif" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" />
 
 <p align="center">
   <sub><a href="https://youtu.be/nYLiKTtMZuY">▶ Watch the walkthrough</a> &nbsp;·&nbsp;
