@@ -196,6 +196,37 @@ def _json_island(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, allow_nan=False).replace("<", "\\u003c")
 
 
+def _zone_gate_row(nodes: list[dict], edges: list[dict]) -> str:
+    """The HUD row shown INSTEAD of the zone rows when the coverage gate fires.
+
+    An empty `zone_section` is right when the vault has no embed index at all --
+    nothing to explain -- but wrong when the index exists and is merely too thin:
+    that is the state the user is actually in, and dropping the row silently is
+    the same defect as drawing 737 one-note hulls, one layer up. The row is dead
+    (no checkbox) because there is nothing to toggle; it carries the two numbers
+    and the command that fixes them.
+    """
+    from silica.kernel.recall.graph_export import (
+        _ZONE_MIN_COVERAGE,
+        semantic_coverage,
+    )
+
+    covered, total = semantic_coverage(nodes, edges)
+    if not total or not covered:
+        return ""   # no index at all: the absent layer needs no explaining
+    return (
+        f'<div class="filter-row" style="margin-top:4px;opacity:.55" '
+        f'title="Louvain over the embedding k-NN is a global function of the note set, so a '
+        f'partial index does not draw a partial map, it draws a different one. Measured on an '
+        f'887-note vault, a {int(100 * _ZONE_MIN_COVERAGE)}% index still agrees with the full '
+        f'partition; a 15% one agrees on barely a third. Run /embed to fill the index and the '
+        f'layer comes back.">'
+        f'<span class="dot" style="--c:#565a77;--cp:#6b6f8c;opacity:.5"></span>semantic zones'
+        f'<span class="ct">{covered}/{total} embedded</span>'
+        f'</div>'
+    )
+
+
 def _frame_context(
     nodes: list[dict],
     edges: list[dict],
@@ -342,7 +373,7 @@ def _frame_context(
         f'<input type="checkbox" id="cb-zone-nodes" checked onchange="updateZoneFilter()">'
         f'notes'
         f'</label>'
-    ) if zones else ""
+    ) if zones else _zone_gate_row(nodes, edges)
 
     tree_html = render_tree(nodes)
 

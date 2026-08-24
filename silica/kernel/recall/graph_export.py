@@ -635,6 +635,47 @@ def inherit_ids(
     return ids, next_id
 
 
+# Coverage bar for the SEMANTIC partition. Louvain over a k-NN graph is
+# chaotically sensitive to its node set, so a partial embed index does not give a
+# partial map, it gives a DIFFERENT one. Measured 2026-08-24 on an 887-note vault
+# (adjusted Rand index against the full-coverage partition, 5-8 draws per point):
+#
+#   coverage  100%   99.9%  99%   95%   90%   80%   60%   40%   25%   15%
+#   ARI       1.000  0.867  0.830 0.797 0.769 0.689 0.576 0.521 0.429 0.363
+#
+# Two things fall out of that row. Dropping ONE note already costs 0.13, so a
+# zero-backlog bar buys nothing measurable and would switch the layer off every
+# time a note is written -- 0.867 is the intrinsic floor, not a coverage problem
+# (the same instability `load_semantic_snapshot` documents: one note removed
+# moved 53 of 681). And the curve stays inside 0.1 of that floor down to 90% and
+# then falls away monotonically, which is what makes 90% a measured bar rather
+# than a round number. Below it the drawn zones disagree with the true ones more
+# than they agree, while looking exactly as confident.
+_ZONE_MIN_COVERAGE = 0.90
+
+
+def semantic_coverage(nodes: list[dict], edges: list[dict]) -> tuple[int, int]:
+    """(notes reachable by a SIMILAR edge, real notes) — the embed index's reach.
+
+    Touching a k-NN edge is the proxy for "has a vector", and it is the honest
+    one here: `knn_edges` gives every embedded note its k neighbours, so a note
+    with no SIMILAR edge is a note the embed index never saw. Derived from the
+    two arguments the partition already takes rather than from the store, so the
+    gate below cannot disagree with the edges it is gating.
+
+    Blind to a note whose vector is STALE (edited since it was embedded): that
+    note still has neighbours, just slightly wrong ones, which is the mild
+    failure. The one worth a gate is the note with no vector at all.
+    """
+    real = {n["id"] for n in nodes if n.get("type") != "ghost"}
+    covered = {
+        nid
+        for e in edges if e.get("type") == "SIMILAR"
+        for nid in (e.get("from"), e.get("to")) if nid in real
+    }
+    return len(covered), len(real)
+
+
 def detect_semantic_partition(nodes: list[dict], edges: list[dict]) -> list[Zone]:
     """Louvain on the SIMILAR (k-NN) edges, in-place — the SEMANTIC partition.
 
@@ -643,12 +684,32 @@ def detect_semantic_partition(nodes: list[dict], edges: list[dict]) -> list[Zone
     with ids inherited from the previous generation so the colours hold still.
 
     Degrades to [] with sgroup == -1 everywhere when the vault has no embed
-    index: absent, never a community in disguise.
+    index -- absent, never a community in disguise -- and for the same reason
+    when the index reaches fewer than _ZONE_MIN_COVERAGE of the notes: a 15%
+    index is the worse of the two cases, because it draws named hulls that look
+    exactly as confident as the real ones.
     """
     for node in nodes:
         node["sgroup"] = -1
 
+    covered, total = semantic_coverage(nodes, edges)
+    if total and covered < _ZONE_MIN_COVERAGE * total:
+        logger.info(
+            "graph_export: embed index covers %d/%d notes (%.0f%%) < %.0f%% "
+            "— semantic partition withheld; run /embed.",
+            covered, total, 100 * covered / total, 100 * _ZONE_MIN_COVERAGE,
+        )
+        return []
+
     partition = _louvain_partition(nodes, edges, "SIMILAR")
+    # A note with NO SIMILAR edge has no vector, and `edge_graph` still seeds it
+    # into the graph, so Louvain hands it back as a community of one. Those are
+    # not zones: measured 2026-08-24 on an 886-note vault whose embed index held
+    # 135 notes, the partition was 745 "zones", 737 of them a single note, and
+    # the viewer drew a labelled hull around every unembedded note. Dropping
+    # them restores what the docstring above already promised -- sgroup == -1
+    # for a note with no vector -- and leaves the 8 real zones standing.
+    partition = [c for c in partition if len(c) > 1]
     if not partition:
         return []
 

@@ -182,3 +182,86 @@ def test_unlabelled_zone_says_which_partition_it_came_from(snapshot, monkeypatch
     zones = ge.detect_semantic_partition(
         _nodes("a.md", "b.md"), _clique("a.md", "b.md", type="SIMILAR"))
     assert zones[0].label == "Zone 0"   # never "Cluster 0"
+
+
+def test_note_with_no_similar_edge_is_not_a_zone(monkeypatch):
+    """An unembedded note gets sgroup -1, not a zone of one.
+
+    The regression that made the viewer draw 737 labelled hulls on an 886-note
+    vault whose embed index held 135 notes (2026-08-24).
+    """
+    from silica.kernel.recall import graph_export as ge
+
+    # 20 notes, 18 of them embedded: 90% coverage, so the layer is drawn (the
+    # coverage gate is a separate rule, tested below) and the two vectorless
+    # notes are the only thing left for the singleton filter to catch.
+    nodes = [{"id": f"n{i}.md"} for i in range(20)]
+    covered = [f"n{i}.md" for i in range(18)]
+    edges = [
+        {"from": covered[i], "to": covered[(i + 1) % len(covered)], "type": "SIMILAR"}
+        for i in range(len(covered))
+    ]
+
+    monkeypatch.setattr(ge, "load_semantic_snapshot", lambda: ({}, 0))
+    monkeypatch.setattr(ge, "save_semantic_snapshot", lambda *a, **k: None)
+
+    zones = ge.detect_semantic_partition(nodes, edges)
+
+    assert zones and all(z.size > 1 for z in zones)
+    assert {n["sgroup"] for n in nodes if n["id"] in {"n18.md", "n19.md"}} == {-1}
+
+
+def _sim(a, b):
+    return {"from": a, "to": b, "type": "SIMILAR"}
+
+
+def _ring(ids):
+    """A cycle over `ids` — every node covered, every zone bigger than one."""
+    return [_sim(ids[i], ids[(i + 1) % len(ids)]) for i in range(len(ids))]
+
+
+def test_semantic_coverage_counts_notes_a_similar_edge_reaches():
+    from silica.kernel.recall.graph_export import semantic_coverage
+
+    nodes = [{"id": f"n{i}.md"} for i in range(5)] + [{"id": "g.md", "type": "ghost"}]
+    edges = [_sim("n0.md", "n1.md"), {"from": "n2.md", "to": "n3.md", "type": "EXTRACTED"}]
+
+    # n2/n3 are joined by a WIKILINK, which says nothing about having a vector.
+    assert semantic_coverage(nodes, edges) == (2, 5)
+
+
+def test_thin_embed_index_withholds_the_zones(monkeypatch):
+    """A partial index draws a DIFFERENT map, not a partial one — so none.
+
+    15% coverage agreed with the full partition at ARI 0.363 on an 887-note
+    vault (2026-08-24), while looking exactly as confident.
+    """
+    from silica.kernel.recall import graph_export as ge
+
+    monkeypatch.setattr(ge, "load_semantic_snapshot", lambda: ({}, 0))
+    monkeypatch.setattr(ge, "save_semantic_snapshot", lambda *a, **k: None)
+
+    # 20 notes, only the first 6 embedded: two clean zones, 30% coverage.
+    nodes = [{"id": f"n{i}.md"} for i in range(20)]
+    edges = _ring(["n0.md", "n1.md", "n2.md"]) + _ring(["n3.md", "n4.md", "n5.md"])
+
+    assert ge.detect_semantic_partition(nodes, edges) == []
+    assert {n["sgroup"] for n in nodes} == {-1}
+
+    # Same nodes, same rule, once the index reaches the rest of the vault.
+    edges += _ring([f"n{i}.md" for i in range(6, 20)])
+    zones = ge.detect_semantic_partition(nodes, edges)
+    assert zones and all(z.size > 1 for z in zones)
+    assert all(n["sgroup"] >= 0 for n in nodes)
+
+
+def test_gated_layer_says_why_in_the_hud():
+    """The row replaces the layer; dropping it silently is the defect it fixes."""
+    from silica.ui.web.graph_view import _zone_gate_row
+
+    nodes = [{"id": f"n{i}.md"} for i in range(10)]
+    row = _zone_gate_row(nodes, _ring(["n0.md", "n1.md", "n2.md"]))
+    assert "3/10 embedded" in row
+    assert "/embed" in row
+    # No index at all needs no explaining — that layer was never promised.
+    assert _zone_gate_row(nodes, []) == ""
