@@ -96,15 +96,17 @@
       <div class="hp-row"><span class="hp-what">3D</span><span>spatial layout of the whole vault; a node names itself when you hover it</span></div>
       <div class="hp-row"><span class="hp-what">2D</span><span>names appear as you zoom in, biggest notes first, and Show zones in the HUD draws the semantic areas as hulls</span></div>
     </div>
-    <!-- The work panel is a pane you keep open, not a dialog, so its control is
-         a pressed-state toggle rather than a menu item. What it shows lives in
-         /narration and has never had a surface. -->
-    <button id="work-toggle" class="ghost" title="show what the agent is doing" aria-label="toggle the work panel" aria-pressed="false">
+    <!-- The right sidebar is a pane you keep open, not a dialog, so its control
+         is a pressed-state toggle rather than a menu item. THE one control for
+         it: a #note-last stood here too, an accent-blue document glyph carrying
+         the last note's name, from when the note lived in a drawer of its own -
+         two buttons a hand's width apart opening one surface on two of its three
+         modes, and only two of them. Reopening the last note is the NOTE segment
+         now, which is where the other two modes already were. Pressed states the
+         mode, not merely the sidebar: a toggle lit while the panel shows a note
+         would be lying about which of the three it named. -->
+    <button id="work-toggle" class="ghost" title="show what the agent is doing" aria-label="show what the agent is doing in the sidebar" aria-pressed="false">
       <svg aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
-    </button>
-    <button id="note-last" class="ghost" title="reopen last note" aria-label="reopen last note">
-      <svg aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--accent);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-      <span></span>
     </button>
     <button id="stop" class="ghost" hidden aria-label="stop the current response">&#9632; stop</button>
   </header>
@@ -391,51 +393,35 @@
       </div>
       <div id="metrics-body"></div>
     </section>
-
-    <!-- The third column. Every row in it is a projection of a beat the agent
-         already wrote to ~/.silica/narration; see static/work.js. -->
-    <aside id="work" aria-label="what the agent is doing">
-      <header>
-        <!-- The column's name is FIXED. It used to be the scope word alone —
-             "Work", then "Report", then "Node" — and on explore that made a
-             right-hand panel headed NODE listing a note's concepts and
-             neighbours, which is character for character what the note drawer
-             then called CONTEXT. Naming the two apart was the first half of the
-             fix; the second was deleting one of them, so this column is now the
-             only place a note's concepts and neighbours are stated, on every
-             view. The panel says what it IS, the chip what it is ABOUT. -->
-        <svg class="wk-ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-7 5 14L17 12h4"></path></svg>
-        <span class="wk-title">Work</span>
-        <span class="wk-scope" id="work-scope"></span>
-        <span class="grow"></span>
-        <span id="work-state" class="wk-state">idle</span>
-        <!-- Only shown folded: an overlay over the transcript has to be
-             dismissable from itself. As a column it is closed from the header
-             toggle, which is in view; folded, that toggle is behind this
-             panel's own shadow. -->
-        <button id="work-close" class="ghost" title="close the work panel" aria-label="close the work panel">&#10005;</button>
-      </header>
-      <div id="work-body"></div>
-    </aside>
   </main>
 
   <aside id="note-panel" aria-hidden="true">
     <div id="note-resize" title="drag to resize"></div>
     <header>
-      <!-- The counterpart to #work's mark. Both panels live at the right edge,
-           and they used to be able to show the SAME thing: one note's concepts
-           and neighbours, drawn twice off one /context call. A glyph each said
-           which panel you were on, which is a label over a duplicate. The
-           duplicate is gone now - the panel states where a note sits, this
-           drawer states what it says - and the glyphs stay, because two panels
-           at one edge still have to announce themselves before you read them. -->
-      <svg class="np-ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+      <!-- One mark, because there is one panel now. Two asides used to share
+           this edge - this drawer and Work - and a glyph each was how you told
+           which of them you were on, a label over what turned out to be a
+           duplicate. Work is a MODE of this drawer now, so the mark stops
+           naming a document and names the sidebar itself, which is also the
+           glyph on the header button that opens it: the control and the thing
+           it opens carry one sign. -->
+      <svg class="np-ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
       <span id="note-title"></span>
-      <!-- Two readings of the same FILE: what it says now, and what this
-           session changed in it. Where it SITS was a third button here and is
-           now the work panel's only job. A segmented control, because these two
-           are states of one surface, not two places to go. -->
-      <div id="note-mode" role="group" aria-label="drawer mode">
+      <!-- Work mode's own two marks, hoisted into this header when Work stopped
+           being a panel with a header of its own. What the run is ABOUT (report,
+           node) stays a chip beside the name rather than replacing it, and the
+           dot is the only thing on this strip that moves while a turn runs.
+           Hidden in the other two modes: they are about a file, not a run. -->
+      <span class="wk-scope" id="work-scope" hidden></span>
+      <span id="work-state" class="wk-state" hidden>idle</span>
+      <!-- The three things this edge can say. Two are readings of the same FILE
+           - what it says now, and what this session changed in it - and the
+           third is the run, which was a second aside at this same edge until
+           the drawer, also at this edge, hid it on every open. A segmented
+           control, because these are states of one surface, not three places
+           to go. -->
+      <div id="note-mode" role="group" aria-label="sidebar mode">
+        <button type="button" data-mode="work" aria-pressed="false" title="what the agent is doing">work</button>
         <button type="button" data-mode="diff" aria-pressed="false" title="what this session changed in this note">diff</button>
         <button type="button" data-mode="note" class="active" aria-pressed="true" title="read the note">note</button>
       </div>
@@ -478,6 +464,13 @@
          built in JS from /changes/diff. -->
     <div id="note-diff" hidden></div>
     <div id="note-body"></div>
+    <!-- work mode: the run itself, every row a projection of a beat the agent
+         already wrote to ~/.silica/narration; see static/work.js. It was an
+         #work aside of its own against this same edge, which meant the drawer
+         hid it (body.note-open #work: display none) every time a note opened -
+         a panel you could only read by closing the other one. Three panes, one
+         per segment, and the header above them is the only header. -->
+    <div id="work-body" hidden></div>
   </aside>
 
   <div id="dock" hidden>

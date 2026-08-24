@@ -1303,19 +1303,19 @@ $("#sidebar-toggle").addEventListener("click", () => {
 });
 
 // --- the 1120 floor: the deck folds, it does not reflow ----------------------
-// Below the width that holds rail + reading measure + work panel side by side,
-// the rail becomes five icons and the work panel becomes an overlay over the
-// transcript. Neither disappears: what a fold must never do is take a surface
-// away and leave nothing where it was.
+// Below the width that holds rail + reading measure + right sidebar side by
+// side, the rail becomes five icons summoned over the transcript. It does not
+// disappear: what a fold must never do is take a surface away and leave nothing
+// where it was. (The work panel folded here too, until it stopped being a panel
+// — as a mode of the sidebar it folds the way the sidebar does, which is why
+// work.js no longer asks this question and the export it asked through is gone.)
 //
 // The threshold itself lives in ONE place, the media query in app.css that sets
-// --narrow. Both this file and work.js read it back through here rather than
-// each carrying a pixel count of its own, because two constants that must match
-// are two constants that eventually do not.
+// --narrow, read back through here rather than carried as a pixel count as well,
+// because two constants that must match are two constants that eventually do not.
 function isNarrow() {
   return getComputedStyle(document.body).getPropertyValue("--narrow").trim() === "1";
 }
-window.isNarrow = isNarrow;
 
 let railSection = null; // which compartment the summoned rail is showing
 
@@ -4646,35 +4646,70 @@ function restoreYieldedSidebar() {
   sidebarYielded = false;
 }
 
-// The drawer is the NOTE: `note` is the reader and `diff` is the same file
-// against how it stood before this session touched it. It carried a third mode,
-// `context`, which drew the /context payload the work panel's node scope also
-// draws - two panels at the same edge, the same sections, neither header saying
-// which of them you were reading. They had already drifted apart by the time it
-// was noticed, each dropping a section the other kept. The panel took the
-// payload; this drawer kept the prose, and each fact now has one home.
+// This drawer is the app's ONE right-edge surface, in three modes. Two are the
+// same file read two ways: `note` is the reader, `diff` is that file against how
+// it stood before this session touched it. The third, `work`, is the run, and it
+// was an #work aside of its own against this same edge until the CSS that kept
+// the two apart said what the arrangement really was - `body.note-open #work:
+// display none`, i.e. the surface that says what the agent is doing was off for
+// as long as any note was open. A mode cannot collide with its own siblings.
+//
+// (It also once carried a `context` mode, which drew the /context payload the
+// work panel's node scope also drew: two panels at the same edge, the same
+// sections, neither header saying which you were reading. That one was deleted
+// rather than merged - the panel took the payload, this drawer kept the prose.)
 //
 // The click contract, unchanged in principle and now stated once: NAMING a note
 // means "I want to read it", so a wikilink, the file tree and a search hit land
-// here. POINTING at one means "what is this", so a graph node, a map card and a
-// metrics row fill the work panel instead. A second click on a node is "read
-// it" said with the gesture, and lands back here.
+// on `note`. POINTING at one means "what is this", so a graph node, a map card
+// and a metrics row land on `work`. A second click on a node is "read it" said
+// with the gesture, and lands back on `note`.
 let drawerMode = "note";
+
+// Read HERE, at load, and not where it is used at the bottom of this file:
+// syncDrawerMode() writes this key on every call and the restore has to run
+// after the boot tab (which closes the sidebar), so by then the first sync has
+// already overwritten it with the closed state. A preference read late is a
+// preference read after it was answered.
+const bootWantsWork = localStorage.getItem("work-open") === "1";
 
 function syncDrawerMode() {
   const path = lastNotePath || lastViewedPath;
+  const open = notePanel.classList.contains("open");
   document.querySelectorAll("#note-mode button").forEach((b) => {
     setActive(b, b.dataset.mode === drawerMode);
-    // A note this session never touched has no diff, and an enabled tab onto an
-    // empty pane is a promise the drawer cannot keep.
+    // A note this session never touched has no diff, and a session that has
+    // opened none has no note either: an enabled segment onto an empty pane is a
+    // promise the sidebar cannot keep. `work` is never disabled - it is about the
+    // run, which exists whether or not anything has been read.
     if (b.dataset.mode === "diff") {
       b.disabled = !changedPaths.has(path);
       b.title = b.disabled ? "this session has not changed this note"
                            : "what this session changed in this note";
+    } else if (b.dataset.mode === "note") {
+      b.disabled = !path;
+      b.title = b.disabled ? "no note opened yet" : "read the note";
     }
   });
   $("#note-body").hidden = drawerMode !== "note";
   $("#note-diff").hidden = drawerMode !== "diff";
+  $("#work-body").hidden = drawerMode !== "work";
+  // The five actions act ON the open note, and the scope chip and the live dot
+  // belong to the run: each row states the mode it came from and nothing else.
+  $("#note-actions").hidden = drawerMode === "work";
+  $("#work-scope").hidden = drawerMode !== "work";
+  $("#work-state").hidden = drawerMode !== "work";
+  // Pressed means "the sidebar is showing the RUN", not "the sidebar is open":
+  // this button opens exactly one of the three modes, and lighting it while the
+  // panel shows a note would name the wrong one.
+  const on = open && drawerMode === "work";
+  setActive($("#work-toggle"), on);
+  $("#work-toggle").title = on ? "hide the work panel" : "show what the agent is doing";
+  // The sidebar's one persisted preference, written from the single place that
+  // knows both halves of it. Not "was the sidebar open": the NOTE segment
+  // reopens the last note on a click, and restoring a file you had finished with
+  // is not the same promise as restoring a pane you keep.
+  localStorage.setItem("work-open", on ? "1" : "0");
 }
 
 // Shared tail of both openers: raise the panel and let fitPanes negotiate the
@@ -4686,9 +4721,18 @@ function showDrawer(title) {
   document.body.classList.add("note-open"); // dock + chat inset to the drawer's edge
   syncDrawerToViews();
   fitPanes(); // owns the sidebar decision AND the drawer width, in that order
-  $("#note-last").querySelector("span").textContent = title || "";
   syncPinButton(); // the toggle states THIS note, so it is re-read per open
+  syncDrawerMode(); // the segments and the header toggle key on `open`, set above
 }
+
+// Work opens without a path, which is the whole difference between it and the
+// other two: it is about the run. The empty title leaves #note-title as the
+// header's flex spacer, with the scope chip and the live dot in it instead.
+function openWork() {
+  drawerMode = "work";
+  showDrawer("");
+}
+window.openWorkDrawer = openWork; // work.js: pointing at a node asks for this pane
 
 async function openNote(path) {
   if (!path) return;
@@ -4750,7 +4794,9 @@ $("#note-mode").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-mode]");
   if (!b || b.disabled || b.dataset.mode === drawerMode) return;
   const path = lastNotePath || lastViewedPath;
-  if (b.dataset.mode === "diff") openDiff(path); else openNote(path);
+  if (b.dataset.mode === "work") openWork();
+  else if (b.dataset.mode === "diff") openDiff(path);
+  else openNote(path);
 });
 
 // --- diff mode ---------------------------------------------------------------
@@ -4814,13 +4860,18 @@ function closeNote() {
   document.body.classList.remove("note-open");
   syncDrawerToViews();
   restoreYieldedSidebar();
-  lastNotePath = null; // lastViewedPath survives — the header button can reopen
+  lastNotePath = null; // lastViewedPath survives — the NOTE segment can reopen
   focusGraphNode(null);
+  syncDrawerMode(); // unlights #work-toggle and clears the reopen-on-work pref
 }
-$("#note-last").addEventListener("click", () => {
-  if (lastViewedPath) openNote(lastViewedPath);
-});
 
+// The header's sidebar button owns exactly one mode, so it toggles that mode and
+// not the panel: on a sidebar already open reading a note it SWINGS to the run
+// rather than closing what you were reading.
+$("#work-toggle").addEventListener("click", () => {
+  if (notePanel.classList.contains("open") && drawerMode === "work") closeNote();
+  else openWork();
+});
 // The two turns a suggestion drafts. They live here and not in work.js, which
 // is the only surface that offers them, because a prompt written twice is two
 // turns that drift the first time one of them is reworded - the same rule the
@@ -4981,6 +5032,7 @@ if (savedNoteWidth) notePanel.style.width = Math.min(NOTE_MAX_W, Math.max(NOTE_M
 // little and the drawer covered #stop and #dock-send on every fresh profile.
 const syncNoteW = () => setNoteW(Math.round(notePanel.getBoundingClientRect().width));
 syncNoteW();
+syncDrawerMode(); // segments start correct: `note` is disabled with no note
 // Toasts now hang under the header instead of over the composer, so they need its
 // REAL height: the strip wraps to two rows when the drawer is open on a narrow
 // window, and a hardcoded offset would put them on top of it there.
@@ -5024,11 +5076,23 @@ $("#note-resize").addEventListener("mousedown", (e) => {
   document.addEventListener("mousemove", onMove);
   document.addEventListener("mouseup", onUp);
 });
+// What the sidebar was showing BEFORE this click reached anything: the mode, or
+// null for closed. Capture phase, so it is sampled before any element handler
+// can change it. The outside-click rule below closes the sidebar, and the three
+// modes made that rule wrong in two directions at once: a metrics or shape row
+// POINTS at a note, which raises the sidebar on `work` from its own listener,
+// and the delegated handler running after it on the way up would read the panel
+// as open and close what the click just asked for — whether the click OPENED the
+// sidebar or SWUNG it from `note`. So the rule is not "was it open" but "did this
+// click leave it alone": a click that opened or moved the sidebar never closes it.
+let drawerBefore = null;
+const drawerNow = () => (notePanel.classList.contains("open") ? drawerMode : null);
+document.addEventListener("click", () => { drawerBefore = drawerNow(); }, true);
 // One delegated handler: .note-link (chat OR in-panel → in-place nav) opens the
 // drawer; a click outside an open drawer closes it. The sidebar and the dock
 // are persistent instruments — picking a note, toggling a folder, or typing a
 // question about the open note must not close the drawer or reset the graph
-// focus, so they never count as "outside". Neither does the reopen button
+// focus, so they never count as "outside". Neither does the sidebar toggle
 // (its own listener would immediately fight the close).
 document.addEventListener("click", (e) => {
   if (resizingNote) return;
@@ -5052,9 +5116,9 @@ document.addEventListener("click", (e) => {
   // the way it does today, rather than opening a new tab on a 404.
   const ext = e.target.closest('a[href^="http:"], a[href^="https:"]');
   if (ext) { e.preventDefault(); window.open(ext.href, "_blank", "noopener"); return; }
-  if (notePanel.classList.contains("open") &&
+  if (drawerBefore && drawerBefore === drawerNow() &&  // untouched by this click
       !e.target.closest("#note-panel") && !e.target.closest("#sidebar") &&
-      !e.target.closest("#dock") && !e.target.closest("#note-last")) closeNote();
+      !e.target.closest("#dock") && !e.target.closest("#work-toggle")) closeNote();
 });
 $("#note-close").addEventListener("click", closeNote);
 // (Escape is handled once, at the bottom of this file, in priority order.)
@@ -6528,3 +6592,12 @@ const bootTab = bootSlug === "explore" ? "graph" : bootSlug;
 document.querySelector(
   `.tab[data-tab="${["chat", "graph", "calendar", "metrics"].includes(bootTab) ? bootTab : "chat"}"]`
 ).click();
+
+// AFTER the boot tab, not with the rest of the drawer's setup: switching tabs
+// closes the sidebar, and a restore that ran before this line was undone by it
+// on every load - the panel opened and shut inside one frame, which reads as the
+// preference never having been saved. Closed until asked for, then remembered:
+// the sidebar on `work` narrates a run, and the state it would open on by
+// default is the state it spends most of its time in - empty, beside a
+// transcript that is 630px narrower for it.
+if (bootWantsWork) openWork();

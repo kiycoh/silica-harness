@@ -5,7 +5,8 @@ The placeholder this replaces was a deletion: under the fit, work.js took the
 work panel away entirely, and the rail went with it behind the header toggle.
 A narrow window is the case where "what is the agent doing" matters most, so
 the fold has to leave both surfaces reachable -- the rail as five icons that
-summon it, the panel as an overlay with its own close control.
+summon it, the run as a mode of the right sidebar, which has been an overlay
+with its own close control at every width since it existed.
 
 These tests pin the two things that rot: the threshold existing in one place,
 and the icons standing for compartments that are actually there.
@@ -32,20 +33,34 @@ def test_the_fold_threshold_is_not_duplicated_across_the_two_scripts():
     # the old pixel arithmetic is gone, not merely unused
     for dead in ("MIN_PROSE", "SIDE_W", "WORK_W", "function affordable("):
         assert dead not in work, f"work.js still computes the fit with {dead}"
-    assert work.count("window.isNarrow") >= 1
-    assert app.count("function isNarrow(") == 1
+    # work.js used to ask app.js for it through window.isNarrow; the sidebar it
+    # is a mode of now answers the width question for it, so the question and the
+    # export that carried it are both gone rather than left dangling
+    assert "isNarrow" not in work
+    assert app.count("function isNarrow(") == 1 and "window.isNarrow" not in app
 
 
-def test_the_panel_folds_instead_of_disappearing():
-    html, css, work = INDEX.read_text(), APP_CSS.read_text(), WORK_JS.read_text()
-    assert 'id="work-close"' in html, "an overlay must be dismissable from itself"
-    assert "body.work-fold #work" in css and "body.work-fold #work-close" in css
-    assert 'classList.toggle("work-fold"' in work
-    # the preference still decides; the width only decides HOW it is shown
-    assert 'localStorage.setItem("work-open"' in work
-    # and it reserves its inset rather than covering #send, which is the bug the
-    # note drawer already had to fix once
-    assert "body.work-fold #view-chat" in css and "padding-right: var(--work-w)" in css
+def test_the_run_needs_no_fold_of_its_own():
+    """It used to be a second panel at the right edge with a fold of its own --
+    an overlay, an inset, a close button, and a rule teaching it to yield to the
+    note drawer at that same edge. It is a MODE of that drawer now, so it folds
+    the way the drawer does and the three selectors that arbitrated between them
+    are gone. The two things the fold has to keep are still here: it is
+    dismissable from itself, and it reserves its inset rather than covering
+    #send, which is the bug the drawer already had to fix once."""
+    html, css, app, work = (INDEX.read_text(), APP_CSS.read_text(),
+                            APP_JS.read_text(), WORK_JS.read_text())
+    assert 'id="note-close"' in html, "an overlay must be dismissable from itself"
+    assert "max-width: 55vw" in css, "the sidebar does not fold against the viewport"
+    assert "body.note-open #view-chat" in css
+    rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for dead in ("work-fold", "--work-w", "#work-close"):
+        assert dead not in rules, f"app.css still folds a second panel via {dead}"
+    assert "work-fold" not in work and "work-fold" not in app
+    # the preference still decides, and one place writes it: whether the sidebar
+    # is open is app.js's, so the pane cannot disagree with the panel holding it
+    assert 'localStorage.setItem("work-open"' in app
+    assert "work-open" not in work
 
 
 def test_the_composer_hint_is_a_clause_the_fitter_can_drop():
@@ -72,9 +87,10 @@ def test_every_view_but_the_graph_reserves_the_drawer_gap():
     html, css = INDEX.read_text(), APP_CSS.read_text()
     views = set(re.findall(r'id="(view-[a-z]+)"', html)) - {"view-graph"}
     assert views, "no views found in index.html"
-    for rule in ("body.work-fold", "body.note-open", "body.work-fold.note-open"):
-        for view in sorted(views):
-            assert f"{rule} #{view}" in css, f"{rule} does not inset #{view}"
+    # one rule, because there is one overlay: the work panel had a second inset
+    # of its own and a third for the case where both claimed the edge at once
+    for view in sorted(views):
+        assert f"body.note-open #{view}" in css, f"the sidebar does not inset #{view}"
 
 
 def test_every_rail_icon_stands_for_a_compartment_that_exists():

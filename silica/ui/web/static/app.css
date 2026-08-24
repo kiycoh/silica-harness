@@ -725,40 +725,19 @@ body.note-open #top-counts {
 /* The pointer floor, on the same principle as the list above it: one rule that
    every control too small to hold its own belongs on. #metrics-proposals named
    24px in a comment and nothing enforced it, so five controls sat under it,
-   measured 2026-08-23. #top-broken and #work-close carry no vertical padding at
-   all and collapsed to their 12.8px line box — the two smallest targets in the
-   app, and one of them is a close button. The three chip-sized buttons stopped
-   two pixels short of the floor. min-height and not height, because a <button>
+   measured 2026-08-23. #top-broken carries no vertical padding at all and
+   collapsed to its 12.8px line box — the smallest target in the app. The three
+   chip-sized buttons stopped two pixels short of the floor. (#work-close was on
+   this list until the work panel became a mode of the drawer, which closes from
+   the drawer's own ✕.) min-height and not height, because a <button>
    centres its own content: the text lands without touching a single value of
    their type, padding or border. */
-:is(#top-broken, #work-close, #notices-btn, .mini, .wk-mini) {
+:is(#top-broken, #notices-btn, .mini, .wk-mini) {
   min-height: 24px;
 }
 
 #sidebar-toggle {
   font-size: 13px;
-}
-
-/* reopen-last-note — the one header button that names content, so it keeps the
-   note's own casing and clips like a title instead of shouting uppercase */
-#note-last {
-  display: flex;
-  /* text-overflow + SVG needs flex */
-  align-items: center;
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-
-#note-last>span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 25ch;
-  /* grow with the note's name, but stop before it crowds the rest of the strip */
-}
-
-#note-last>span:not(:empty) {
-  margin-left: 6px;
 }
 
 /* the one control that matters while a turn is running, so it stops being a
@@ -3976,13 +3955,12 @@ details.fm summary:hover {
   font-size: 12px;
 }
 
-/* --- drawer mode switch + context mode --------------------------------------
-   The drawer is two readings of one note: what it SAYS (the reader) and where
-   it SITS (context). A segmented control, because those are two states of one
-   surface. Context itself is four deterministic sections — snippets, concepts,
-   how it IS connected, how it SHOULD be — on the same 1px-compartment grid as
-   the rest of the app. The only thing that varies typographically is the
-   concept cloud's size, and there the size IS the data. */
+/* --- the sidebar's mode switch ----------------------------------------------
+   Three states of one surface: two readings of one note (what it SAYS, and what
+   this session changed in it) and the run. A segmented control and not three
+   entry points, because the run used to BE a second entry point — an #work
+   aside at this same edge that the drawer switched off whenever it opened. Three
+   segments of one panel is that arrangement with the collision removed. */
 #note-mode {
   display: flex;
   flex-shrink: 0;
@@ -6863,75 +6841,27 @@ body.note-open #toasts {
   transform: translate(-50%, -50%);
 }
 
-/* --- the work panel: the third column --------------------------------------
+/* --- work mode: the run, in the right sidebar ------------------------------
    What the agent is doing has never had a surface in this app. The account
    exists — silica/agent/narration.py writes it and /narration/sse serves it
    live — and the transcript could only ever show its shadow: a tool line while
    a call is in flight, nothing at all while the model is thinking, and no way
-   to see the token a turn actually cost. This pane renders the stream itself.
+   to see the token a turn actually cost. This renders the stream itself.
 
-   It is a pane and not an overlay, deliberately: it is read WHILE the turn
-   runs, so it cannot sit on top of the answer it is narrating. That costs a
-   column, which is why 372 is negotiated rather than assumed — see work.js. */
-:root {
-  --work-w: 372px;
-}
+   It was a column of its own (#work, --work-w: 372px) against the right edge,
+   which is the edge the note drawer already owned: `body.note-open #work` set
+   it to display:none, so the one surface that says what the agent is doing was
+   the surface any opened note switched off. It is a pane of that drawer now,
+   with the drawer's own width and its own segment in #note-mode, and it keeps
+   its geometry from #work-body alone — the header, the name, the close button
+   and the 1195px fold all belonged to being a second panel and are gone with
+   it. Still read WHILE the turn runs, still never over the answer: the drawer
+   insets the transcript rather than covering it. */
 
-#work {
-  flex: 0 0 var(--work-w);
-  display: none;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  border-left: 1px solid var(--line-2);
-  background: var(--chrome-glass);
-}
-
-body.work-open #work {
-  display: flex;
-}
-
-/* The drawer is position:fixed against the right edge and the panel is the
-   right edge, so the two cannot both have it. The drawer wins while it is open
-   — it was opened by a click, the panel by a preference — and the panel comes
-   back when it closes, which is the same yield fitPanes() does to the sidebar. */
-body.note-open #work {
-  display: none;
-}
-
-#work>header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  height: 2.1rem;
-  flex: 0 0 auto;
-  padding: 0 0.85rem;
-  border-bottom: 1px solid var(--line);
-}
-
-#work>header .grow {
-  flex: 1 1 auto;
-}
-
-.wk-ico {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  color: var(--ash-dim);
-}
-
-.wk-title {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--ash-dim);
-}
-
-/* What the column is currently about (report, node), as a chip beside the
-   fixed name rather than replacing it. Boxed, because unboxed it reads as a
-   second word of the title and the header is back to being a name that
-   changes under you. Empty on the run: :empty carries no box. */
+/* What the run is currently about (report, node), as a chip beside the sidebar
+   mode rather than replacing it. Boxed, because unboxed it reads as a second
+   word of the title and the header is back to being a name that changes under
+   you. Empty on the run itself: :empty carries no box. */
 .wk-scope {
   font-family: var(--mono);
   font-size: 9px;
@@ -6968,11 +6898,21 @@ body.note-open #work {
   color: var(--frost);
 }
 
+/* Both ride in the drawer's one header and are shown only on the WORK segment.
+   The chip is inline, so [hidden] carries itself; this one declares display and
+   would keep it. */
+.wk-state[hidden] {
+  display: none;
+}
+
 .wk-state.live::before {
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
+/* The pane itself, on the same footing as #note-body and #note-diff: one of the
+   drawer's three children, shown by the segment that names it. No display of its
+   own, so the [hidden] JS sets is the whole switch. */
 #work-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -7589,14 +7529,15 @@ body.note-open #work {
 }
 
 /* --- the 1120 floor: the deck folds, it does not reflow --------------------
-   Below the width that holds rail + reading measure + work panel side by side,
-   the rail becomes five icons and the work panel becomes an overlay over the
-   transcript. Neither is removed: a fold that takes a surface away and leaves
-   nothing where it was is not a fold, it is a deletion the user cannot undo.
+   Below the width that holds rail + reading measure + right sidebar side by
+   side, the rail becomes five icons summoned over the transcript. It is not
+   removed: a fold that takes a surface away and leaves nothing where it was is
+   not a fold, it is a deletion the user cannot undo.
 
-   The threshold lives HERE and nowhere else. app.js reads --narrow back out
-   through isNarrow() and work.js asks app.js, so the pixel count exists once:
-   264 (rail) + 560 (the reading measure the prose needs) + 372 (--work-w).
+   The threshold lives HERE and nowhere else; app.js reads --narrow back out
+   through isNarrow(). The pixel count is what a three-column deck needed:
+   264 (rail) + 560 (the reading measure the prose needs) + 372 (the work
+   column, before it became a mode of the drawer).
 
    1195 and not the 1120 the header keys on: this is exactly the width where the
    old affordable() took the panel away, so the fold replaces the disappearance
@@ -7632,47 +7573,12 @@ body.note-open #work {
     display: flex;
   }
 
-  /* The work panel over the transcript, at the same width it has as a column:
-     what it shows is a 372px-wide reading, and re-flowing it narrower here
-     would make the fold a different panel instead of the same one moved. */
-  body.work-fold #work {
-    position: fixed;
-    top: var(--header-h, 3rem);
-    right: 0;
-    bottom: 0;
-    width: var(--work-w);
-    z-index: 45;
-    /* Opaque, unlike the panel's translucent chrome as a column: a column has
-       the app's own wash behind it, an overlay has the transcript, and reading
-       a beat stream through the message it narrates is reading neither. */
-    background: var(--slate, var(--chrome-glass));
-    /* mirrored, and on the same channel as the rail's: see the note there */
-    box-shadow: -18px 0 40px -22px rgb(var(--shadow-rgb) / 0.9);
-  }
-
-  /* The same inset the note drawer takes, for the same reason it had to: an
-     overlay against the right edge hid the tail of every transcript line and
-     #send with it. The deck draws the panel over the transcript; the app has
-     already paid for that once. Below ~930px the reserved measure goes under
-     560 and the fold stops being enough on its own -- that is the width where
-     the deck's own floor says the shell needs a different answer. */
-  body.work-fold #view-chat,
-  body.work-fold #view-metrics,
-  body.work-fold #view-calendar {
-    padding-right: var(--work-w);
-  }
-
-  /* The drawer wins over the panel (body.note-open #work is display:none), so
-     when both would claim the edge only the drawer's inset applies. */
-  body.work-fold.note-open #view-chat,
-  body.work-fold.note-open #view-metrics,
-  body.work-fold.note-open #view-calendar {
-    padding-right: var(--note-w, 630px);
-  }
-
-  body.work-fold #work-close {
-    display: flex;
-  }
+  /* No fold for the work pane below this floor, and none needed: it is the
+     drawer, which has been position:fixed against this edge at max-width:55vw
+     with its own close control at every width since it existed. The rules that
+     were here folded a SECOND panel into an overlay that the drawer then had to
+     be told to win over — three selectors keeping two surfaces out of each
+     other's way at one edge, which is the duplication the merge removed. */
 }
 
 #railmini {
@@ -7725,21 +7631,6 @@ body.note-open #work {
   height: 5px;
   border-radius: 999px;
   background: var(--warn);
-}
-
-/* Closing the panel from inside it is a fold-only affordance: as a column it is
-   closed from the header toggle, which is in view. */
-#work-close {
-  display: none;
-  /* it is display:flex once the drawer folds, so the pointer floor above needs
-     an axis to centre the glyph on, or the ✕ sits on the top edge of its box.
-     The floor is a height; this is the only entry on it narrower than it is
-     tall, a 9px glyph in 4.8px of padding, so it takes the floor on both axes
-     and comes out square. */
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  padding: 0 0.3rem;
 }
 
 /* --- the Structure block: where a note SITS --------------------------------

@@ -20,6 +20,7 @@ import pytest
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web"
 WORK_JS = WEB / "static" / "work.js"
 INDEX = WEB / "static" / "index.html"
+APP_CSS = WEB / "static" / "app.css"
 
 # The shape is the real one: silica/agent/narration.py writes these records and
 # `read_beats` hands them back verbatim. A thought span WRAPS the llm call that
@@ -161,33 +162,105 @@ def test_the_verb_table_cannot_drift_from_the_renderer():
 
 
 def test_the_panel_is_wired_into_the_page():
-    """The panel is a third column in the shell, not a widget bolted onto chat:
-    the markup, the stylesheet and the script all have to be there."""
+    """The pane is part of the shell, not a widget bolted onto chat: the markup,
+    the stylesheet and the script all have to be there."""
     html = INDEX.read_text()
-    assert '<aside id="work"' in html
+    assert 'id="work-body"' in html
     assert '/static/work.js' in html
     # loaded after app.js, which owns openNote() and send()
     assert html.index("/static/app.js") < html.index("/static/work.js")
     assert "/narration/sse" in WORK_JS.read_text()
 
 
-def test_the_panel_never_borrows_the_note_drawers_name():
-    """Both surfaces live at the right edge and both can be showing one note's
-    concepts and neighbours. The column used to rewrite its own header to
-    "Node", which is the note drawer's `context` mode under a different word:
-    two panels of the same shape, neither saying which one you were on. The
-    name is fixed now and the scope is a chip beside it."""
+def test_the_run_is_a_mode_of_the_one_right_sidebar():
+    """There were two asides at the right edge and the CSS said what that really
+    was: `body.note-open #work { display: none }`, i.e. the one surface that says
+    what the agent is doing was switched off for as long as any note was open.
+    The run is a segment of the note sidebar now, so it cannot collide with the
+    other two -- and the rules that kept the pair apart have to be gone, not
+    merely unused, or the merged panel inherits a hiding rule for itself."""
+    html, css, js = INDEX.read_text(), APP_CSS.read_text(), WORK_JS.read_text()
+    drawer = html[html.index('<aside id="note-panel"'):]
+    for pane in ("note-body", "note-diff", "work-body"):
+        assert f'id="{pane}"' in drawer, f"{pane} is not a pane of the sidebar"
+    modes = re.findall(r'data-mode="(\w+)"', drawer)
+    assert sorted(modes) == ["diff", "note", "work"], modes
+    # one surface at this edge, so nothing hides one half of it from the other
+    assert '<aside id="work"' not in html
+    # comments stripped: the rules are named in the prose that explains why they
+    # are gone, and a rationale that quotes what it removed is the point of it
+    rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for dead in ("body.note-open #work", "body.work-open", "body.work-fold"):
+        assert dead not in rules, f"{dead} still arbitrates an edge with one panel"
+    assert "work-open" not in js, "work.js still owns whether the sidebar is open"
+
+
+def test_the_scope_chip_rides_the_shared_header_and_nothing_renames_it():
+    """The pane used to rewrite its own header to "Node", which is what the note
+    drawer's `context` mode said under a different word. The name is the active
+    segment now and the scope is a chip beside it, in the sidebar's ONE header --
+    above the panes, so it is stated once whichever pane is showing."""
     html, js = INDEX.read_text(), WORK_JS.read_text()
-    head = html[html.index('<aside id="work"'):html.index('id="work-body"')]
-    assert '<span class="wk-title">Work</span>' in head, "the column's name is not fixed"
-    assert 'id="work-scope"' in head and 'class="wk-ico"' in head
-    # …and nothing writes over that name: the three views set the chip.
-    assert "work-title" not in js and "work-title" not in html
+    head = html[html.index('<aside id="note-panel"'):html.index('id="note-actions"')]
+    assert 'id="work-scope"' in head and 'id="work-state"' in head
+    # nothing writes over the segment's name: the three views set the chip
+    assert "work-title" not in js and "wk-title" not in html
     assert sorted(re.findall(r'scope\.textContent = "(\w*)"', js)) == ["", "node", "report"]
-    # The drawer wears the counterpart mark, so the two headers differ before
-    # you read a word of either.
+
+
+def test_the_sidebars_mark_is_a_sidebar_and_not_a_document():
+    """A glyph each was how you told the two right-edge panels apart. With one
+    panel there is nothing to tell apart, so the mark names the surface -- and it
+    is the same glyph as the header button that opens it, or the control and the
+    thing it opens are two signs for one act."""
+    html = INDEX.read_text()
     drawer = html[html.index('<aside id="note-panel"'):html.index('id="note-actions"')]
-    assert 'class="np-ico"' in drawer
+    mark = re.search(r'<svg class="np-ico".*?</svg>', drawer, re.S)
+    assert mark, "the sidebar has no mark"
+    shape = re.search(r'<rect[^>]*>', mark.group(0))
+    assert shape, "the mark is not the sidebar glyph"
+    toggle = html[html.index('id="work-toggle"'):html.index('id="stop"')]
+    assert shape.group(0) in toggle, "the button that opens it wears a different glyph"
+    # and it is the ONE control: #note-last was an accent-blue document glyph
+    # beside it opening the same sidebar on a different mode. Markup only —
+    # index.html keeps a line saying what stood there and why it does not.
+    markup = re.sub(r"<!--.*?-->", "", html, flags=re.S)
+    assert "note-last" not in markup
+    assert "note-last" not in (WEB / "static" / "app.js").read_text()
+
+
+def test_a_click_that_moves_the_sidebar_never_also_closes_it():
+    """The outside-click rule closes the sidebar, and it used to key on "is the
+    panel open", read live on the way UP. With three modes that is wrong twice:
+    a metrics or shape row POINTS at a note, raising the sidebar on `work` from
+    its own listener, and the delegated handler then closed what the click had
+    just asked for -- whether the click opened the sidebar or swung it off a note.
+    The sample is taken in the capture pass and compared, so the rule is "did this
+    click leave it alone" rather than "was it open"."""
+    app = (WEB / "static" / "app.js").read_text()
+    assert '{ drawerBefore = drawerNow(); }, true)' in app, "the sample is not captured"
+    assert "drawerBefore && drawerBefore === drawerNow()" in app, \
+        "the close still keys on a live read"
+    # the sample is registered before the handler that reads it
+    assert app.index("drawerBefore = drawerNow()") < app.index("drawerBefore === drawerNow()")
+
+
+def test_the_kept_pane_survives_its_own_boot():
+    """Two orderings, both of which opened the sidebar and shut it again inside
+    one frame -- which reads as a preference that was never saved rather than one
+    that was undone. The restore has to run AFTER the boot tab, because switching
+    tabs closes the sidebar; and the preference has to be READ before that, because
+    syncDrawerMode() writes the key on every call and the first call happens with
+    the sidebar still closed."""
+    app = (WEB / "static" / "app.js").read_text()
+    read = app.index("const bootWantsWork")
+    sync = app.index("function syncDrawerMode(")
+    assert read < sync, "the preference is read after the function that overwrites it"
+    restore = app.index("if (bootWantsWork) openWork()")
+    boot_tab = app.index('`.tab[data-tab="${[')
+    assert boot_tab < restore, "the boot tab is clicked after the restore, and closes it"
+    # ...and one place writes the key, or the two can disagree about it
+    assert app.count('localStorage.setItem("work-open"') == 1
 
 
 def test_every_rail_compartment_wears_its_own_icon():

@@ -1,5 +1,7 @@
-// The work panel: the third column, and the first surface in this app that
-// reads the narration.
+// Work: the right sidebar's third mode, and the only surface in this app that
+// reads the narration. It was a column of its own at that same right edge until
+// the note drawer, also at that edge, was found to be switching it off on every
+// open; app.js owns the sidebar and this file fills one of its three panes.
 //
 // `silica/agent/narration.py` has written an append-only account of every run
 // since it shipped, and `/narration/sse` has served it live for just as long.
@@ -419,28 +421,19 @@ function structureRows(st) {
 
 // --- the surface -------------------------------------------------------------
 (function () {
-  const panel = document.getElementById("work");
-  if (!panel) return;
-  const body = panel.querySelector("#work-body");
-  const head = panel.querySelector("#work-state");
-  // What the column is ABOUT, beside the fixed "Work" that says what it is.
-  // Empty on the run itself: the panel is already named after it.
-  const scope = panel.querySelector("#work-scope");
-  const toggle = document.getElementById("work-toggle");
-  const closeBtn = document.getElementById("work-close");
+  // Three elements of the right sidebar's `work` mode: its pane, and the two
+  // marks that ride in the sidebar's one header. Looked up from the document and
+  // not from a wrapper of their own — this file used to own a whole #work panel
+  // with a header, a name and a close button, and all three belonged to being a
+  // second surface at an edge that already had one. app.js owns whether the
+  // sidebar is open and which mode it shows; this file only fills the pane.
+  const body = document.getElementById("work-body");
+  if (!body) return;
+  const head = document.getElementById("work-state");
+  // What this mode is ABOUT, beside the segment that says what it is. Empty on
+  // the run itself: the segment is already named after it.
+  const scope = document.getElementById("work-scope");
 
-  // The panel is a preference, and below the 1120 floor it FOLDS rather than
-  // going away: it becomes an overlay over the transcript with its own close
-  // control. It used to simply vanish under the fit, which is the placeholder
-  // for a fold and not the fold — the one surface that says what the agent is
-  // doing cannot be the one a narrow window silently removes.
-  //
-  // The floor itself is the media query in app.css that sets --narrow, read
-  // back through app.js's isNarrow(). One threshold, one place.
-  // Closed until asked for: the panel narrates a run, and the state it opens on
-  // is the state it spends most of its time in — empty, beside a transcript
-  // that is 480px narrower for it. The preference still wins once it exists.
-  let want = localStorage.getItem("work-open") === "1";
   let beats = [], sid = null, curSid = null, run = null, tick = null;
   // Which tab is up: on metrics this column is the Report, on explore the Node.
   // Read from the DOM and not left at "chat" until the first silica:view: app.js
@@ -452,29 +445,6 @@ function structureRows(st) {
   let view = bootTab ? bootTab.dataset.tab : "chat";
   let report = null;   // the last /metrics payload, which rides app.js's fetch
   let node = null, nodeCtx = null;  // on explore: the node pointed at, and its context
-
-  const folded = () => !!(window.isNarrow && window.isNarrow());
-
-  function syncOpen() {
-    const on = want;
-    document.body.classList.toggle("work-open", on);
-    document.body.classList.toggle("work-fold", on && folded());
-    if (toggle) {
-      toggle.setAttribute("aria-pressed", String(on));
-      toggle.title = on ? "hide the work panel" : "show what the agent is doing";
-    }
-  }
-
-  function setWant(next) {
-    want = next;
-    localStorage.setItem("work-open", want ? "1" : "0");
-    syncOpen();
-  }
-
-  if (toggle) toggle.addEventListener("click", () => setWant(!want));
-  if (closeBtn) closeBtn.addEventListener("click", () => setWant(false));
-  window.addEventListener("resize", syncOpen);
-  syncOpen();
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -1054,9 +1024,15 @@ function structureRows(st) {
     const d = e.detail;
     node = d ? d.node : null;
     nodeCtx = d ? d.context : null;
-    // A panel the reader folded away is not a panel to write into unseen:
-    // pointing at a node is a request to see what it is.
-    if (node && !want) setWant(true);
+    // A pane the reader is not on is not a pane to write into unseen: pointing
+    // at a node is a request to see what it is, so it raises the sidebar on this
+    // mode. The BARE announce only — that is the one carrying the click. The
+    // filled one arrives a round trip later, by which time the reader may have
+    // opened a note, and raising the pane again would take back a surface they
+    // asked for after they asked for it. (It could not before: this pane was a
+    // separate panel that `body.note-open #work` simply hid, so a late announce
+    // wrote into something already off-screen.)
+    if (node && !nodeCtx && window.openWorkDrawer) window.openWorkDrawer();
     render();
   });
   // One fetch, two surfaces: app.js loads /metrics for the view and hands the

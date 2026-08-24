@@ -133,9 +133,12 @@ def test_pointing_at_a_node_fills_the_column_on_every_view():
 
 
 def test_the_drawer_keeps_no_second_reading_of_the_context():
-    """The drawer is the note now: what it SAYS (the body) and what this session
-    changed (the diff). Concepts and neighbours belong to the work panel, once.
-    This is the test that fails if an edit reintroduces the pair by habit."""
+    """The sidebar reads a note two ways: what it SAYS (the body) and what this
+    session changed (the diff). Concepts and neighbours belong to `work`, once --
+    which is a third segment of this same sidebar now rather than a panel beside
+    it, and that makes the duplicate cheaper to reintroduce, not dearer: the two
+    readings are one click apart. This is the test that fails if an edit brings
+    the pair back by habit."""
     app, html, css = APP_JS.read_text(), INDEX.read_text(), APP_CSS.read_text()
     for gone in ("renderContext", "openContext", "cxSection", "cxCloud", "cxList"):
         assert gone not in app, f"{gone} is still in app.js"
@@ -145,8 +148,9 @@ def test_the_drawer_keeps_no_second_reading_of_the_context():
     # of note a removal is supposed to leave behind. Rules are not exempt.
     rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     assert ".cx-" not in rules, "the context mode's CSS outlived its markup"
-    # ...and the mode control is down to the two readings that are left.
-    assert sorted(re.findall(r'data-mode="(\w+)"', html)) == ["diff", "note"]
+    # ...and the mode control carries the two readings that are left, beside the
+    # run. Three segments, and `context` is not one of them.
+    assert sorted(re.findall(r'data-mode="(\w+)"', html)) == ["diff", "note", "work"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run work.js")
@@ -252,12 +256,17 @@ def test_the_second_click_opens_the_reader():
     assert "setTimeout" not in sel, "a timer would hold the first click back"
 
 
-def test_a_folded_panel_is_opened_by_the_click_that_fills_it():
-    """Writing the node into a panel the reader closed is a click that does
-    nothing visible, which reads as a broken graph rather than a hidden panel."""
-    work = WORK_JS.read_text()
+def test_a_closed_pane_is_opened_by_the_click_that_fills_it():
+    """Writing the node into a pane the reader is not on is a click that does
+    nothing visible, which reads as a broken graph rather than a hidden panel.
+    Unconditional now: the sidebar can be open on a NOTE, which is the other
+    thing this pane used to be invisible behind (`body.note-open #work`), so
+    "is it open" was never the whole question."""
+    work, app = WORK_JS.read_text(), APP_JS.read_text()
     listener = _block(work, 'document.addEventListener("silica:node"', "});")
-    assert "setWant(true)" in listener
+    assert "window.openWorkDrawer()" in listener
+    # and the thing it calls is app.js's, which owns the sidebar
+    assert "window.openWorkDrawer = " in app
 
 
 def test_the_two_suggestion_prompts_are_written_once():
