@@ -380,6 +380,8 @@ silica init                     # interactive setup: vault, model, embeddings
 silica                          # start the interactive session
 ```
 
+Upgrade later with `uv tool upgrade silica-harness` (pipx installs: `pipx upgrade silica-harness`). `silica update --check` asks PyPI whether a newer release exists, and the home screen and the About panel surface the same nudge on their own, at most one check a day.
+
 If a provider key is already exported in your shell (`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`), Silica picks a model for it and `silica init` stops asking which one.
 
 `silica` curates the folder you launch it in (the repository root, when that folder is inside one). Your settings live in `~/.silica/.env` and follow you between folders. That file is the only one Silica reads: a `.env` belonging to whatever repository your shell happens to sit in is ignored, and a setting you want for one directory is that directory's job to export (`set -a; source .env; set +a`), which outranks the file.
@@ -427,6 +429,8 @@ git clone https://github.com/kiycoh/silica-harness.git
 cd silica-harness
 uv pip install -e '.[dev]'
 ```
+
+On a checkout, `silica update` is the upgrade path: it fast-forwards to upstream, refuses a dirty tree, and rolls back any pull that does not byte-compile.
 
 </details>
 

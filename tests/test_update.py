@@ -108,3 +108,103 @@ def test_rolls_back_on_syntax_error(tmp_path, monkeypatch, capsys):
     assert upd.update() == 1
     assert _head(install) == old  # rolled back to pre-pull commit
     assert "syntax error" in capsys.readouterr().out.lower()
+
+
+# --- wheel installs (no .git): PyPI is the upstream --------------------------
+
+def _wheel_root(tmp_path, monkeypatch, *parts):
+    """A ROOT with no .git, nested under path segments naming the installer."""
+    root = tmp_path.joinpath(*parts, "site-packages")
+    root.mkdir(parents=True)
+    monkeypatch.setattr(upd, "ROOT", root)
+    return root
+
+
+def test_wheel_uv_tool_names_uv_upgrade(tmp_path, monkeypatch, capsys):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "999.0.0")
+    assert upd.update() == 1
+    out = capsys.readouterr().out
+    assert "999.0.0" in out
+    assert "uv tool upgrade silica-harness" in out
+
+
+def test_wheel_pipx_names_pipx_upgrade(tmp_path, monkeypatch, capsys):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "pipx", "venvs", "silica-harness")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "999.0.0")
+    assert upd.update() == 1
+    assert "pipx upgrade silica-harness" in capsys.readouterr().out
+
+
+def test_wheel_plain_pip_names_pip_upgrade(tmp_path, monkeypatch, capsys):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "venv", "lib")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "999.0.0")
+    assert upd.update() == 1
+    assert "pip install -U silica-harness" in capsys.readouterr().out
+
+
+def test_wheel_up_to_date(tmp_path, monkeypatch, capsys):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "1.0.0")
+    assert upd.update() == 0
+    assert "up to date" in capsys.readouterr().out.lower()
+
+
+def test_wheel_check_only_reports_without_failing(tmp_path, monkeypatch, capsys):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "999.0.0")
+    assert upd.update(check_only=True) == 0
+    assert "999.0.0" in capsys.readouterr().out
+
+
+def test_wheel_pypi_unreachable(tmp_path, monkeypatch, capsys):
+    def _boom():
+        raise OSError("no network")
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(upd, "_pypi_latest", _boom)
+    assert upd.update() == 1
+    assert "pypi" in capsys.readouterr().out.lower()
+
+
+def test_pypi_version_compare_is_numeric():
+    assert upd._newer("0.9.10", "0.9.3")
+    assert not upd._newer("0.9.3", "0.9.10")
+    assert not upd._newer("garbage", "0.1.0")
+    assert not upd._newer("0.9.4", "0.9.4.dev3+g123abc")  # dev tree at the tag
+
+
+def test_behind_count_wheel_uses_cache(tmp_path, monkeypatch):
+    import silica
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(silica, "__version__", "1.0.0")
+    cache = tmp_path / "pypi-latest"
+    monkeypatch.setattr(upd, "CACHE", cache)
+    cache.write_text("2.0.0")  # fresh mtime: no background refresh fires
+    assert upd.behind_count() == 1
+    cache.write_text("1.0.0")
+    assert upd.behind_count() == 0
+
+
+def test_behind_count_wheel_no_cache_is_quiet(tmp_path, monkeypatch):
+    _wheel_root(tmp_path, monkeypatch, "uv", "tools", "silica-harness")
+    monkeypatch.setattr(upd, "CACHE", tmp_path / "absent")
+    monkeypatch.setattr(upd, "_refresh_pypi_cache", lambda: None)  # no network in tests
+    assert upd.behind_count() == 0
+
+
+def test_refresh_pypi_cache_writes_atomically(tmp_path, monkeypatch):
+    monkeypatch.setattr(upd, "CACHE", tmp_path / "cache" / "pypi-latest")
+    monkeypatch.setattr(upd, "_pypi_latest", lambda: "3.1.4")
+    upd._refresh_pypi_cache()
+    assert upd.CACHE.read_text() == "3.1.4"
+    assert not upd.CACHE.with_suffix(".tmp").exists()
