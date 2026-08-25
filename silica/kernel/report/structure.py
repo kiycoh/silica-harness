@@ -396,3 +396,92 @@ def _build_burst(k: int) -> list[dict]:
         {"concept": store.node_label(s), "z": z, "recent": nr, "total": na}
         for s, z, nr, na in burst(created, stems)
     ][:k]
+
+
+_shift_memo: dict[str, list[dict]] = {}
+
+
+def semantic_shift(*, k: int = 12) -> list[dict]:
+    """Notes whose paragraphs pull their single embedding apart (graft G5).
+
+    Mean pairwise cosine distance between a note's paragraph embeddings:
+    pooling semantically diverse content provably drags the pooled vector
+    toward the centroid (2603.21437, "Pooling and Semantic Shift"), so a
+    high-MPD note is one the embed leg represents worse than its length
+    suggests. This REPLACES Shannon flatness as the dilution statistic —
+    V7's judge gate failed because token entropy does not measure the
+    quantity the theorem names (project_graph_variables, 2026-08-22).
+
+    Report row ONLY (surface rule: an unmeasured statistic may state what it
+    measured, never accuse a note). Cost is bounded, not free: the 60
+    paragraph-richest notes, <= 8 paragraphs each, embedded once per vault
+    epoch — one cold pass is ~480 embedder calls' worth of texts, batched.
+    """
+    from silica.kernel.recall.paths import vault_epoch
+
+    try:
+        epoch = vault_epoch()
+    except Exception:
+        epoch = ""
+    if epoch and (hit := _shift_memo.get(epoch)) is not None:
+        return hit
+    try:
+        rows = _build_shift(k)
+    except Exception as exc:
+        logger.warning("structure: semantic shift unavailable (%s)", exc)
+        return []  # embedder down / no driver: the row is absent, never fake
+    if epoch:
+        _shift_memo.clear()
+        _shift_memo[epoch] = rows
+    return rows
+
+
+def _paragraphs(body: str, *, min_chars: int = 200, cap: int = 8) -> list[str]:
+    """Blank-line paragraphs long enough to embed meaningfully. Short ones
+    (headings, list stubs) would make every note look diverse."""
+    paras = [p.strip() for p in body.split("\n\n")]
+    return [p for p in paras if len(p) >= min_chars][:cap]
+
+
+def _build_shift(k: int) -> list[dict]:
+    from silica.agent.providers import get_embedder
+    from silica.config import CONFIG
+    from silica.driver import DRIVER
+
+    per_note: list[tuple[str, list[str]]] = []
+    for ref in DRIVER.list_files(None):
+        body = DRIVER.read_note(ref.path).content or ""
+        paras = _paragraphs(body)
+        if len(paras) >= 3:  # MPD over fewer vectors is noise, not dilution
+            per_note.append((ref.path.removesuffix(".md"), paras))
+    # Dilution needs length: rank candidates by paragraph count and embed only
+    # the richest 60, so a cold pass stays one bounded batch per epoch.
+    per_note.sort(key=lambda t: -len(t[1]))
+    per_note = per_note[:60]
+    if not per_note:
+        return []
+
+    texts = [t for _p, ps in per_note for t in ps]
+    embedder = get_embedder(CONFIG)
+    vecs: list[list[float]] = []
+    for i in range(0, len(texts), 32):
+        vecs.extend(embedder.embed(texts[i:i + 32]))
+
+    rows: list[dict] = []
+    at = 0
+    for path, paras in per_note:
+        vs = vecs[at:at + len(paras)]
+        at += len(paras)
+        dists: list[float] = []
+        for i in range(len(vs)):
+            for j in range(i + 1, len(vs)):
+                num = sum(a * b for a, b in zip(vs[i], vs[j]))
+                na = sum(a * a for a in vs[i]) ** 0.5
+                nb = sum(b * b for b in vs[j]) ** 0.5
+                if na and nb:
+                    dists.append(1.0 - num / (na * nb))
+        if dists:
+            rows.append({"path": path, "paras": len(paras),
+                         "mpd": round(sum(dists) / len(dists), 4)})
+    rows.sort(key=lambda r: -r["mpd"])
+    return rows[:k]

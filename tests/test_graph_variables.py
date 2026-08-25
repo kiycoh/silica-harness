@@ -562,3 +562,65 @@ def test_review_queue_tool_rows_carry_prerequisites(monkeypatch):
     monkeypatch.setattr(learner, "review_queue", lambda **kw: rows)
     out = atomic.silica_review_queue(limit=1)
     assert out[0]["prereqs"] == ["a/y"] and out[0]["ready"] is False
+
+
+# --- G5 semantic shift (structure.semantic_shift, replaces V7 flatness) ---
+
+def _bind_vault(vault, monkeypatch):
+    import silica.driver
+    from silica.config import CONFIG
+
+    vault.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(CONFIG, "vault_path", str(vault))
+    monkeypatch.setattr(silica.driver, "_driver", None)
+
+
+class _MarkerEmbedder:
+    """text -> axis vector by topic marker: TOPIC_A/TOPIC_B orthogonal, so a
+    note mixing both has MPD ~1 and a single-topic note has MPD ~0."""
+
+    def embed(self, texts):
+        return [[1.0, 0.0] if "TOPIC_A" in t else [0.0, 1.0] for t in texts]
+
+
+def test_paragraphs_filter_short_and_cap():
+    from silica.kernel.report.structure import _paragraphs
+    body = "\n\n".join(["x" * 250] * 12 + ["short"] * 5)
+    got = _paragraphs(body)
+    assert len(got) == 8            # cap
+    assert all(len(p) >= 200 for p in got)
+
+
+def test_semantic_shift_separates_mixed_note_from_atomic(tmp_path, monkeypatch):
+    import silica.agent.providers as providers
+    from silica.kernel.report import structure
+
+    _bind_vault(tmp_path / "v", monkeypatch)
+    para_a = ("TOPIC_A " + "alpha " * 60).strip()
+    para_b = ("TOPIC_B " + "beta " * 60).strip()
+    (tmp_path / "v" / "mixed.md").write_text(
+        "\n\n".join([para_a, para_b, para_a, para_b]), encoding="utf-8")
+    (tmp_path / "v" / "atomic.md").write_text(
+        "\n\n".join([para_a, para_a, para_a, para_a]), encoding="utf-8")
+    monkeypatch.setattr(providers, "get_embedder", lambda cfg: _MarkerEmbedder())
+
+    rows = structure._build_shift(k=5)
+    by = {r["path"]: r for r in rows}
+    assert by["mixed"]["mpd"] > by["atomic"]["mpd"]
+    assert rows[0]["path"] == "mixed"          # worklist ranks the diluted note first
+    assert by["atomic"]["mpd"] == 0.0          # identical vectors: no dilution
+
+
+def test_semantic_shift_absent_when_embedder_down(tmp_path, monkeypatch):
+    import silica.agent.providers as providers
+    from silica.kernel.report import structure
+
+    _bind_vault(tmp_path / "v", monkeypatch)
+    (tmp_path / "v" / "a.md").write_text("\n\n".join(["x" * 250] * 4), encoding="utf-8")
+
+    def _boom(cfg):
+        raise RuntimeError("embedder down")
+
+    monkeypatch.setattr(providers, "get_embedder", _boom)
+    structure._shift_memo.clear()
+    assert structure.semantic_shift() == []    # absent, never a fake zero row
