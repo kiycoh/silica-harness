@@ -1,0 +1,60 @@
+name: release-shim
+
+# Publishes `silica-agent`, the redirect to `silica-harness` (see
+# packaging/silica-agent/pyproject.toml for why the old name is kept alive
+# rather than deleted).
+#
+# Manual, not tag-driven: the shim's job is to point at a moving target, so one
+# release keeps working for every silica-harness that follows it. Run this only
+# when the shim's own metadata changes, which should be close to never.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-shim
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Same environment as release.yml, so PyPI's trusted publisher for
+    # silica-agent narrows to it the same way. NOTE: that publisher must name
+    # THIS repository (kiycoh/silica-harness) and this workflow file — the one
+    # configured before the 2026-08-23 rename points at kiycoh/silica-agent and
+    # cannot match the OIDC claim.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/silica-agent
+    permissions:
+      id-token: write   # OIDC for PyPI Trusted Publishing (no stored token)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        with:
+          python-version: "3.11"
+
+      # rm for the same reason release.yml does it: uv build writes a
+      # .gitignore into the output directory, and packages-dir uploads what it
+      # finds there.
+      - name: Build the shim
+        run: uv build --out-dir "$GITHUB_WORKSPACE/shim-dist" && rm -f "$GITHUB_WORKSPACE/shim-dist/.gitignore"
+        working-directory: packaging/silica-agent
+
+      # The only thing this distribution does is resolve to another one and
+      # keep the `silica` command working, so that is what gets checked before
+      # the irreversible step. A shim that installs but leaves no executable is
+      # the failure mode worth catching: nothing in the metadata shows it.
+      - name: Verify the shim resolves and still carries the command
+        run: |
+          uv venv /tmp/shim-check
+          VIRTUAL_ENV=/tmp/shim-check uv pip install "$GITHUB_WORKSPACE"/shim-dist/*.whl
+          VIRTUAL_ENV=/tmp/shim-check uv pip show silica-harness > /dev/null
+          /tmp/shim-check/bin/silica --version
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          packages-dir: shim-dist

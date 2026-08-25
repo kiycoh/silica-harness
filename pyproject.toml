@@ -297,5 +297,11 @@ module = [
     # any of these three ever grows a real surface.
     "stop_words", "snowballstemmer", "yake",
     "dateutil.*", "pygments", "pygments.*", "openpyxl", "openpyxl.*",
+    # The [rerank] extra's cross-encoder. Listed for the same reason the PDF
+    # providers are: ci.yml deliberately syncs without it (3.8 GB of torch to
+    # run tests that skip), so mypy would fail on a package the gate is not
+    # meant to install — and did, on every push, while passing on a checkout
+    # that happened to have the extra.
+    "sentence_transformers", "sentence_transformers.*",
 ]
 ignore_missing_imports = true

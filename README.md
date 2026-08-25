@@ -6,11 +6,12 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/silica-harness/"><img src="https://img.shields.io/pypi/v/silica-harness?logo=pypi&logoColor=white&label=PyPI" alt="silica-harness on PyPI" /></a>
   <a href="https://deepwiki.com/kiycoh/silica-harness"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
   <a href="https://github.com/kiycoh/silica-harness/blob/main/pyproject.toml#L13"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue?logo=python&logoColor=white" alt="Python >=3.11" /></a>
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-Native-7a46e6" alt="Obsidian Native" /></a>
   <a href="https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md"><img src="https://img.shields.io/badge/OKF-v0.2-4285f4" alt="Open Knowledge Format v0.2" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/kiycoh/silica-harness" alt="License" /></a>
+  <a href="https://github.com/kiycoh/silica-harness/blob/main/LICENSE"><img src="https://img.shields.io/github/license/kiycoh/silica-harness" alt="License" /></a>
   <a href="https://ko-fi.com/kiycoh"><img src="https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi&logoColor=white" alt="Support on Ko-fi" /></a>
 </p>
 
@@ -46,7 +47,7 @@ Silica is a multi-agent framework that allows one and more agents (human or arti
 </p>
 
 
-<img src="assets/export-1787588889796.gif" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" />
+<img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/export-1787588889796.gif" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" />
 
 <p align="center">
   <sub><a href="https://youtu.be/nYLiKTtMZuY">▶ Watch the walkthrough</a> &nbsp;·&nbsp;
@@ -128,12 +129,12 @@ Before you commit the afternoon, `scripts/bench_nucleate.py <folder> --sample 3`
 - **Learn from your own documents, and be told when you are wrong.**<br/>
 `/explain "<concept>"`, `/compare "A" "B"`, `/summarize <folder>`, `/quiz [note]`, `/learn <target>`. All grounded in the vault, and only in the vault: what it does not find there it refuses rather than fills in, and the [refusal rate is published](#measured) next to the accuracy, 87.2% correct on the questions a benchmark plants to be unanswerable. Graded answers feed a learner model that estimates what you still retain, so untargeted `/quiz` re-tests what is decaying and probes what was never measured, and `/learn` turns the same estimate into a step-by-step syllabus over your own notes.<br/>
 It counts writing as learning and reading as nothing, which is the whole point: a note you wrote yourself starts with months of assumed retention, a note the model wrote for you starts with none until you answer a question about it correctly, and passive exposure never counts at all. Citing a note in a chat is not evidence you know it.<br/>
-<img src="assets/screenshots/explore-note-reader.png" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" /><br/>
+<img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/explore-note-reader.png" alt="A note open beside the graph, with summarize, explain, quiz me and relate acting on it in place" width="820" /><br/>
 <sub>A note open next to the graph it sits in, with summarize, explain, quiz and relate acting on that note in place.</sub>
 
 - **Ask what two notes have to do with each other.**<br/>
 `/path <A> <B>` walks the shortest reading path between any two notes, over your wikilinks *and* the concept graph, so it finds routes through notes you never linked by hand. `/relate <note>` names the kind of each relationship rather than just its strength, and `/compare` puts two notes in a table and surfaces where they contradict each other, which `/contested` then keeps as a standing list. This is the part that is hard to do by hand: the connection between two ideas you had four years apart is exactly the one you cannot remember you made.<br/>
-<img src="assets/screenshots/explore-path.png" alt="A reading path laid out in rows: two steps before, read first, this note, what it unlocks, two steps after" width="820" /><br/>
+<img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/explore-path.png" alt="A reading path laid out in rows: two steps before, read first, this note, what it unlocks, two steps after" width="820" /><br/>
 <sub>The same reading path in the browser: what to read before a note, what the note unlocks, and the step either side of both.</sub>
 
 - **When the vault does not have it.**<br/>
@@ -141,7 +142,7 @@ If every search a turn ran came back empty, Silica says so instead of answering 
 
 - **See the structure your notes already have.**<br/>
 `/graph out.html` renders the vault as an interactive page, notes as nodes, communities colored and named, no server needed. `/map <note>` grows a radial mind-map out from a single note, written as an Obsidian canvas plus an SVG. Both local, both drawn from the same co-occurrence graph retrieval uses.<br/>
-<img src="assets/screenshots/explore-map.png" alt="A mind-map grown out of one note, solid edges for wikilinks and dashed edges for relations the concept graph found" width="820" /><br/>
+<img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/explore-map.png" alt="A mind-map grown out of one note, solid edges for wikilinks and dashed edges for relations the concept graph found" width="820" /><br/>
 <sub>The map grown out of a single note. Solid ties are wikilinks you wrote, dashed ties are relations the concept graph found; closer means stronger.</sub>
 
 - **Take a write back out, however far it spread.**<br/>
@@ -149,7 +150,7 @@ Every note records where it came from, and the journal keeps that link, so `/rev
 
 - **See time the way the vault already records it.**<br/>
 `/agenda` merges one day's events, dated notes, agent activity, and what is due for review into a single column. Events are notes like any other, so the calendar is the vault read along its dates rather than a second store to keep in sync.<br/>
-<img src="assets/screenshots/calendar.png" alt="A month view with one day selected, listing that day's agent runs and the notes due for review" width="820" /><br/>
+<img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/calendar.png" alt="A month view with one day selected, listing that day's agent runs and the notes due for review" width="820" /><br/>
 <sub>One day opened: what the agent wrote that day, note by note, next to what is due for review.</sub>
 
 Reorganizing by intent, typed relation maps, reading paths, diagrams, contested claims, dedup, and the rest are below, and `/help` prints the same list in any driver.
@@ -262,7 +263,7 @@ flowchart LR
 A chat-first interface at `http://localhost:8765`. Query and curate from the browser, watch answers stream in, and switch to three other tabs on the same vault: the **graph**, in 2D or 3D, with communities and semantic zones as separate colour keys; a **calendar** that shows what already happened next to what is booked; and **metrics**, which reports what moved since the last run rather than only the current state. A long job narrates itself while it runs, and every write it makes lands in a drawer with its own diff. Start here if you are new.
 
 <p align="center">
-  <img src="assets/screenshots/explore-graph-3d.png" alt="The vault as a 3D graph, with self-named areas in the left rail, an edge-type legend, and a hovered note showing its area and that it is load-bearing" width="900" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/explore-graph-3d.png" alt="The vault as a 3D graph, with self-named areas in the left rail, an edge-type legend, and a hovered note showing its area and that it is load-bearing" width="900" />
 </p>
 
 <p align="center">
@@ -275,7 +276,7 @@ A chat-first interface at `http://localhost:8765`. Query and curate from the bro
 The interactive REPL. Every command lives here, `/help` lists them grouped, and it is the fastest driver once you know the verbs.
 
 <p align="center">
-  <img src="assets/demo-test.gif" alt="Silica answering, auditing, writing to and reverting a real vault" width="900" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/demo-test.gif" alt="Silica answering, auditing, writing to and reverting a real vault" width="900" />
 </p>
 
 <p align="center">
@@ -378,6 +379,8 @@ silica                          # start the interactive session
 
 Upgrade later with `uv tool upgrade silica-harness` (pipx installs: `pipx upgrade silica-harness`). `silica update --check` asks PyPI whether a newer release exists, and the home screen and the About panel surface the same nudge on their own, at most one check a day.
 
+The distribution used to be called `silica-agent`, up to 0.4.1. That name still installs this one and the `silica` command is unchanged, so `uv tool upgrade silica-agent` carries you across; new installs should use `silica-harness` directly.
+
 If a provider key is already exported in your shell (`OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `DEEPSEEK_API_KEY`, `MISTRAL_API_KEY`, `XAI_API_KEY`), Silica picks a model for it and `silica init` stops asking which one.
 
 `silica` curates the folder you launch it in (the repository root, when that folder is inside one). Your settings live in `~/.silica/.env` and follow you between folders. That file is the only one Silica reads: a `.env` belonging to whatever repository your shell happens to sit in is ignored, and a setting you want for one directory is that directory's job to export (`set -a; source .env; set +a`), which outranks the file.
@@ -389,7 +392,7 @@ Make a read-only audit your first move. It touches none of your notes (the repor
 ```
 
 <p align="center">
-  <img src="assets/screenshots/metrics.png" alt="The audit as a GUI tab: lattice energy, link distribution, hubs, cross-area bridges, an area treemap, and the deltas since the last report" width="900" />
+  <img src="https://raw.githubusercontent.com/kiycoh/silica-harness/main/assets/screenshots/metrics.png" alt="The audit as a GUI tab: lattice energy, link distribution, hubs, cross-area bridges, an area treemap, and the deltas since the last report" width="900" />
 </p>
 
 <p align="center">

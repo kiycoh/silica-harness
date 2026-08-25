@@ -1,0 +1,49 @@
+# The redirect for the old distribution name. `silica-agent` shipped 0.4.0 and
+# 0.4.1 before the project was renamed to `silica-harness` (2026-08-23), and
+# PyPI has no forwarding: without this, `pip install -U silica-agent` keeps
+# resolving to 0.4.1 forever and never says why.
+#
+# Deliberately NOT deleted from PyPI instead. Deleting frees the name for
+# anyone to register, and a package that reads the user's vault is worth
+# squatting; the release that follows a deletion is the supply-chain attack.
+#
+# No modules of its own: the wheel is metadata plus the console script, which
+# resolves against the `silica` package that `silica-harness` installs. That
+# keeps `uv tool install silica-agent` and `pipx install silica-agent` working
+# rather than leaving them with a tool that has no executable.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "silica-agent"
+version = "0.5.0"
+description = "Renamed to silica-harness. This package installs it."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Alessandro Carosia" }]
+keywords = ["obsidian", "knowledge-graph", "memory", "mcp", "agent"]
+classifiers = [
+  "Environment :: Console",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing",
+]
+# `>=` and not `==`: one shim release has to keep redirecting to every version
+# that follows it, so `uv tool upgrade silica-agent` re-resolves to the current
+# silica-harness instead of pinning whatever was newest the day this shipped.
+dependencies = ["silica-harness>=0.5.0"]
+
+[project.urls]
+Homepage = "https://github.com/kiycoh/silica-harness"
+Repository = "https://github.com/kiycoh/silica-harness"
+Issues = "https://github.com/kiycoh/silica-harness/issues"
+
+[project.scripts]
+silica = "silica.cli:main"
+
+[tool.setuptools]
+# Nothing to find: this distribution owns no import package. Stated rather than
+# left to autodiscovery, which would otherwise walk the repo root above it.
+packages = []
