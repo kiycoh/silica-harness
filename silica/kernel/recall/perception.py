@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from silica.kernel.recall.cooccurrence import CooccurStore
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -53,19 +54,25 @@ class NoteBlock:
     body: str       # full body, frontmatter stripped
     excerpt: str    # query-densest window of the body
     contested: str | None = None  # correction reason when flagged, else None
+    section: str = ""  # heading chain above the first window ("A > B"), '' at top
+    builds_on: str = ""  # rendered prereqs ("A, B"), set only by study order (G6)
+    origin: str = "vault"  # "memory" = personal-memory lane (ADR-0019): the path
+    #                        resolves in ANOTHER vault, so read_note denies it
 
 
 @dataclass
 class Perception:
     """perceive()'s result: render() is the prompt string, the rest is telemetry."""
     query: str
+    orientation: str = ""  # G2: vault map block, filled only by orient=True
     facts_block: str = ""
     fact_hits: list = field(default_factory=list)    # episodic.FactHit
     fact_chains: list = field(default_factory=list)  # per-hit supersede chain (episodic.Fact)
     blocks: list[NoteBlock] = field(default_factory=list)
 
     def render(self, *, facts_first: bool = True, windowed: bool = True,
-               stale: dict[str, str] | None = None) -> str:
+               stale: dict[str, str] | None = None,
+               plain_headers: bool = False) -> str:
         """The context string. Defaults are the validated perception; the flags
         exist as A/B arms for the eval harness (legacy layouts).
 
@@ -78,7 +85,20 @@ class Perception:
             # block paths are store-keyspace (no .md); peek keys carry .md
             lvl = (stale.get(b.path) or stale.get(b.path + ".md")) if stale else None
             if windowed:
-                head = f"[#{rank}" + (f" | {b.evidence}" if b.evidence else "")
+                # Path + section chain give the excerpt its place in the vault
+                # (graft G1): a window that starts mid-section otherwise reaches
+                # the model with no anchor at all — the header carried only rank
+                # and score provenance. Chunk text is untouched (the query-side
+                # variant of 2608.00824), so the embed index never rebuilds.
+                if plain_headers:
+                    # Pre-G1 header (rank + provenance only): the A/B legacy
+                    # arm, same standing as flat_context/facts_last.
+                    head = f"[#{rank}"
+                else:
+                    head = f"[#{rank} | {b.path}"
+                    head += (f" | sec: {b.section}" if b.section else "")
+                    head += (f" | builds-on: {b.builds_on}" if b.builds_on else "")
+                head += (f" | {b.evidence}" if b.evidence else "")
                 head += (f" | dated {b.date}" if b.date else "")
                 head += (f" | contested: {b.contested}" if b.contested else "")
                 head += (f" | stale:{lvl}" if lvl else "") + "]"
@@ -91,14 +111,21 @@ class Perception:
                 parts.append(f"{head}{b.body}")
         ctx = "\n\n---\n\n".join(parts)
         if not self.facts_block or not ctx:
-            return self.facts_block or ctx
-        return (f"{self.facts_block}\n\n---\n\n{ctx}" if facts_first
-                else f"{ctx}\n\n---\n\n{self.facts_block}")
+            out = self.facts_block or ctx
+        else:
+            out = (f"{self.facts_block}\n\n---\n\n{ctx}" if facts_first
+                   else f"{ctx}\n\n---\n\n{self.facts_block}")
+        # Orientation leads (G2): a map after the evidence reads as more
+        # evidence; before it, it frames what the evidence is a sample OF.
+        if self.orientation and out:
+            out = f"{self.orientation}\n\n---\n\n{out}"
+        return out
 
 
 def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
                     use_rerank: bool = True, use_recall_weights: bool = False,
-                    use_lexical: bool = False, rerank_stats: dict | None = None):
+                    use_lexical: bool = False, rerank_stats: dict | None = None,
+                    use_memory: bool = True):
     """Fused first-stage retrieval + cross-encoder rerank for a fresh text query.
 
     The single retrieval path shared by the chat tools
@@ -146,7 +173,9 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
         cooccur_store = loaded if len(loaded) else None  # empty store ⇒ abstain
     except Exception:
         cooccur_store = None
-    mem_embed, mem_cooccur = memory_stores()
+    # ADR-0032: lane scope is caller intent. False = "this vault only" — the
+    # memory legs are never loaded, fusion is bit-identical to single-vault.
+    mem_embed, mem_cooccur = memory_stores() if use_memory else (None, None)
 
     query_vec = None
     if use_embedder and (len(embed_store) > 0 or mem_embed is not None):
@@ -366,6 +395,67 @@ def _assemble_blocks(blocks: list[NoteBlock], query: str) -> list[NoteBlock]:
     return out
 
 
+def _study_order(blocks: list) -> list:
+    """Prerequisite-first order + builds-on annotations over the RENDERED set
+    (graft G6, study surfaces only).
+
+    Membership is untouched: topology orders what the semantic legs already
+    chose, so the crowding-out that killed every structural RRF leg (V1
+    0/417, V3 -25pp) cannot occur here by construction. V2 RefD is the one
+    PASSED directed signal (judge 26/33, p=0.0007) and by the surface rule a
+    PASS may carry an imperative reading. Contested blocks keep their demoted
+    tail position: distrust outranks didactic order.
+    """
+    from silica.kernel.report.learner import prerequisites_map
+
+    try:
+        prereqs = prerequisites_map() or {}
+    except Exception:
+        return blocks  # tolerated: no cooccur depth -> retrieval order stands
+    present = {b.path for b in blocks}
+    if not any(p in present for deps in prereqs.values() for p in deps):
+        return blocks
+
+    def topo(group: list) -> list:
+        # Kahn over the induced sub-DAG, stable: ties keep retrieval order,
+        # and any cycle survivor appends in retrieval order rather than
+        # dropping (ordering may never change membership).
+        paths = [b.path for b in group]
+        need = {b.path: [p for p in prereqs.get(b.path, []) if p in paths]
+                for b in group}
+        out, placed = [], set()
+        while len(out) < len(group):
+            ready = [b for b in group if b.path not in placed
+                     and all(p in placed for p in need[b.path])]
+            if not ready:  # cycle: emit the rest as retrieved
+                out.extend(b for b in group if b.path not in placed)
+                break
+            out.extend(ready)
+            placed.update(b.path for b in ready)
+        for b in out:
+            if need[b.path]:
+                b.builds_on = ", ".join(_name_of(p) for p in need[b.path])
+        return out
+
+    clean = [b for b in blocks if not b.contested]
+    contested = [b for b in blocks if b.contested]
+    return topo(clean) + topo(contested)
+
+
+def _section_chain(body: str, offset: int, depth: int = 3) -> str:
+    """Markdown heading chain still open at `offset` ("Training > Gradients").
+    Deepest `depth` levels only — the nearest heading carries the most anchor
+    per token, and a full chain on a deeply nested note is header bloat.
+    '' above the first heading, so headingless notes cost zero tokens."""
+    chain: list[tuple[int, str]] = []
+    for m in re.finditer(r"^(#{1,6})\s+(.+?)\s*$", body[:offset], re.MULTILINE):
+        lvl = len(m.group(1))
+        while chain and chain[-1][0] >= lvl:
+            chain.pop()
+        chain.append((lvl, m.group(2)))
+    return " > ".join(t for _lvl, t in chain[-depth:])
+
+
 def perceive(query: str, *, now: str, k: int = DEFAULT_K,
              window_chars: int = WINDOW_CHARS, windows: int = DEFAULT_WINDOWS,
              facts_k: int = FACTS_K,
@@ -374,7 +464,10 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
              paths: list[str] | None = None,
              use_recall_weights: bool = False,
              assemble: bool = False,
-             use_lexical: bool = False) -> Perception:
+             use_lexical: bool = False,
+             study_order: bool = False,
+             orient: bool = False,
+             use_memory: bool = True) -> Perception:
     """Retrieve + assemble the answer-time context for `query`.
 
     ``paths`` skips retrieval and assembles the given notes in order (the eval
@@ -385,11 +478,18 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
     has no effect when ``paths`` is set, since that bypasses retrieval.
     ``assemble`` (default off) folds each seed's 1-hop neighbours into a
     squashed, breadcrumbed block; no effect when ``paths`` is set (that
-    bypasses retrieval).
+    bypasses retrieval). ``study_order`` (default off, study surfaces /
+    answer-side A/B): prerequisite-first block order + builds-on header
+    tokens via V2 RefD — see `_study_order` for why ordering is the one
+    safe topological surface. ``orient`` (default off, agent-mode A/B —
+    offline-signals-map §4.1) prepends the session vault map so a one-shot
+    caller can carry the orientation a REPL session gets at start; the
+    honest prior from PEEK's content ablation is single digits, so it stays
+    an arm until an agent-mode gate passes.
     ``use_lexical`` (default off) forwards to `facade_retrieve`'s lexical leg;
     no effect when ``paths`` is set.
     """
-    from silica.kernel.recall.rerank import best_windows
+    from silica.kernel.recall.rerank import best_window_spans, window_weights
 
     query_vec = None
     if paths is not None:
@@ -397,30 +497,49 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
     else:
         results, query_vec = facade_retrieve(
             query, k=k, use_embedder=use_embedder, use_rerank=use_rerank,
-            use_recall_weights=use_recall_weights, use_lexical=use_lexical)
+            use_recall_weights=use_recall_weights, use_lexical=use_lexical,
+            use_memory=use_memory)
         hits = [(r.path, " ".join(r.evidence), getattr(r, "origin", "vault"))
                 for r in (results or [])]
 
+    # One idf map per query, shared by every note's window scan (graft G3);
+    # {} — no lexical index — keeps the scan bit-identical to the unweighted one.
+    wts = window_weights(query) if query else {}
     blocks: list[NoteBlock] = []
     for path, evidence, origin in hits:
         date, contested, body = _read_dated_body(path, origin)
         if body is None:
             continue
-        excerpt = ("\n[…]\n".join(best_windows(body, query, window_chars, windows))
-                   if query else body[:window_chars])
+        spans = (best_window_spans(body, query, window_chars, windows, wts)
+                 if query else [(0, body[:window_chars])])
+        excerpt = "\n[…]\n".join(s for _p, s in spans)
         if not excerpt.strip():
             continue  # empty body renders as a bare "[#n | evidence]" header, zero content
         blocks.append(NoteBlock(path=path, date=date, evidence=evidence,
-                                body=body, excerpt=excerpt, contested=contested))
+                                body=body, excerpt=excerpt, contested=contested,
+                                section=_section_chain(body, spans[0][0]),
+                                origin=origin))
     # Correction loop: contested notes are demoted behind clean ones (stable),
     # never dropped — the render marks them so the answer step can distrust them.
     blocks = [b for b in blocks if not b.contested] + [b for b in blocks if b.contested]
+    if study_order:
+        blocks = _study_order(blocks)
 
     if paths is None:
         blocks = _maybe_assemble(blocks, assemble=assemble, query=query)
 
     perception = Perception(query=query, blocks=blocks)
-    if with_facts:
+    if orient:
+        try:
+            from silica.kernel.recall.vault_map import build_vault_map
+
+            perception.orientation = build_vault_map() or ""
+        except Exception as e:
+            logger.warning("perceive: orientation skipped (%s)", e)
+    # use_memory=False means "this vault only": the episodic store homes in the
+    # memory vault with no abstain rule of its own (episodic.py), so the facts
+    # block is the same foreign lane through a second door and goes dark with it.
+    if with_facts and use_memory:
         _recall_facts(perception, query, query_vec, now=now, facts_k=facts_k,
                       episodic_ttl_days=episodic_ttl_days, use_embedder=use_embedder)
     return perception

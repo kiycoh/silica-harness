@@ -52,7 +52,7 @@ def test_render_header_carries_the_stale_token():
     p = _perception(NoteBlock(path="wiki/m", date="", evidence="embed:0.9",
                               body="b", excerpt="b"))
     ctx = p.render(stale={"wiki/m.md": "structural"})
-    assert ctx.splitlines()[0] == "[#1 | embed:0.9 | stale:structural]"
+    assert ctx.splitlines()[0] == "[#1 | wiki/m | embed:0.9 | stale:structural]"
 
 
 def test_unwindowed_render_carries_the_stale_token_too():

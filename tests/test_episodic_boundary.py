@@ -39,6 +39,11 @@ ALLOWED = {
     # vocabulary instead of coining synonyms (ADR-0021). No fact text, no
     # retrieval leg.
     "kernel/recall/run_substrate.py": "distiller key vocabulary (keys only, no fact text)",
+    # G2 orientation (2026-08-25): the vault map's one usage-derived line is
+    # "Recurring facts (by runs)" — fact KEYS and run counts only, no fact
+    # text, and the map is not a retrieval leg, so the echo channel this
+    # contract closes stays closed.
+    "kernel/recall/vault_map.py":   "orientation salience (keys + run counts, no fact text)",
 }
 
 

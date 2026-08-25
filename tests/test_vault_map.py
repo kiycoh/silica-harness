@@ -177,3 +177,40 @@ def test_total_failure_warns_instead_of_looking_like_an_empty_vault(monkeypatch,
         assert build_vault_map(store=Boom()) is None
     assert any("no self-model" in r.getMessage()
                for r in caplog.records if r.levelname == "WARNING")
+
+
+# ---------------------------------------------------------------------------
+# Recurring facts block (graft G2: the map's one usage-derived section)
+# ---------------------------------------------------------------------------
+
+class _Fact:
+    def __init__(self, key, runs):
+        self.key, self.runs = key, set(runs)
+
+
+class _FakeEpisodic:
+    def __init__(self, facts):
+        self._facts = facts
+
+    def live_facts(self):
+        return self._facts
+
+
+def test_recurring_facts_ranked_by_run_count(tmp_vault, tmp_path, monkeypatch):
+    import silica.kernel.recall.episodic as ep
+    monkeypatch.setattr(ep, "EpisodicStore", lambda: _FakeEpisodic([
+        _Fact("gym schedule", {"r1", "r2", "r3"}),
+        _Fact("thesis topic", {"r1", "r2"}),
+        _Fact("one-off", {"r1"}),           # single run: not "recurring"
+    ]))
+    m = build_vault_map(store=_populated_store(tmp_path))
+    assert "- Recurring facts (by runs): gym schedule (x3), thesis topic (x2)" in m
+    assert "one-off" not in m
+
+
+def test_recurring_facts_absent_without_repeats(tmp_vault, tmp_path, monkeypatch):
+    import silica.kernel.recall.episodic as ep
+    monkeypatch.setattr(ep, "EpisodicStore", lambda: _FakeEpisodic([
+        _Fact("one-off", {"r1"})]))
+    m = build_vault_map(store=_populated_store(tmp_path))
+    assert "Recurring facts" not in m       # no line beats an empty line

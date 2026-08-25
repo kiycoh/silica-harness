@@ -648,7 +648,8 @@ def run_question(qa: dict, qid: str, index: dict[str, dict], *, model: str,
                  n_sessions: int | None = None,
                  timeline_seed: str | None = None,
                  improve: bool = False, assemble: bool = False,
-                 lexical: bool = False) -> dict:
+                 lexical: bool = False, study: bool = False,
+                 orient: bool = False, plain_headers: bool = False) -> dict:
     cat = qa.get("category")
     qtype = _CATEGORY.get(cat, f"cat-{cat}")
     is_abs = cat == _ADVERSARIAL
@@ -679,7 +680,8 @@ def run_question(qa: dict, qid: str, index: dict[str, dict], *, model: str,
                                 episodic_ttl_days=episodic_ttl, with_facts=distill,
                                 paths=list(index.keys()) if stuff else None,
                                 use_recall_weights=improve,
-                                assemble=assemble, use_lexical=lexical, **win_kw)
+                                assemble=assemble, use_lexical=lexical,
+                                study_order=study, orient=orient, **win_kw)
         rels = [b.path for b in p.blocks]
 
         if distill and gold_sessions:
@@ -696,7 +698,8 @@ def run_question(qa: dict, qid: str, index: dict[str, dict], *, model: str,
         # _gold_in_context are both local, so --retrieval-only gets a
         # payload-level metric instead of only path-based session_recall, which
         # miscounts whenever assembly rekeys a block to its head member's path.
-        context = p.render(facts_first=not facts_last, windowed=not flat_context)
+        context = p.render(facts_first=not facts_last, windowed=not flat_context,
+                           plain_headers=plain_headers)
         if not is_abs:
             gold_in_ctx = _gold_in_context(gold, context)
 
@@ -774,7 +777,8 @@ def run(data: list[dict], run_root: Path, *, model: str, judge_model: str, k: in
         categories: set[int] | None = None, limit: int | None = None,
         ingest_mode: str = "distill", answer_mode: str = "oneshot",
         timeline: bool = False, improve: bool = False, assemble: bool = False,
-        lexical: bool = False, data_path: str | Path | None = None,
+        lexical: bool = False, study: bool = False, orient: bool = False,
+        plain_headers: bool = False, data_path: str | Path | None = None,
         primary_metric: str = "overall_accuracy", supersede_tau: float = 0.0,
         verbose: bool = False, out: Path | None = None) -> dict:
     from silica.config import CONFIG
@@ -815,6 +819,9 @@ def run(data: list[dict], run_root: Path, *, model: str, judge_model: str, k: in
                    "improve": improve,
                    "assemble": assemble,
                    "lexical": lexical,
+                   "study_order": study,
+                   "orient": orient,
+                   "plain_headers": plain_headers,
                    "seen_override": "session-date" if ingest_mode.startswith("fsm") else None,
                    "fsm": {},
                    "failed_conversations": [],
@@ -867,7 +874,8 @@ def run(data: list[dict], run_root: Path, *, model: str, judge_model: str, k: in
                            answer_mode=answer_mode, timeline=timeline,
                            verbose=verbose, out=out,
                            planned=planned, metrics=_metrics, improve=improve,
-                           assemble=assemble, lexical=lexical)
+                           assemble=assemble, lexical=lexical,
+                           study=study, orient=orient, plain_headers=plain_headers)
     finally:
         CONFIG.episodic_ttl_days = old_ttl
         CONFIG.episodic_supersede_tau = old_supersede
@@ -881,7 +889,8 @@ def _run_conversations(data, rows, doc, *, run_root, model, judge_model, k,
                        distill, episodic_ttl, reuse, flat_context, facts_last,
                        windows, window_chars, key_schema, categories, limit,
                        ingest_mode, answer_mode, timeline, verbose, out, planned,
-                       metrics, improve, assemble, lexical) -> None:
+                       metrics, improve, assemble, lexical,
+                       study=False, orient=False, plain_headers=False) -> None:
     for inst in data:
         if limit is not None and len(rows) >= limit:
             break
@@ -968,7 +977,9 @@ def _run_conversations(data, rows, doc, *, run_root, model, judge_model, k,
                                 answer_mode=answer_mode, session_map=session_map,
                                 run_sessions=run_sessions, n_sessions=n_sessions,
                                 timeline_seed=timeline_seed, improve=improve,
-                                assemble=assemble, lexical=lexical)
+                                assemble=assemble, lexical=lexical,
+                                study=study, orient=orient,
+                                plain_headers=plain_headers)
 
         def _record(row):
             # Main-thread only (called from the serial loop / as_completed drain),
@@ -1086,6 +1097,15 @@ def main(argv=None) -> int:
                     help="read-time assembly A/B arm: expand each seed 1 hop over "
                          "parent/children/related/edges and squash co-hub seeds "
                          "into one breadcrumbed block (default off).")
+    ap.add_argument("--plain-headers", action="store_true",
+                    help="G1 legacy arm: pre-G1 block headers (rank + provenance "
+                         "only, no path/section)")
+    ap.add_argument("--study-order", action="store_true",
+                    help="G6 A/B arm: prerequisite-first block order + builds-on "
+                         "header tokens (perceive study_order=True)")
+    ap.add_argument("--orient", action="store_true",
+                    help="G2 A/B arm: prepend the session vault map to the "
+                         "rendered context (perceive orient=True)")
     ap.add_argument("--lexical", action="store_true",
                     help="read-time lexical (BM25) A/B arm: fuse the lexical leg "
                          "into facade retrieval (default off). Requires the "
@@ -1192,6 +1212,8 @@ def main(argv=None) -> int:
                   ingest_mode=args.ingest, answer_mode=args.answer,
                   timeline=args.timeline, improve=args.improve,
                   assemble=args.assemble, lexical=args.lexical,
+                  study=args.study_order, orient=args.orient,
+                  plain_headers=args.plain_headers,
                   data_path=args.data, primary_metric=args.primary_metric,
                   verbose=args.verbose, out=out)
     finally:

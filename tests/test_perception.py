@@ -72,7 +72,7 @@ def test_perceive_windows_bodies_under_rank_evidence_date_headers(tmp_path, monk
     assert top.evidence                                   # per-leg provenance survives
 
     ctx = p.render()
-    assert f"[#1 | {top.evidence} | dated 2026-01-01]" in ctx
+    assert f"[#1 | sessions/a | {top.evidence} | dated 2026-01-01]" in ctx  # G1: path anchors the block
     assert "yoga class is on Tuesday" in ctx
 
 
@@ -240,8 +240,8 @@ def test_paths_override_skips_retrieval_keeps_order(tmp_path, monkeypatch):
     assert [b.path for b in p.blocks] == ["sessions/b", "sessions/a"]
     assert all(b.evidence == "" for b in p.blocks)
     ctx = p.render()
-    assert "[#1 | dated 2026-02-02]" in ctx   # no evidence segment, no double pipe
-    assert "[#2 | dated 2026-01-01]" in ctx
+    assert "[#1 | sessions/b | dated 2026-02-02]" in ctx   # no evidence segment, no double pipe
+    assert "[#2 | sessions/a | dated 2026-01-01]" in ctx
 
 
 def test_note_without_frontmatter_does_not_crash_perceive(tmp_path, monkeypatch):
@@ -259,7 +259,7 @@ def test_note_without_frontmatter_does_not_crash_perceive(tmp_path, monkeypatch)
     assert [b.path for b in p.blocks] == ["memory/plain"]
     ctx = p.render()
     assert "just a body" in ctx
-    assert "[#1]" in ctx           # no date segment, no crash
+    assert "[#1 | memory/plain]" in ctx   # no date segment, no crash (G1: path present)
 
 
 def test_unreadable_paths_are_skipped_rank_stays_dense(tmp_path, monkeypatch):
@@ -270,7 +270,7 @@ def test_unreadable_paths_are_skipped_rank_stays_dense(tmp_path, monkeypatch):
     p = perceive("anything", now="2026-05-01", use_embedder=False,
                  paths=["missing/nope", "sessions/a"])
     assert [b.path for b in p.blocks] == ["sessions/a"]
-    assert "[#1 | dated 2026-01-01]" in p.render()
+    assert "[#1 | sessions/a | dated 2026-01-01]" in p.render()
 
 
 def test_empty_bodied_note_is_dropped_not_rendered_as_a_bare_header(tmp_path, monkeypatch):
@@ -326,3 +326,146 @@ def test_use_recall_weights_true_resurfaces_bumped_note(tmp_path, monkeypatch):
     p = perceive("pasta", now="2026-05-01", k=2, use_embedder=False,
                  use_recall_weights=True)
     assert any(b.path == "sessions/b" and "recall:" in b.evidence for b in p.blocks)
+
+
+# --- G1: section chain in the block header (offline-signals-map §3) ---
+
+def test_section_chain_anchors_window_under_its_headings(tmp_path, monkeypatch):
+    _bind(tmp_path / "v", monkeypatch)
+    body = ("# Training\n" + "intro filler " * 40
+            + "\n## Gradients\n" + "descent step size chosen " * 60
+            + "\n## Schedule\n" + "cosine decay " * 40)
+    _write("sessions/a.md", "2026-01-01", body)
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("descent step size", now="2026-05-01", use_embedder=False,
+                 window_chars=200, paths=["sessions/a"])
+    assert p.blocks[0].section == "Training > Gradients"
+    assert "| sec: Training > Gradients |" in p.render() or \
+           "| sec: Training > Gradients]" in p.render()
+
+
+def test_section_chain_pops_siblings_and_caps_depth():
+    from silica.kernel.recall.perception import _section_chain
+    body = ("# A\n## B\ntext\n## C\n### D\nhere")
+    off = body.index("here")
+    assert _section_chain(body, off) == "A > C > D"          # B popped by C
+    assert _section_chain(body, off, depth=2) == "C > D"     # deepest levels win
+
+
+def test_headingless_note_renders_without_sec_segment(tmp_path, monkeypatch):
+    _bind(tmp_path / "v", monkeypatch)
+    _write("sessions/a.md", "2026-01-01", "plain prose with no headings at all")
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("prose headings", now="2026-05-01", use_embedder=False,
+                 paths=["sessions/a"])
+    assert p.blocks[0].section == ""
+    assert "| sec:" not in p.render()
+
+
+# --- G6: study order (prereq-first blocks + builds-on tokens, V2 RefD) ---
+
+def _study_vault(tmp_path, monkeypatch, prereqs):
+    _bind(tmp_path / "v", monkeypatch)
+    import silica.kernel.report.learner as learner
+    monkeypatch.setattr(learner, "prerequisites_map", lambda: prereqs)
+
+
+def test_study_order_puts_prerequisite_first_and_annotates(tmp_path, monkeypatch):
+    _study_vault(tmp_path, monkeypatch,
+                 {"sessions/deep": ["sessions/basics"]})
+    _write("sessions/deep.md", "2026-01-02", "backprop chains the gradients")
+    _write("sessions/basics.md", "2026-01-01", "derivatives measure change")
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("gradients", now="2026-05-01", use_embedder=False,
+                 paths=["sessions/deep", "sessions/basics"], study_order=True)
+    assert [b.path for b in p.blocks] == ["sessions/basics", "sessions/deep"]
+    assert p.blocks[1].builds_on == "basics"
+    assert "| builds-on: basics" in p.render()
+
+
+def test_study_order_never_changes_membership_and_default_off(tmp_path, monkeypatch):
+    _study_vault(tmp_path, monkeypatch,
+                 {"sessions/deep": ["sessions/basics"]})
+    _write("sessions/deep.md", "2026-01-02", "backprop chains the gradients")
+    _write("sessions/basics.md", "2026-01-01", "derivatives measure change")
+    from silica.kernel.recall.perception import perceive
+
+    off = perceive("gradients", now="2026-05-01", use_embedder=False,
+                   paths=["sessions/deep", "sessions/basics"])
+    on = perceive("gradients", now="2026-05-01", use_embedder=False,
+                  paths=["sessions/deep", "sessions/basics"], study_order=True)
+    assert [b.path for b in off.blocks] == ["sessions/deep", "sessions/basics"]
+    assert {b.path for b in on.blocks} == {b.path for b in off.blocks}
+    assert all(not b.builds_on for b in off.blocks)   # annotation is study-only
+
+
+def test_study_order_keeps_contested_demoted(tmp_path, monkeypatch):
+    # The contested prerequisite may NOT ride its didactic rank back above
+    # clean notes: distrust outranks reading order.
+    _study_vault(tmp_path, monkeypatch,
+                 {"sessions/deep": ["sessions/basics"]})
+    _write("sessions/deep.md", "2026-01-02", "backprop chains the gradients")
+    from silica.driver import DRIVER
+    DRIVER.create(
+        "sessions/basics.md",
+        '---\ndate: "2026-01-01"\ncontested: true\n'
+        'contradictions:\n  - "flagged: superseded (by user, 2026-05-01)"\n'
+        "---\n\nderivatives measure change\n")
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("gradients", now="2026-05-01", use_embedder=False,
+                 paths=["sessions/deep", "sessions/basics"], study_order=True)
+    assert [b.path for b in p.blocks] == ["sessions/deep", "sessions/basics"]
+
+
+def test_study_order_survives_unavailable_prereq_map(tmp_path, monkeypatch):
+    _bind(tmp_path / "v", monkeypatch)
+    import silica.kernel.report.learner as learner
+
+    def _boom():
+        raise RuntimeError("no cooccur depth")
+
+    monkeypatch.setattr(learner, "prerequisites_map", _boom)
+    _write("sessions/a.md", "2026-01-01", "alpha body")
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("alpha", now="2026-05-01", use_embedder=False,
+                 paths=["sessions/a"], study_order=True)
+    assert [b.path for b in p.blocks] == ["sessions/a"]
+
+
+# --- G2: orientation block (vault map) as an opt-in perception arm ---
+
+def test_orient_prepends_vault_map_and_default_off(tmp_path, monkeypatch):
+    _bind(tmp_path / "v", monkeypatch)
+    _write("sessions/a.md", "2026-01-01", "alpha body")
+    import silica.kernel.recall.vault_map as vm
+    monkeypatch.setattr(vm, "build_vault_map", lambda: "## Vault map\n- Notes: 1")
+    from silica.kernel.recall.perception import perceive
+
+    off = perceive("alpha", now="2026-05-01", use_embedder=False,
+                   paths=["sessions/a"])
+    on = perceive("alpha", now="2026-05-01", use_embedder=False,
+                  paths=["sessions/a"], orient=True)
+    assert "Vault map" not in off.render()          # default off: byte-identical
+    assert on.render().startswith("## Vault map")   # the map frames the evidence
+    assert "alpha body" in on.render()
+
+
+def test_orient_fails_open_when_map_unavailable(tmp_path, monkeypatch):
+    _bind(tmp_path / "v", monkeypatch)
+    _write("sessions/a.md", "2026-01-01", "alpha body")
+    import silica.kernel.recall.vault_map as vm
+
+    def _boom():
+        raise RuntimeError("no cooccur index")
+
+    monkeypatch.setattr(vm, "build_vault_map", _boom)
+    from silica.kernel.recall.perception import perceive
+
+    p = perceive("alpha", now="2026-05-01", use_embedder=False,
+                 paths=["sessions/a"], orient=True)
+    assert "alpha body" in p.render()               # answering never blocks

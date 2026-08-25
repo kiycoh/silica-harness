@@ -179,6 +179,27 @@ def build_vault_map(
             skipped.append("hub")
             logger.debug("build_vault_map: hub block skipped: %s", e)
 
+        # Usage salience (graft G2): which facts recur across RUNS, from the
+        # episodic heads' run sets. This is the map's only usage-derived block
+        # — PEEK's content ablation (2605.19932 App. B) puts every purely
+        # structural filling in the +0.7..+5.7% band while the gains live in
+        # "what past work proved useful", and run recurrence is the offline
+        # proxy Silica already records for exactly that.
+        try:
+            from silica.kernel.recall.episodic import EpisodicStore
+
+            heads = EpisodicStore().live_facts()
+            recur = sorted((f for f in heads if len(f.runs) >= 2),
+                           key=lambda f: (-len(f.runs), f.key))[:6]
+            if recur:
+                lines.append(
+                    "- Recurring facts (by runs): "
+                    + ", ".join(f"{f.key} (x{len(f.runs)})" for f in recur)
+                )
+        except Exception as e:
+            skipped.append("recurring")
+            logger.debug("build_vault_map: recurring block skipped: %s", e)
+
         # Tail of log.md — the agent sees what happened recently without
         # having to open the run JSON (Task 2: human-readable append-only journal).
         try:
