@@ -526,15 +526,22 @@ class ObsidianWSBackend(GraphIndexMixin):
 
     def _add_link_edges(self, path: str, content: str) -> None:
         for target, scaffold in extract_links_typed(content).items():
-            resolved = self._resolve_link(target)
+            resolved = self._resolve_link(target, source_path=path)
             if resolved is not None:
                 self._add_link_edge(path, resolved.path, scaffold=scaffold)
             else:
                 self._unresolved_links.add((path, target))
 
-    def _resolve_link(self, target: str) -> NoteRef | None:
-        """Resolve a wikilink target against the index — by path, else by name."""
-        t = target.removesuffix(".md")
+    def _resolve_link(self, target: str, source_path: str = "") -> NoteRef | None:
+        """Resolve a link target against the index — by path, else by name."""
+        from silica.kernel.link.ast import resolve_relative
+
+        # Mirror of fs_backend: a `./`/`../` target is relative to the source
+        # note and invisible to the suffix matcher until normalized.
+        normalized = resolve_relative(target, source_path)
+        if normalized is None:
+            return None  # escapes the vault root
+        t = normalized.removesuffix(".md")
         if "/" in t:
             exact = self._notes.get(t + ".md")
             if exact is not None:

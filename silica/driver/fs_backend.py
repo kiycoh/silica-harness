@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 import networkx as nx
-from silica.kernel.link.ast import extract_links_typed
+from silica.kernel.link.ast import extract_links_typed, resolve_relative
 
 from silica.driver.base import (
     GraphIndexMixin,
@@ -265,6 +265,14 @@ class ObsidianFSBackend(GraphIndexMixin):
             if source_path:
                 return self._notes.get(source_path)
             return None
+
+        # `./`/`../` are meaningful only relative to the SOURCE note; the suffix
+        # matcher below can never see through them, so every such markdown link
+        # died as a ghost node until 2026-08-25.
+        normalized = resolve_relative(target, source_path)
+        if normalized is None:
+            return None  # escapes the vault root
+        target = normalized
 
         target_no_ext = target.removesuffix(".md")
         if "/" in target:

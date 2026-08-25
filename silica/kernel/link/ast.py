@@ -272,3 +272,26 @@ def get_non_code_text(body: str) -> str:
                 text_pieces.append(t.content)
     walk(tokens)
     return "".join(text_pieces)
+
+
+def resolve_relative(target: str, source_path: str) -> str | None:
+    """Vault-rooted form of a `./`/`../` link target, joined against the source
+    note's folder; None when the walk escapes the vault root (no note can match,
+    and a stripped guess would resolve to the wrong file).
+
+    Any other target returns unchanged: bare names and vault-rooted paths
+    already resolve in both backends, and rewriting them here would change
+    measured resolution behavior for no defect. Resolution-side only — the one
+    link GENERATOR stays extract_links (ADR-0029); before this helper existed
+    the suffix matcher saw "/./x.md", matched nothing, and one INDEX.md carried
+    332 ghost targets (2026-08-25).
+    """
+    if not (target.startswith(("./", "../")) or "/./" in target or "/../" in target):
+        return target
+    import posixpath
+
+    base = source_path.rsplit("/", 1)[0] if "/" in source_path else ""
+    joined = posixpath.normpath(posixpath.join(base, target))
+    if joined == ".." or joined.startswith("../"):
+        return None
+    return joined
