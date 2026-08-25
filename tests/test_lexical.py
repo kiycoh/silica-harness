@@ -186,3 +186,19 @@ def test_remove_cleans_postings_and_name_lower():
     for term, postings in s._postings.items():
         assert "n/a" not in postings
     assert all(p != "n/a" for p, _ in s.rank("apollo", k=5))
+
+
+# --- G3: idf for the window scan (rerank.window_weights) ---
+
+def test_query_idf_rare_above_common_unknown_omitted():
+    s = LexicalStore()
+    s.upsert("a", "A", "einstein relativity")
+    s.upsert("b", "B", "relativity waves")
+    s.upsert("c", "C", "relativity fields")
+    w = s.query_idf({"relativity", "einstein", "neutrino"})
+    assert w["einstein"] > w["relativity"]
+    assert "neutrino" not in w   # df=0 = unknown-or-stopword -> neutral 1.0 in the scan
+
+
+def test_query_idf_empty_store_abstains():
+    assert LexicalStore().query_idf({"anything"}) == {}

@@ -108,6 +108,26 @@ class LexicalStore(DiskSynced):
     def paths(self) -> list[str]:
         return list(self._docs)
 
+    def query_idf(self, terms: set[str]) -> dict[str, float]:
+        """BM25 idf per KNOWN term, for the query-density window scan
+        (rerank.best_window_spans). Terms with df=0 are omitted, not given
+        the formula's maximum: the postings are C1-tokenized (stopwords
+        dropped), the window scan is not, so df=0 cannot distinguish "rare
+        in this corpus" from "a stopword the index never stores" — and the
+        maximum handed 'what' the same weight as 'fundraiser' (probed on
+        conv-26, 2026-08-25). Omitted terms keep the scan's neutral 1.0 via
+        w.get, which orders known-rare > unknown > known-common. Empty
+        store -> {}, the same abstention shape as rank()."""
+        n = len(self._docs)
+        if not n:
+            return {}
+        out: dict[str, float] = {}
+        for t in terms:
+            df = len(self._postings.get(t, {}))
+            if df:
+                out[t] = math.log(1 + (n - df + 0.5) / (df + 0.5))
+        return out
+
     def rank(self, query: str, *, k: int = 25) -> list[tuple[str, float]]:
         if not self._docs:
             return []

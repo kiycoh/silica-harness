@@ -35,9 +35,37 @@ _RERANK_WINDOW_FACTOR = 8
 RERANK_GATE_PROBE: Callable[[dict], None] | None = None
 
 
-def best_windows(text: str, query: str, width: int, n: int = 1) -> list[str]:
-    """Up to `n` non-overlapping `width`-char slices of `text` densest in query
-    terms, in document order (multi-window spec 2026-07-15).
+def _query_terms(query: str) -> set[str]:
+    return {t for t in re.findall(r"\w+", query.lower()) if len(t) > 3}
+
+
+def window_weights(query: str) -> dict[str, float]:
+    """Per-term BM25 idf from the vault's lexical index, for weighting the
+    window-density scan. The unweighted scan counts 'what' and 'gradient'
+    the same, so on long notes the window can centre on function-word-dense
+    prose instead of the discriminative passage (offline-signals-map §3,
+    graft G3). Reading the index is the only coupling to the lexical lane:
+    no leg is fused, the use_lexical ARM stays an eval flag (ADR-0019).
+    {} — the unweighted scan — when the vault has no lexical index, it is
+    empty, or the store is unreadable: the lever must never make windowing
+    worse than it was without an index."""
+    terms = _query_terms(query)
+    if not terms:
+        return {}
+    try:
+        from silica.kernel.recall.lexical import get_lexical_store
+
+        return get_lexical_store().query_idf(terms)
+    except Exception:
+        return {}  # tolerated: no index dir / driver down -> unweighted scan
+
+
+def best_window_spans(text: str, query: str, width: int, n: int = 1,
+                      weights: dict[str, float] | None = None,
+                      ) -> list[tuple[int, str]]:
+    """Up to `n` non-overlapping (offset, slice) windows of `text` densest in
+    query terms, in document order (multi-window spec 2026-07-15; offsets
+    added for the section chain, graft G1).
 
     A cross-encoder sees ~512 tokens (~2k chars); on a long note the naive
     head slice `text[:width]` can miss the passage the query is actually about
@@ -48,6 +76,10 @@ def best_windows(text: str, query: str, width: int, n: int = 1) -> list[str]:
     9-21k-char chat bodies a single window still cuts gold spans (gic 0.533 on
     the raw arm), so perception can ask for several.
 
+    `weights` (term -> idf, from `window_weights`) recentres density on
+    discriminative terms; None/{} keeps the historical unweighted count
+    bit-identical (w.get default 1.0, and float==int ties break the same).
+
     Greedy top-N with masking: hits per position never change (masking removes
     candidate positions, not text), so one density scan feeds every pick. The
     first window is always taken even at zero hits (n=1 stays bit-identical to
@@ -56,13 +88,15 @@ def best_windows(text: str, query: str, width: int, n: int = 1) -> list[str]:
     Document order preserves chat chronology for temporal questions.
     """
     if len(text) <= n * width:
-        return [text]
-    terms = {t for t in re.findall(r"\w+", query.lower()) if len(t) > 3}
+        return [(0, text)]
+    terms = _query_terms(query)
     if not terms:
-        return [text[:width]]
+        return [(0, text[:width])]
+    w = weights or {}
     low = text.lower()
     step = max(1, width // 4)
-    candidates = [(pos, sum(low.count(t, pos, pos + width) for t in terms))
+    candidates = [(pos, sum(low.count(t, pos, pos + width) * w.get(t, 1.0)
+                            for t in terms))
                   for pos in range(0, max(1, len(text) - width) + step, step)]
     chosen: list[int] = []
     while candidates and len(chosen) < n:
@@ -72,13 +106,21 @@ def best_windows(text: str, query: str, width: int, n: int = 1) -> list[str]:
         chosen.append(pos)
         candidates = [c for c in candidates
                       if c[0] + width <= pos or c[0] >= pos + width]
-    return [text[p:p + width] for p in sorted(chosen)]
+    return [(p, text[p:p + width]) for p in sorted(chosen)]
 
 
-def best_window(text: str, query: str, width: int) -> str:
+def best_windows(text: str, query: str, width: int, n: int = 1,
+                 weights: dict[str, float] | None = None) -> list[str]:
+    """The slices of `best_window_spans`, for callers that never need the
+    offsets (the rationale lives there)."""
+    return [s for _p, s in best_window_spans(text, query, width, n, weights)]
+
+
+def best_window(text: str, query: str, width: int,
+                weights: dict[str, float] | None = None) -> str:
     """The single `width`-char slice of `text` densest in query terms
-    (see `best_windows`; this is its n=1 case, bit-identical)."""
-    return best_windows(text, query, width, 1)[0]
+    (see `best_window_spans`; this is its n=1 case, bit-identical)."""
+    return best_windows(text, query, width, 1, weights)[0]
 
 
 _best_window = best_window  # transitional alias; drop once callers migrate
@@ -187,7 +229,12 @@ def rerank_related(
     Reorder-only (retrieval-gates spec, 2a): the pool is truncated to k BEFORE
     scoring, so membership belongs to the first stage and recall@k is
     rerank-invariant by construction — every measured rerank damage was
-    selection damage, the only measured gain is ordering.
+    selection damage, the only measured gain is ordering. Re-tested 2026-08-25
+    (graft G4, depth-50 pool, bench/g_depth.json vs bench/g_header.json): the
+    cross-encoder promoted tail candidates over notes whose windows carried
+    the gold text — gold_in_context 71 -> 67 (4 lost, 0 gained) on locomo,
+    flat on LME18 — so the deeper pool was selection damage again and the
+    rule stands on two measurements, not one.
 
     Granularity abstain (2b): when the median candidate body dwarfs the
     cross-encoder window, the model cannot read the evidence and its ordering
@@ -238,7 +285,8 @@ def rerank_related(
     if fired:
         return pool
     if docs is None:
-        docs = [f"{name}\n{best_window(text, query_text, _WINDOW_CHARS)}".strip()
+        w = window_weights(query_text)
+        docs = [f"{name}\n{best_window(text, query_text, _WINDOW_CHARS, w)}".strip()
                 for name, text in bodies]
     scores = reranker.scores(query_text, docs)
     if scores is None or len(scores) != len(pool):

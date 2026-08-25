@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import httpx
 
-from silica.kernel.recall.rerank import _best_window, rerank_related
+from silica.kernel.recall.rerank import (_best_window, best_window, best_windows,
+                                          best_window_spans, rerank_related,
+                                          window_weights)
 from silica.agent.providers import FallbackReranker, LocalReranker, Reranker, get_reranker
 
 
@@ -32,6 +34,8 @@ def test_reorders_by_score_within_pool():
 def test_membership_belongs_to_first_stage():
     # Reorder-only (gate 2a): the pool is truncated to k BEFORE scoring, so the
     # reranker can neither evict a first-stage top-k member nor pull one in.
+    # Re-tested 2026-08-25 (G4 depth-50): the deeper pool lost 4 gold contexts
+    # and gained 0 on locomo (bench/g_depth.json) — membership stays first-stage.
     fake = _Fake([0.1, 0.9])
     out = rerank_related(fake, "q", _ITEMS, k=2, document_of=_DOC)
     assert [i["path"] for i in out] == ["b", "a"]   # reordered within top-k
@@ -351,3 +355,42 @@ def test_rerank_leaves_items_without_a_score_field_alone():
                          [{"path": "a"}, {"path": "b"}], k=2, document_of=_DOC)
     assert [i["path"] for i in out] == ["b", "a"]
     assert "score" not in out[0] and "score" not in out[1]
+
+
+# --- G3: idf-weighted window scan (offline-signals-map §3) ---
+
+def test_idf_weights_recentre_window_on_rare_term():
+    filler = "pad " * 50                      # no query terms ("pad" is len 3)
+    a = "model model model " + "pad " * 45    # 3 hits of the common term
+    b = "sagredo " + "pad " * 47              # 1 hit of the rare term
+    text = filler + a + filler + b + filler
+    q = "model sagredo"
+    unweighted = best_window(text, q, 200)
+    assert "model" in unweighted and "sagredo" not in unweighted
+    weighted = best_window(text, q, 200, {"model": 0.2, "sagredo": 5.0})
+    assert "sagredo" in weighted
+
+
+def test_empty_weights_stay_bit_identical():
+    text = "alpha " * 30 + "gradient descent " * 5 + "omega " * 300
+    q = "gradient descent"
+    assert best_windows(text, q, 120, 2) == best_windows(text, q, 120, 2, {})
+    assert best_windows(text, q, 120, 2) == best_windows(text, q, 120, 2, None)
+
+
+def test_best_window_spans_offsets_are_verbatim_slices():
+    text = "alpha " * 40 + "gradient descent here " + "omega " * 300
+    spans = best_window_spans(text, "gradient descent", 150, 2)
+    assert spans
+    for p, s in spans:
+        assert text[p:p + len(s)] == s
+
+
+def test_window_weights_fail_open_without_store(monkeypatch):
+    import silica.kernel.recall.lexical as lex
+
+    def boom():
+        raise RuntimeError("no vault bound")
+
+    monkeypatch.setattr(lex, "get_lexical_store", boom)
+    assert window_weights("gradient descent") == {}
