@@ -423,7 +423,8 @@ def _study_order(blocks: list) -> list:
         paths = [b.path for b in group]
         need = {b.path: [p for p in prereqs.get(b.path, []) if p in paths]
                 for b in group}
-        out, placed = [], set()
+        out: list = []
+        placed: set[str] = set()
         while len(out) < len(group):
             ready = [b for b in group if b.path not in placed
                      and all(p in placed for p in need[b.path])]

@@ -679,8 +679,8 @@ def submit_repaired_ops(content_hash: str, ops: list[dict]) -> dict[str, Any]:
                 "remaining": len([o for o in bundle.get("rejected_ops", [])
                                   if isinstance(o, dict)])}
     txn = build_txn(validated)
-    result = execute_operations(validated)
-    if not result.ok:
+    bulk = execute_operations(validated)
+    if not bulk.ok:
         from silica.tools.wrapped import silica_restore
         silica_restore(txn_id=txn.id, inverses=[i.model_dump() for i in txn.inverses])
         return {"error": "write failed; nothing was committed this call"}

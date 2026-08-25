@@ -2069,7 +2069,7 @@ def prereq_path(note: str = ""):
             m.prereq.keys() | m.unlocks.keys(),
             key=lambda k: (-(len(m.prereq.get(k, ())) + len(m.unlocks.get(k, ()))), k),
         )[:40]
-        picks = []
+        picks: list[dict[str, Any]] = []
         for k in rough:
             l = ladder(k + ".md")
             if len(l["nodes"]) < 2:
