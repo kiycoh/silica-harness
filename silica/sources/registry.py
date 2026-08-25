@@ -172,6 +172,21 @@ def stage(
             prior = DRIVER.read_note(stub.note_path).content
         except Exception:
             prior = None
+    # This write lands in the vault but NOT in the indexes. The distill lane
+    # crosses `_refresh_cooccurrence_for_ops` (router/states/write.py:302); the
+    # terminal lane calls the driver bare, and `sync.sweep()` only reconciles
+    # stores that already exist ("cold indexes stay cold", recall/sync.py:28).
+    # ponytail: no hook here because nothing had ever nucleated code — measured
+    # 2026-08-25, silica/kernel/recall held 21 code files and 0 notes, so the
+    # missing hop cost nothing yet. It starts costing on the first batch:
+    # nucleate one folder of silica/, and if those notes do not answer
+    # silica_semantic_search without a manual embed refresh, route this write
+    # through the same refresh seam the FSM uses. Re-check by 2026-11-25, with
+    # the two pieces measured beside it: `silica_files` returns two uncorrelated
+    # counts (notes, code) while report/graph_report/code_signals._coverage_from
+    # already computes real coverage, and codeast has NO guard for the
+    # tree-sitter SIGSEGV of 2026-08-19 — its `except Exception` cannot catch a
+    # native crash, and a batch over silica/ is what would trip it.
     DRIVER.upsert(stub.note_path, stub.body)  # re-ingesting the same target refreshes the stub
     if run_id:
         _record_inverse(run_id, stub.note_path, prior)

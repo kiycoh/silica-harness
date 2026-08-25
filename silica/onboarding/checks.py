@@ -575,8 +575,81 @@ def check_memory_lane(config: SilicaConfig) -> CheckResult:
         "memory lane", "warn",
         f"recall also answers from {mem}",
         "search/exists/read_note resolve in the active vault only, so recall "
-        "may name notes they deny; unset SILICA_MEMORY_VAULT to use one vault",
+        "may name notes they deny; unset SILICA_MEMORY_VAULT to use one vault, "
+        "or scope one call with memory=false on recall/semantic_search/related",
     )
+
+
+def check_recall_indexes(config: SilicaConfig) -> CheckResult:
+    """The active vault's retrieval stores, counted.
+
+    Every leg abstains gracefully by design, so a vault that was co-occurrence
+    indexed but never embedded serves plausible cooccur-only results forever —
+    measured 2026-08-25: the repo vault ran every silica_related call without
+    its strongest leg (embed alone recalls 0.815@10, ADR-0029) and nothing said
+    so. The doctor is the surface whose job is saying it.
+    """
+    try:
+        from silica.kernel.recall.cooccurrence import get_cooccur_store
+        from silica.kernel.recall.embed import get_store
+
+        n_embed = len(get_store())
+        try:
+            n_cooc = len(get_cooccur_store(lang=config.cooccurrence_lang))
+        except Exception:
+            n_cooc = 0
+    except Exception as exc:  # unreadable stores: report, never block the doctor
+        return CheckResult("recall indexes", "unknown", f"unreadable ({exc})")
+    if n_embed == 0 and n_cooc > 0:
+        return CheckResult(
+            "recall indexes", "warn",
+            f"cooccurrence holds {n_cooc} notes but the embedding index is empty",
+            "the strongest leg abstains on every call and results degrade to "
+            "co-occurrence only; run silica_embed_refresh once to seed it",
+        )
+    if n_embed == 0 and n_cooc == 0:
+        return CheckResult("recall indexes", "warn", "no retrieval index yet",
+                           "run silica_embed_refresh and silica_cooccurrence_refresh")
+    return CheckResult("recall indexes", "ok",
+                       f"embed {n_embed} vectors, cooccurrence {n_cooc} notes")
+
+
+def live_probe(config: SilicaConfig) -> CheckResult:
+    """One tiny PAID completion proving the model actually answers.
+
+    run_checks only probes key-presence and /models reachability, never a paid
+    call — this is the row that costs money, so it runs only when asked
+    (`silica doctor --live`, `silica_doctor(live=True)`); one implementation so
+    the CLI and the MCP surface cannot drift.
+    """
+    if not (getattr(config, "model", "") or "").strip():
+        return CheckResult("live probe", "warn", "skipped — no model configured",
+                           "run silica init to set one")
+    from silica.agent.llm import call_llm
+
+    try:
+        # 512 and not the 5 tokens the word needs: a hybrid model bills its
+        # thinking against max_tokens, so 5 was spent on the trace and the reply
+        # came back empty on a model answering fine in the REPL (measured
+        # 2026-08-24 on openrouter/stealth/ox-alpha: finish=length,
+        # completion_tokens=5, 20 chars of trace, text='').
+        resp = call_llm(config.model,
+                        [{"role": "user", "content": "Reply with: ok"}],
+                        max_tokens=512)
+    except Exception as e:
+        # scrub: provider exceptions embed the full request URL, key included.
+        from silica.kernel.scrub import scrub_credentials
+
+        return CheckResult("live probe", "fail", f"failed: {scrub_credentials(e)}")
+    if (resp.text or "").strip():
+        return CheckResult("live probe", "ok", "model replied")
+    # A trace that overran the budget still proves the model answered — it
+    # answered into the trace; the same arithmetic is what makes a tight-budget
+    # extraction lane come back empty.
+    if resp.finish_reason == "length" and (resp.reasoning or "").strip():
+        return CheckResult("live probe", "ok",
+                           "model replied (in reasoning only — thinking filled the budget)")
+    return CheckResult("live probe", "fail", "empty reply")
 
 
 def check_quarantine(config: SilicaConfig) -> CheckResult:
@@ -824,6 +897,7 @@ def run_checks(config: SilicaConfig) -> list[CheckResult]:
         ("vault manifest", check_manifest),
         ("language", check_language),
         ("embeddings", check_embeddings),
+        ("recall indexes", check_recall_indexes),
         ("rerank", check_rerank),
         ("quarantine", check_quarantine),
         ("converters", check_converters),

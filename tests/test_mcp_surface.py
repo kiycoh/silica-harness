@@ -73,11 +73,16 @@ def test_the_hint_dicts_are_not_shared_between_tools():
     assert tool_annotations("silica_recall")["openWorldHint"] is False
 
 
-def test_all_surface_matches_agent_loop_filter():
+def test_all_surface_matches_agent_loop_filter_minus_declared_exclusions():
+    # ADR-0033: --all is the agent-loop filter minus MCP_EXCLUDED — tools whose
+    # exposure verdict is written down (no consent surface, no accuracy gate),
+    # never an accident of which modules got imported.
     from silica.tools import TOOLS
+    from silica.ui.mcp import MCP_EXCLUDED
 
     exposed = exposed_tools(all_tools=True)
-    expected = {n for n, t in TOOLS.items() if not t.sensitive and not t.internal}
+    expected = {n for n, t in TOOLS.items()
+                if not t.sensitive and not t.internal and n not in MCP_EXCLUDED}
     assert set(exposed) == expected
 
 

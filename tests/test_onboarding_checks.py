@@ -523,7 +523,7 @@ class TestAggregation:
         results = checks.run_checks(_cfg(vault_path=str(tmp_path)))
         assert [r.name for r in results] == [
             "chat model", "chat endpoint", "vault", "memory lane", "vault manifest",
-            "language", "embeddings", "rerank", "quarantine", "converters", "OKF §11",
+            "language", "embeddings", "recall indexes", "rerank", "quarantine", "converters", "OKF §11",
             "session capture", "own sessions", "narration store",
         ]
 

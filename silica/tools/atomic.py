@@ -955,18 +955,38 @@ class ReviewQueueArgs(BaseModel):
     target: str = Field(default="", description="Optional vault path prefix: report EVERY note under it with its retention state instead of picking — the calibration read a study plan starts from")
 
 
-@tool(EmptyArgs, cls="atomic")
-def silica_doctor() -> dict:
+class DoctorArgs(BaseModel):
+    live: bool = Field(default=False, description="Also run one tiny PAID completion against the configured model — proves the model actually answers, not just that the config looks right. Off by default because it costs money.")
+
+
+@tool(DoctorArgs, cls="atomic")
+def silica_doctor(live: bool = False) -> dict:
     """Silica's own health: model, endpoints, vault, indexes, hooks — the
     `silica doctor` checks as data. Call when a capability behaves as if off
     (relatedness finds nothing, a write lands nowhere) instead of guessing.
     Credentials redacted. Never autostarts local servers: reports the state
-    as it is right now.
+    as it is right now. `live=true` adds the one paid check: a real completion.
     """
     from silica.config import CONFIG
     from silica.onboarding import checks
 
-    return checks.report_payload(checks.run_checks(CONFIG))
+    results = checks.run_checks(CONFIG)
+    if live:
+        results.append(checks.live_probe(CONFIG))
+    return checks.report_payload(results)
+
+
+@tool(EmptyArgs, cls="atomic")
+def silica_changes() -> dict:
+    """What THIS session changed in the vault: path, created/modified/moved/
+    deleted, lines added/removed. The after side is read off disk now, so an
+    /undo that restored the bytes empties its row on its own — without this a
+    client reconstructs its own write history from tool-call memory.
+    """
+    from silica.kernel.write import session_changes
+
+    rows = session_changes.rows()
+    return {"total": len(rows), "changes": rows}
 
 
 @tool(ReviewQueueArgs, cls="atomic")

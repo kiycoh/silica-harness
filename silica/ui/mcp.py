@@ -48,12 +48,39 @@ CORE_TOOLS = (
     "silica_event_create",
     "silica_event_update",
     "silica_agenda",
+    # The shipped /quiz and /learn prompts literally instruct "Call
+    # silica_review_queue"; serving the prompts without the tool made a default
+    # MCP client fail silently (found 2026-08-25).
+    "silica_review_queue",
+    # The client's own write ledger: an MCP session otherwise reconstructs what
+    # it changed from its tool-call memory, and /undo restores rows it cannot see.
+    "silica_changes",
     # Not vault memory: the client's read of whether the memory it is talking to
     # is actually whole. A degraded leg (no embeddings, no rerank, unwritable
     # vault) answers plausibly instead of erroring, so without this the only way
     # to find out is to be told.
     "silica_doctor",
 )
+
+# Exposure is a declaration, not an import side-effect (ADR-0033). Every
+# registered non-internal, non-sensitive tool is either served (CORE_TOOLS or
+# --all) or named here with its why; test_mcp_exposure fails on drift. Before
+# this map, silica_web_answer and silica_query_table were unreachable even
+# under --all because only the chat REPL imported their modules.
+MCP_EXCLUDED = {
+    "silica_query_table": "BI lane has no accuracy gate yet (pyproject [bi] note); "
+                          "reopen when the gate exists",
+    "silica_web_answer": "live-web egress asks user consent in the chat flow; "
+                         "MCP has no consent surface, so the lane stays off it",
+}
+
+# Tool modules whose import may fail when their extra is absent; anything else
+# failing to import is the silent-unreachable defect, and the test says so.
+OPTIONAL_TOOL_MODULES = frozenset({
+    "silica.tools.tabular",        # [bi] extra
+    "silica.sources.web_research",  # [web] extra
+    "silica.sources.web_fetch",     # [web] extra
+})
 
 # MCP behavior hints: everything we serve is read-only except these three.
 WRITE_TOOLS = frozenset({"silica_write_note", "silica_patch_note", "silica_flag_note",
@@ -83,15 +110,24 @@ def tool_annotations(name: str) -> dict:
 
 def exposed_tools(all_tools: bool = False) -> dict[str, Any]:
     """The registry slice served over MCP: Tool objects keyed by name."""
-    # Registration side effect — same module set as cli.py.
+    # Registration side effect — the WHOLE tool tree, deliberately, not the
+    # subset cli.py happens to share (ADR-0033): a module nobody imports is a
+    # tool no flag can reach.
     import silica.tools.atomic  # noqa: F401
     import silica.tools.composed  # noqa: F401
     import silica.tools.wrapped  # noqa: F401
     import silica.tools.codedocs_tool  # noqa: F401
     import silica.tools.delegate_tool  # noqa: F401
+    for _mod in OPTIONAL_TOOL_MODULES:
+        try:
+            __import__(_mod)
+        except ImportError:
+            pass  # extra not installed: its tools cannot register; MCP_EXCLUDED
+            #       still documents the verdict for when they can
     from silica.tools import TOOLS
 
-    allowed = {n: t for n, t in TOOLS.items() if not t.sensitive and not t.internal}
+    allowed = {n: t for n, t in TOOLS.items()
+               if not t.sensitive and not t.internal and n not in MCP_EXCLUDED}
     if all_tools:
         return allowed
     return {n: allowed[n] for n in CORE_TOOLS}  # KeyError = registry drift, fail loud
@@ -105,7 +141,9 @@ def exposed_tools(all_tools: bool = False) -> dict[str, Any]:
 INSTRUCTIONS = (
     "Silica serves the vault of the folder this server was started in as "
     "memory. Before answering from memory call silica_recall; read a hit with "
-    "silica_read_note before citing it. Capture what should outlive the "
+    "silica_read_note before citing it. For questions scoped to THIS vault "
+    "(repo and code questions) pass memory=false so personal-memory notes "
+    "stay out of the slots. Capture what should outlive the "
     "session with silica_write_note (new concept) or silica_patch_note "
     "(existing note): decisions and their why, non-obvious constraints, "
     "hard-won references. If retrieval behaves as if switched off, call "

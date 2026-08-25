@@ -3404,39 +3404,22 @@ def _model_configured() -> bool:
 
 def _doctor_live_probe() -> bool:
     """`silica doctor --live`: one tiny real completion so a green report proves
-    the model actually answers (right key, model id valid, endpoint serving) —
-    run_checks only probes key-presence and /models reachability, never a paid
-    call. Returns True on a non-empty reply, False otherwise; prints the outcome."""
-    if not _model_configured():
-        CONSOLE.print("  [yellow]⚠ live probe skipped — no model configured[/]")
+    the model actually answers. The probe itself lives in onboarding.checks
+    (live_probe) so `silica_doctor(live=True)` over MCP is the same check —
+    this wrapper only renders it. Skipped-without-a-model stays True, as before:
+    an unconfigured model is init's problem, not a failing endpoint."""
+    from silica.onboarding.checks import live_probe
+
+    if _model_configured():
+        CONSOLE.print(f"  [dim]→ live probe: asking {CONFIG.model} to reply…[/]")
+    r = live_probe(CONFIG)
+    if r.status == "ok":
+        CONSOLE.print(f"  [green]✓ live probe:[/] {r.detail}")
         return True
-    from silica.agent.llm import call_llm
-    CONSOLE.print(f"  [dim]→ live probe: asking {CONFIG.model} to reply…[/]")
-    try:
-        # 512 and not the 5 tokens the word needs: a hybrid model bills its
-        # thinking against max_tokens, so 5 was spent on the trace and the reply
-        # came back empty on a model answering fine in the REPL (measured
-        # 2026-08-24 on openrouter/stealth/ox-alpha: finish=length,
-        # completion_tokens=5, 20 chars of trace, text=''). Same budget as the
-        # form sniffer, and the probe runs once per `doctor --live`.
-        resp = call_llm(CONFIG.model, [{"role": "user", "content": "Reply with: ok"}],
-                        max_tokens=512)
-    except Exception as e:  # any provider/transport error → not working
-        # scrub: provider exceptions embed the full request URL, key included.
-        from silica.kernel.scrub import scrub_credentials
-        CONSOLE.print(f"  [red]✗ live probe failed:[/] {scrub_credentials(e)}")
-        return False
-    if (resp.text or "").strip():
-        CONSOLE.print("  [green]✓ live probe: model replied[/]")
+    if r.status == "warn":
+        CONSOLE.print(f"  [yellow]⚠ live probe {r.detail}[/]")
         return True
-    # A trace that overran the budget still proves the model answered — it
-    # answered into the trace. Green, with the cause named: the same arithmetic
-    # is what makes a tight-budget extraction lane come back empty.
-    if resp.finish_reason == "length" and (resp.reasoning or "").strip():
-        CONSOLE.print("  [green]✓ live probe: model replied[/] "
-                      "[dim](in reasoning only — its thinking filled the budget)[/]")
-        return True
-    CONSOLE.print("  [red]✗ live probe: empty reply[/]")
+    CONSOLE.print(f"  [red]✗ live probe:[/] {r.detail}")
     return False
 
 
