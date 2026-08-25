@@ -41,6 +41,20 @@ def _residue_fsm(ci=1, n_chunks=2, form=None, failed_task=None):
     return fsm
 
 
+def _fake_embedder(dim: int = 8):
+    """A deterministic stand-in for the embedding server.
+
+    Without it this file measured whether a local embedder happened to be
+    listening: the dispatch path embeds, so it passed on a machine running
+    llama-server on :1234 and failed in CI, where the connection error escapes
+    into the seam's catch-all. The vectors are identical on purpose, so the
+    theme filter keeps every fact and the guards under test are the only thing
+    that can decide the outcome.
+    """
+    return SimpleNamespace(embed=lambda texts: [[1.0] + [0.0] * (dim - 1)
+                                                for _ in texts])
+
+
 def _shutdown(fsm):
     pool = getattr(fsm, "_residue_executor", None)
     if pool is not None:
@@ -148,13 +162,20 @@ class TestCheckDispatch:
         fsm = _residue_fsm(failed_task="f0_c0_write")
         self._decomposed(fsm, ["f"])
         with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.agent.providers.get_embedder_or_none",
+                   lambda *a, **k: _fake_embedder()), \
              patch("silica.kernel.residue.judge_covered", return_value=[True]):
             real_check_dispatch(fsm)
             fut = getattr(fsm, "_residue_future", None)
             if fut is not None:
                 [f.result(timeout=5) for f in fut[2]]
+        ready = getattr(fsm, "_residue_ready", None)
         assert (getattr(fsm, "_residue_future", None) is not None
-                or getattr(fsm, "_residue_ready", None) is not None)
+                or ready is not None)
+        # Getting past the guard by crashing is not getting past the guard: the
+        # catch-all leaves its own marker now, and a test that accepted it would
+        # go on passing through any breakage in the dispatch below.
+        assert ready is None or "pre-dispatch failed" not in ready[1].get("skipped", "")
         _shutdown(fsm)
 
 

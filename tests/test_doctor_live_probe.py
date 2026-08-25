@@ -22,6 +22,7 @@ def _resp(text, *, finish_reason="stop", reasoning=None):
 def _probe(resp):
     """Run the probe against `resp`, returning (verdict, max_tokens asked for)."""
     from silica import cli
+    from silica.config import CONFIG
 
     seen: dict = {}
 
@@ -29,8 +30,14 @@ def _probe(resp):
         seen.update(kw)
         return resp
 
+    # CONFIG.model and not cli._model_configured: the gate moved into
+    # checks.live_probe, which reads the config itself, so patching the CLI
+    # helper let the probe skip and every assertion below pass vacuously. It
+    # passed anyway on a developer machine, because a provider key in the
+    # environment resolves a model — the outcome hung on whose machine ran it,
+    # which is how this reached CI green-locally and red there.
     with patch("silica.agent.llm.call_llm", _fake_call_llm), \
-         patch.object(cli, "_model_configured", lambda: True):
+         patch.object(CONFIG, "model", "test/probe-model"):
         return cli._doctor_live_probe(), seen.get("max_tokens")
 
 

@@ -502,6 +502,7 @@ def maybe_dispatch_residue_check(fsm: "InjectorFSM") -> None:
     files are verified like any other — see _residue_gate.
     When decompose is missing or still running, the gate simply runs
     the whole verification inline. Best-effort: never raises."""
+    fi = None
     try:
         fi, ci = fsm._chunk_flat_to_fi_ci.get(
             fsm._current_chunk_idx, (0, fsm._current_chunk_idx))
@@ -559,6 +560,18 @@ def maybe_dispatch_residue_check(fsm: "InjectorFSM") -> None:
         fsm._residue_future = (fi, facts, futures)
     except Exception as exc:
         logger.debug("WRITE: residue pre-dispatch skipped (non-fatal): %s", exc)
+        # A degrade that leaves no marker was the one shape this seam still
+        # had. get_embedder_or_none returns an embedder for an endpoint that
+        # merely RESOLVES, so an unreachable one raises here instead of hitting
+        # the `embedder is None` branch above — and the gate then saw neither a
+        # future nor a ready marker, re-ran the whole verification inline, and
+        # met the same dead endpoint a second time. Every sibling degrade
+        # records why it stopped; so does this one. `fi` stays None only when
+        # the first statement raised, and there is no file to mark then.
+        if fi is not None and getattr(fsm, "_residue_ready", None) is None:
+            fsm._residue_ready = (fi, {"missing": [], "total": 0, "judged": 0,
+                                       "failures": 0,
+                                       "skipped": f"pre-dispatch failed: {exc}"})
 
 
 def _verify_now(fsm: "InjectorFSM", fi: int, inbox_file: str) -> dict:

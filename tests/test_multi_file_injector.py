@@ -165,7 +165,13 @@ class TestT2ChunkContainment:
 
     @patch("silica.router.orchestrator.silica_recon")
     @patch("silica.router.orchestrator.silica_payload")
-    @patch("silica.kernel.prep_delegation.run_distiller")
+    # The USE site, as the other eleven distiller patches in the suite already
+    # target: states/distill.py binds run_distiller at import, so patching the
+    # module that DEFINES it left the real one running. This test then passed
+    # only where a model was configured and the call happened to come back, and
+    # died in CI with "LLM Provider NOT provided" turning `partial` into
+    # `failed`.
+    @patch("silica.router.states.distill.run_distiller")
     @patch("silica.router.orchestrator.silica_sanitize")
     @patch("silica.router.orchestrator.silica_validate_ops")
     @patch("silica.router.orchestrator.DRIVER")
