@@ -292,7 +292,7 @@ def _peek_stale() -> dict[str, str]:
 _NOTE_POOL = 20
 
 
-def _facade_search(text: str, k: int) -> dict[str, Any]:
+def _facade_search(text: str, k: int, memory: bool = True) -> dict[str, Any]:
     """Fused embeddings + co-occurrence search for a fresh text, then reranked.
 
     Shared core of silica_semantic_search, now routed
@@ -323,10 +323,15 @@ def _facade_search(text: str, k: int) -> dict[str, Any]:
     # then dropping staging pays for documents that get thrown away, and on a
     # local GPU a 20-document batch OOMs outright. This way the reranker still
     # sees exactly k candidates, and they are all notes.
-    results, _query_vec = facade_retrieve(text, k=max(k, _NOTE_POOL), use_rerank=False)
+    results, _query_vec = facade_retrieve(text, k=max(k, _NOTE_POOL), use_rerank=False,
+                                          use_memory=memory)
     if results is None:
         return {"error": "No index available. Run silica_embed_refresh or silica_cooccurrence_refresh first."}
-    notes = [r for r in results if not is_inbox_path(r.path or "")]
+    # is_inbox_path answers for the ACTIVE vault's staging roots; a memory-lane
+    # note whose vault happens to use the same folder name is not this vault's
+    # staging, and dropping it here silently shrank the guest lane (ADR-0019).
+    notes = [r for r in results
+             if r.origin == "memory" or not is_inbox_path(r.path or "")]
     # Never answer empty because everything relevant was staged: if the vault has
     # nothing else to say, staging IS the answer.
     rr: dict = {"reranked": False}
@@ -360,9 +365,10 @@ def _facade_search(text: str, k: int) -> dict[str, Any]:
 class SemanticSearchArgs(BaseModel):
     query: str = Field(description="Free-form query text to embed and search against the vault index")
     k: int = Field(default=5, description="Number of results to return")
+    memory: bool = Field(default=True, description="Include the personal-memory lane (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy result slots.")
 
 @tool(SemanticSearchArgs, cls="composed")
-def silica_semantic_search(query: str, k: int = 5) -> dict[str, Any]:
+def silica_semantic_search(query: str, k: int = 5, memory: bool = True) -> dict[str, Any]:
     """Find vault notes by MEANING (embeddings + co-occurrence fused, reranked).
 
     Use for "what do I have about X" when the exact wording is unknown;
@@ -377,22 +383,24 @@ def silica_semantic_search(query: str, k: int = 5) -> dict[str, Any]:
     much smaller scale). A low score never means "absent" — to decide whether
     a note exists, use silica_exists or silica_search, not a threshold here.
     """
-    return {"query": query, **_facade_search(query, k=k)}
+    return {"query": query, **_facade_search(query, k=k, memory=memory)}
 
 
 class RecallArgs(BaseModel):
     query: str = Field(description="The question or topic to recall memory for")
     k: int = Field(default=15, description="Maximum number of notes contributing to the context")
+    memory: bool = Field(default=True, description="Include the personal-memory lane and its facts (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy context slots.")
 
 
 @tool(RecallArgs, cls="composed")
-def silica_recall(query: str, k: int = 15) -> dict[str, Any]:
+def silica_recall(query: str, k: int = 15, memory: bool = True) -> dict[str, Any]:
     """Assemble an answer-ready memory context for a question: fused retrieval,
     each note's query-densest window under a rank/evidence/date header,
     recalled personal facts first. Use when ANSWERING from vault memory
     INSTEAD of stitching searches and reads yourself; for a bare ranked list
     use silica_semantic_search. Answer from `context`; re-read only the notes
-    named in `partial`, the rest arrived whole.
+    named in `partial`, the rest arrived whole. Paths under `memory` live in
+    the personal-memory vault: cite them from `context`, never read_note them.
     """
     import datetime
 
@@ -400,7 +408,8 @@ def silica_recall(query: str, k: int = 15) -> dict[str, Any]:
 
     from silica.kernel.code import codedocs
 
-    p = perceive(query, now=datetime.date.today().isoformat(), k=k)
+    p = perceive(query, now=datetime.date.today().isoformat(), k=k,
+                 use_memory=memory)
     stale_map = _peek_stale()
     flagged = {b.path: lvl for b in p.blocks
                if (lvl := codedocs.peek_level(stale_map, b.path))}
@@ -409,8 +418,15 @@ def silica_recall(query: str, k: int = 15) -> dict[str, Any]:
     # notes recall had already handed over whole.
     out = {"query": query, "context": p.render(stale=stale_map or None),
            "notes": [b.path for b in p.blocks],
-           "partial": [b.path for b in p.blocks if b.excerpt.strip() != b.body.strip()],
+           # A memory-lane note cannot be re-read here (read_note resolves in
+           # the active vault only, ADR-0019): inviting the re-read is exactly
+           # how "recall names notes that search denies" was born.
+           "partial": [b.path for b in p.blocks
+                       if b.origin != "memory" and b.excerpt.strip() != b.body.strip()],
            "facts": len(p.fact_hits)}
+    mem_paths = [b.path for b in p.blocks if b.origin == "memory"]
+    if mem_paths:
+        out["memory"] = mem_paths
     if flagged:
         out["stale"] = flagged
     return out
@@ -448,18 +464,24 @@ def silica_timeline(start: str = "", end: str = "", limit: int = 50) -> dict[str
 class RelatedArgs(BaseModel):
     note: str = Field(description="Note name (wikilink-style) or vault-relative path to find related notes for")
     k: int = Field(default=5, description="Number of results to return")
+    memory: bool = Field(default=True, description="Include the personal-memory lane (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy result slots.")
 
 @tool(RelatedArgs, cls="composed")
-def silica_related(note: str, k: int = 5) -> dict[str, Any]:
+def silica_related(note: str, k: int = 5, memory: bool = True) -> dict[str, Any]:
     """Given an EXISTING note (by name or path), the notes most related to it —
-    embeddings + co-occurrence + note-edges fused into one ranked shortlist.
+    embeddings + co-occurrence fused into one ranked shortlist, then reranked.
 
     Use for "what's related to note X" INSTEAD of reading X and
     keyword-searching; for free-form text use silica_semantic_search. Each
-    result carries `evidence` (which metric proposed it), `cluster`, and
-    `distance` (wikilink hops; null = unreachable). High score + null/large
-    distance = a missing link worth creating; distance 1 = already linked.
-    Verify with silica_read_note before acting.
+    result carries `evidence` (which metric proposed it, with native scores),
+    `cluster`, and `distance` (wikilink hops; null = unreachable). High score +
+    null/large distance = a missing link worth creating; distance 1 = already
+    linked. Verify with silica_read_note before acting.
+
+    `score` follows the silica_semantic_search contract: comparable only
+    WITHIN one call — `reranked: true` means cross-encoder relevance, `false`
+    means first-stage fusion mass (a much smaller scale). `legs` names which
+    retrieval legs actually ranked; an absent leg is not agreement.
     """
     from silica.config import CONFIG
     from silica.driver import DRIVER
@@ -495,9 +517,11 @@ def silica_related(note: str, k: int = 5) -> dict[str, Any]:
     if len(embed_store) == 0 and cooccur_store is None:
         return {"note": note, "error": "No index available. Run silica_embed_refresh or silica_cooccurrence_refresh first."}
 
-    from silica.kernel.recall.memory_lane import memory_stores
+    mem_embed = mem_cooccur = None
+    if memory:
+        from silica.kernel.recall.memory_lane import memory_stores
 
-    mem_embed, mem_cooccur = memory_stores()  # ADR-0019 second recall lane
+        mem_embed, mem_cooccur = memory_stores()  # ADR-0019 second recall lane
     results = related_notes(
         query_path,
         embed_store=embed_store,
@@ -506,6 +530,21 @@ def silica_related(note: str, k: int = 5) -> dict[str, Any]:
         memory_cooccur_store=mem_cooccur,
         k=k,
     )
+    # Same score contract as silica_semantic_search (ADR-0032): reorder-only
+    # within the fused top-k (membership stays first-stage, retrieval-gates 2a),
+    # query = the seed's bare title — the one measured rerank query shape. The
+    # raw RRF term 1/(60+rank) the payload used to expose as `score` cannot
+    # separate candidates by construction (measured 2026-08-25: six results
+    # inside [0.0159, 0.0164]).
+    rr: dict[str, Any] = {"reranked": False}
+    if results:
+        from silica.agent.providers import get_reranker
+        from silica.kernel.recall.rerank import link_query, rerank_related
+
+        reranker = get_reranker(CONFIG)
+        if reranker:
+            results = rerank_related(reranker, link_query(query_path), results,
+                                     k=k, stats=rr)
     # Cluster membership from the cached ctx (last Louvain run; {} when cold):
     # tells the caller whether a candidate sits in the query's own knowledge
     # area or across a cluster boundary. Memory-lane notes are another vault —
@@ -521,12 +560,25 @@ def silica_related(note: str, k: int = 5) -> dict[str, Any]:
     stale_map = _peek_stale()
     out: dict[str, Any] = {
         "note": note,
+        "reranked": bool(rr.get("reranked", False)),
+        # Which legs actually ranked: an absent leg (cold index, lane off) is
+        # otherwise indistinguishable from unanimous agreement — 2026-08-25 the
+        # embed index was empty and six cooccur-only results read as consensus.
+        "legs": {
+            "embed": len(embed_store) > 0,
+            "cooccur": cooccur_store is not None,
+            "memory": mem_embed is not None or mem_cooccur is not None,
+        },
         "results": [
             {
                 "path": r.path,
                 "name": r.name,
                 "score": round(r.score, 4),
                 "evidence": r.evidence,
+                **({"embed": round(r.embed_score, 3)}
+                   if r.embed_score is not None else {}),
+                **({"cooccur": int(round(r.cooccur_weight))}
+                   if r.cooccur_weight is not None else {}),
                 **(
                     {"cluster": hub}
                     if r.origin != "memory" and (hub := cluster_hub_of(gctx_map, r.path))

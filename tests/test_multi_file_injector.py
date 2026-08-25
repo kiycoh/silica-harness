@@ -501,7 +501,10 @@ class TestT6DirectShortcuts:
         received_query = []
         from silica.cli import _handle_direct_shortcut
 
-        def capture_search(query: str, k: int = 5):
+        # mirrors the tool signature, memory included since ADR-0032: a stub
+        # that drops a real parameter dies as a TypeError inside Tool.run,
+        # which swallows it and leaves this asserting on an empty list.
+        def capture_search(query: str, k: int = 5, memory: bool = True):
             received_query.append(query)
             return {"query": query, "results": []}
 

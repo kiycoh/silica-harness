@@ -491,7 +491,14 @@ def _fuse(
         return []
 
     out: list[RelatedNote] = []
-    for path, score in sorted(fused.items(), key=lambda kv: (-kv[1], kv[0])):
+    # At equal fused mass the ACTIVE vault outranks the guest lane. Before
+    # 2026-08-25 the tie fell to the memory lane by an encoding accident: the
+    # \x00 namespace prefix sorts before every real path, so an unrelated
+    # personal vault won every tie against the corpus the caller asked about.
+    for path, score in sorted(
+        fused.items(),
+        key=lambda kv: (-kv[1], kv[0].startswith(_MEM), kv[0].removeprefix(_MEM)),
+    ):
         evidence: list[str] = []
         embed_score = embed_scores.get(path)
         cooc_weight = cooc_scores.get(path)

@@ -65,8 +65,11 @@ def test_peek_failure_never_fails_the_search(monkeypatch):
 def _related_result(path, origin="vault", score=0.9):
     # silica_related's result dict also reads r.evidence, unlike the facade
     # search results above.
+    # embed_score / cooccur_weight are on the RelatedNote contract; the
+    # payload reads them structurally since ADR-0032.
     return SimpleNamespace(path=path, name=path.rsplit("/", 1)[-1],
-                           score=score, origin=origin, evidence=["embed:0.9"])
+                           score=score, origin=origin, evidence=["embed:0.9"],
+                           embed_score=None, cooccur_weight=None)
 
 
 def test_related_flags_stale_vault_result_not_memory_lane(tmp_path, monkeypatch):
