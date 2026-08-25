@@ -94,42 +94,42 @@
            separates them lives here, not in a longer button -->
       <div class="sp-title">explore</div>
       <div class="hp-row"><span class="hp-what">3D</span><span>spatial layout of the whole vault; a node names itself when you hover it</span></div>
-      <div class="hp-row"><span class="hp-what">2D</span><span>names appear as you zoom in, biggest notes first, and Show zones in the HUD draws the semantic areas as hulls</span></div>
+      <div class="hp-row"><span class="hp-what">2D</span><span>names appear as you zoom in, biggest notes first, and Show zones in the graph panel draws the semantic areas as hulls</span></div>
+      <div class="hp-row"><span class="hp-what">the legend</span><span>top right on every surface: Layout switches between them, Areas is what the colour means, and the lines under it are the key to what you are looking at</span></div>
     </div>
     <!-- The right sidebar is a pane you keep open, not a dialog, so its control
          is a pressed-state toggle rather than a menu item. THE one control for
          it: a #note-last stood here too, an accent-blue document glyph carrying
          the last note's name, from when the note lived in a drawer of its own -
          two buttons a hand's width apart opening one surface on two of its three
-         modes, and only two of them. Reopening the last note is the NOTE segment
-         now, which is where the other two modes already were. Pressed states the
-         mode, not merely the sidebar: a toggle lit while the panel shows a note
-         would be lying about which of the three it named. -->
-    <button id="work-toggle" class="ghost" title="show what the agent is doing" aria-label="show what the agent is doing in the sidebar" aria-pressed="false">
+         modes, and only two of them.
+
+         It briefly opened the rail's Work compartment instead, which was a
+         header button for something you can already click: that compartment
+         wears its own <summary> and its own icon in the folded rail, so the
+         button was a third way to do one thing. It names the DRAWER again -
+         the one surface at this edge with no control of its own once it is
+         shut - and wears the drawer's mark, the same one inside it. Pressed
+         means open; which of the three modes is showing is the segment's job. -->
+    <button id="drawer-toggle" class="ghost" title="show the note sidebar" aria-label="show the note sidebar" aria-pressed="false">
       <svg aria-hidden="true" focusable="false" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
     </button>
     <button id="stop" class="ghost" hidden aria-label="stop the current response">&#9632; stop</button>
   </header>
 
   <main>
-    <!-- The rail below the 1120 floor: the same five compartments as icons.
+    <!-- The rail below the 1120 floor: the same compartments as icons.
          Each button opens #sidebar over the transcript with its own section
          open, so narrow does not mean "the rail is gone", it means the rail is
          summoned. data-sec is the id of the <details> it stands for, which is
          also how a compartment that is hidden (Pinned before the first pin)
          hides its icon. -->
     <aside id="railmini" aria-label="rail" hidden>
-      <button class="rm" data-sec="side-layout" title="layout" aria-label="layout">
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="12 3 21 8 12 13 3 8"></polygon><polyline points="3 13 12 18 21 13"></polyline></svg>
-      </button>
       <button class="rm" data-sec="side-pinned" title="pinned" aria-label="pinned">
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"></path><path d="M9 10.8V4h6v6.8l2 3.2H7z"></path></svg>
       </button>
       <button class="rm" data-sec="side-changes" title="this session" aria-label="this session">
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
-      </button>
-      <button class="rm" data-sec="side-areas" title="areas" aria-label="areas">
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7" cy="8" r="3"></circle><circle cx="17" cy="7" r="2.4"></circle><circle cx="13" cy="17" r="3.4"></circle></svg>
       </button>
       <button class="rm" data-sec="side-files" title="files" aria-label="files">
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
@@ -137,27 +137,30 @@
       <button class="rm" data-sec="side-history" title="history" aria-label="history">
         <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
       </button>
+      <button class="rm" data-sec="side-work" title="work" aria-label="work">
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h5"></path><path d="M4 12h9"></path><path d="M4 18h6"></path><circle cx="18" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+      </button>
     </aside>
 
     <aside id="sidebar">
+      <!-- The same handle the note drawer has carried since it shipped, at the
+           other edge. Without it the vault path at the foot was clipped by a
+           264px column nobody could widen, which is a fact about YOUR vault
+           readable only by hovering it. -->
+      <div id="side-resize" title="drag to resize"></div>
       <!-- Every compartment below wears the SAME glyph as its button in
            #railmini, because below the 1120 floor those icons are the only
-           name a compartment has: an icon that means "areas" in the collapsed
+           name a compartment has: an icon that means "files" in the collapsed
            rail and nothing in the open one is an icon you have to learn twice.
-           Explore only: the five surfaces, in the column you are in when you
-           decide WHAT to look at. This list is the only one now — the graph
-           toolbar used to repeat it (app.js: LAYOUT_MODES). -->
-      <details class="side-section" id="side-layout" hidden open>
-        <summary class="side-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="12 3 21 8 12 13 3 8"></polygon><polyline points="3 13 12 18 21 13"></polyline></svg>Layout</summary>
-        <div class="side-body"><div id="layout-modes"></div></div>
-      </details>
-
+           Layout and Areas used to stand here and no longer do: both are
+           readings of ONE view, and a control for the picture lives against
+           the picture. They are #legend now, inside #view-graph. -->
       <!-- The notes you keep coming back to, named by you. It is the one thing
            in the rail the vault cannot derive: Files is alphabetical, History is
            chronological, Areas is computed, and none of them can say "this one
            matters". Hidden until the first pin: an empty compartment that never
            fills is worse than no compartment. -->
-      <details class="side-section" id="side-pinned" hidden open>
+      <details class="side-section" id="side-pinned" hidden>
         <summary class="side-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"></path><path d="M9 10.8V4h6v6.8l2 3.2H7z"></path></svg>Pinned<span id="pinned-count"></span></summary>
         <div class="side-body"><div id="pinned"></div></div>
       </details>
@@ -165,18 +168,9 @@
       <!-- what this session did to the vault, above the files it did it to.
            Hidden until there is something in it: an empty compartment that never
            fills is worse than no compartment. -->
-      <details class="side-section" id="side-changes" hidden open>
+      <details class="side-section" id="side-changes" hidden>
         <summary class="side-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>This session<span id="changes-count"></span></summary>
         <div class="side-body"><div id="changes"></div></div>
-      </details>
-
-      <!-- The vault's own grouping, largest first: Louvain over the resolved
-           wikilinks, the same partition the graph colours by and the same
-           labels the landing states. A bar rather than a second number, because
-           what you read here is the shape of the distribution, not 73. -->
-      <details class="side-section" id="side-areas" hidden open>
-        <summary class="side-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7" cy="8" r="3"></circle><circle cx="17" cy="7" r="2.4"></circle><circle cx="13" cy="17" r="3.4"></circle></svg>Areas<span id="areas-count"></span></summary>
-        <div class="side-body"><div id="areas"></div></div>
       </details>
 
       <details class="side-section" id="side-files" open>
@@ -199,6 +193,19 @@
           <div id="sessions"></div>
           <button id="sessions-more" class="linklike" hidden></button>
         </div>
+      </details>
+
+      <!-- The run, and the last compartment because it is the only one here that
+           is not the vault: Files, History and Pinned all name something on
+           disk, this names what the agent is doing to it right now. It was the
+           right drawer's third mode until that drawer had two subjects at once
+           - the run, and the node you had pointed at - and a segment named
+           after one of them could only ever be right half the time. The right
+           drawer keeps the node; the run comes here, where nothing competes
+           with it and it is readable WHILE a note is open. -->
+      <details class="side-section" id="side-work" open>
+        <summary class="side-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h5"></path><path d="M4 12h9"></path><path d="M4 18h6"></path><circle cx="18" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>Work<span id="work-state" class="wk-state">idle</span></summary>
+        <div class="side-body"><div id="work-body"></div></div>
       </details>
 
       <!-- Which folder all of this IS. The strip names the vault by its last
@@ -291,19 +298,6 @@
              the one that survives a narrow window. The list itself moved to
              LAYOUT_MODES in app.js, which is now its single source. -->
 
-        <!-- The renderer, beside the surface it applies to. It lived only in
-             the frame's own HUD, which is the corner the note drawer covers,
-             and which the reader has to build the graph to reach at all: a
-             control you can only find inside the thing it controls is a control
-             the app appears not to have. graph mode only, because it is the one
-             surface with two renderers. The frame stays the authority - it
-             answers with the mode it actually built, so a 2D fallback cannot
-             leave this segment claiming 3D. -->
-        <div class="gmode-tabs" id="renderer-tabs" hidden role="group" aria-label="renderer">
-          <button type="button" data-renderer="3d" aria-pressed="false" title="WebGL, three dimensions">3D</button>
-          <button type="button" data-renderer="2d" aria-pressed="false" title="canvas, two dimensions, with note labels">2D</button>
-        </div>
-
         <!-- The vault moves under a built graph (Obsidian, a nucleate in a
              terminal, a second window) and /vault_version says so. Rebuilding
              on the spot would throw away the camera, the zoom and the focused
@@ -320,6 +314,30 @@
           <div id="node-results" hidden></div>
         </div>
       </div>
+
+      <!-- The legend. It is anchored to the picture and not to the window
+           chrome, because everything in it is a reading OF the picture: which
+           surface you are on, what the colour means, what the marks in front of
+           you are. Layout and Areas used to be two compartments of the left
+           rail, a screen's width from the thing they described.
+           Both open closed: the surface you are on is already drawn, so the
+           list of the other five is a control you reach for once, and a
+           26-row area spectrum is not a legend, it is a list that HAS one.
+           #lg-surface is the only part that changes with the mode - it is the
+           key to the marks of THIS surface, and it is empty for none of them.
+           On graph it sits flush above the frame's own HUD, which keeps the
+           edge/node/colour filters because those drive the scene directly. -->
+      <aside id="legend" aria-label="view options">
+        <details id="lg-layout" class="lg-sec">
+          <summary class="lg-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><polygon points="12 3 21 8 12 13 3 8"></polygon><polyline points="3 13 12 18 21 13"></polyline></svg>Layout<span id="lg-layout-now"></span></summary>
+          <div class="lg-body"><div id="layout-modes"></div></div>
+        </details>
+        <details id="lg-areas" class="lg-sec" hidden>
+          <summary class="lg-title"><svg class="si" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7" cy="8" r="3"></circle><circle cx="17" cy="7" r="2.4"></circle><circle cx="13" cy="17" r="3.4"></circle></svg>Areas<span id="areas-count"></span></summary>
+          <div class="lg-body"><div id="areas"></div></div>
+        </details>
+        <div id="lg-surface"></div>
+      </aside>
 
       <div id="graph-loading" class="frame-loading" hidden>
         <div class="spinner"></div>
@@ -398,30 +416,26 @@
   <aside id="note-panel" aria-hidden="true">
     <div id="note-resize" title="drag to resize"></div>
     <header>
-      <!-- One mark, because there is one panel now. Two asides used to share
-           this edge - this drawer and Work - and a glyph each was how you told
-           which of them you were on, a label over what turned out to be a
-           duplicate. Work is a MODE of this drawer now, so the mark stops
-           naming a document and names the sidebar itself, which is also the
-           glyph on the header button that opens it: the control and the thing
-           it opens carry one sign. -->
-      <svg class="np-ico" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16"></rect><line x1="15" y1="4" x2="15" y2="20"></line></svg>
+      <!-- No mark here. It carried the drawer's own glyph, the same one on
+           #drawer-toggle - which is a sign for "this is the drawer", stated
+           inside the open drawer to a reader already looking at it. The header
+           button still wears it, because there it names something you cannot
+           see. -->
       <span id="note-title"></span>
-      <!-- Work mode's own two marks, hoisted into this header when Work stopped
-           being a panel with a header of its own. What the run is ABOUT (report,
-           node) stays a chip beside the name rather than replacing it, and the
-           dot is the only thing on this strip that moves while a turn runs.
-           Hidden in the other two modes: they are about a file, not a run. -->
-      <span class="wk-scope" id="work-scope" hidden></span>
-      <span id="work-state" class="wk-state" hidden>idle</span>
-      <!-- The three things this edge can say. Two are readings of the same FILE
+      <!-- The node pane's own two marks. The scope chip says `report` on the
+           one view that can point at the vault rather than at a note; the other
+           carries the clock beside it, or `unresolved` for a ghost. -->
+      <span class="wk-scope" id="node-scope" hidden></span>
+      <span id="node-state" class="wk-num" hidden></span>
+      <!-- Three readings, one subject each. Two are the same FILE read two ways
            - what it says now, and what this session changed in it - and the
-           third is the run, which was a second aside at this same edge until
-           the drawer, also at this edge, hid it on every open. A segmented
-           control, because these are states of one surface, not three places
-           to go. -->
+           third is the node you POINTED at, which is a different thing from
+           either. This segment used to say `work`, and the pane behind it drew
+           the run OR the node depending on which view you were on: one name over
+           two subjects, so the label was wrong half the time. The run is the
+           left rail's Work compartment now. -->
       <div id="note-mode" role="group" aria-label="sidebar mode">
-        <button type="button" data-mode="work" aria-pressed="false" title="what the agent is doing">work</button>
+        <button type="button" data-mode="node" aria-pressed="false" title="what you pointed at">node</button>
         <button type="button" data-mode="diff" aria-pressed="false" title="what this session changed in this note">diff</button>
         <button type="button" data-mode="note" class="active" aria-pressed="true" title="read the note">note</button>
       </div>
@@ -464,13 +478,12 @@
          built in JS from /changes/diff. -->
     <div id="note-diff" hidden></div>
     <div id="note-body"></div>
-    <!-- work mode: the run itself, every row a projection of a beat the agent
-         already wrote to ~/.silica/narration; see static/work.js. It was an
-         #work aside of its own against this same edge, which meant the drawer
-         hid it (body.note-open #work: display none) every time a note opened -
-         a panel you could only read by closing the other one. Three panes, one
-         per segment, and the header above them is the only header. -->
-    <div id="work-body" hidden></div>
+    <!-- node mode: what you pointed at - a graph node, a map card, a metrics or
+         shape row - as the ONE rendering of /context in the app. On the metrics
+         view with nothing selected it states the report instead, which is the
+         same gesture aimed at the vault. Built in static/work.js, which also
+         fills the rail's Work compartment from the same stream. -->
+    <div id="node-pane" hidden></div>
   </aside>
 
   <div id="dock" hidden>

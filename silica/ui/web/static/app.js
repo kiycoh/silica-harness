@@ -1445,21 +1445,20 @@ $("#top-broken").addEventListener("click", () => {
   document.querySelector('.tab[data-tab="metrics"]').click();
 });
 
-// Two conditions, one hidden flag, and they arrive at different times: the
-// areas come from a fetch, the view from a click. Whichever moves calls this,
-// so neither can leave the compartment showing on chat or missing on explore.
-// The areas ARE the colouring of the graph and the rows of the areas surface;
-// on a transcript they are a list nothing on screen refers to.
+// A vault with no named areas has nothing to legend, and an empty fold is a
+// row that opens onto nothing. The view gate that used to ride here is gone
+// with the compartment: #legend lives inside #view-graph, so it is already
+// only on the view its contents describe.
 let railHasAreas = false;
 
 function syncAreasRail() {
-  $("#side-areas").hidden = !railHasAreas || activeTab !== "graph";
+  $("#lg-areas").hidden = !railHasAreas;
 }
 
-// The rail's area spectrum, from the same /vault_info the landing reads: one
+// The legend's area spectrum, from the same /vault_info the landing reads: one
 // fetch, two readings. The bar is proportional to the largest area, because
-// what the rail is for here is the SHAPE of the distribution; the exact size is
-// the figure beside it. The summary counts every area, not the five that fit.
+// what this is for is the SHAPE of the distribution; the exact size is the
+// figure beside it. The summary counts every area, not the five that fit.
 function renderRailAreas(data) {
   const rows = (data.topics || []).filter((t) => t.label);
   const box = $("#areas");
@@ -1482,12 +1481,15 @@ function renderRailAreas(data) {
   }
 }
 
-// --- the rail's Layout compartment (explore only) ----------------------------
-// The ONE place the five surfaces are named. They used to be a row of tabs in
-// the graph toolbar as well, a hand's width from this list: two controls for one
-// choice, and the rail is the one that survives a narrow window. The list is
-// data here rather than markup because the toolbar copy is gone — there is no
-// second DOM to read it back off.
+// --- the legend's Layout compartment -----------------------------------------
+// The ONE place the six surfaces are named. They used to be a row of tabs in
+// the graph toolbar as well, a hand's width from this list; then this list was
+// in the LEFT rail, a screen's width from the picture it switched. It is
+// against the picture now. The list is data rather than markup because there is
+// no second DOM to read it back off.
+//
+// The third field is not a tooltip only: it is the surface's KEY, and the same
+// string is what #lg-surface states about the marks in front of you.
 const LAYOUT_MODES = [
   ["graph", "Graph", "wikilink structure + semantic k-NN overlay; toggle the layers in the HUD"],
   ["map", "Map", "radial map rooted on one note"],
@@ -1523,6 +1525,10 @@ function buildLayoutRail() {
 function syncLayoutRail() {
   document.querySelectorAll("#layout-modes .lay")
     .forEach((b) => setActive(b, b.dataset.gmode === graphMode));
+  // Closed, the fold has to say which of the six you are on, or it is a row
+  // that names the control and not the state.
+  const now = LAYOUT_MODES.find(([m]) => m === graphMode);
+  $("#lg-layout-now").textContent = now ? now[1] : "";
 }
 
 // --- pinned notes ------------------------------------------------------------
@@ -1922,9 +1928,6 @@ function showTab(tab) {
   $("#view-graph").classList.toggle("active", tab === "graph");
   $("#view-calendar").classList.toggle("active", tab === "calendar");
   $("#view-metrics").classList.toggle("active", tab === "metrics");
-  // The rail's Layout rows name the surfaces of ONE view, so they leave with it.
-  // Areas is the same fact about the same view: what the graph is coloured by.
-  $("#side-layout").hidden = tab !== "graph";
   syncAreasRail();
   if (tab === "graph") setGraphMode(graphMode); // load the active mode's content
   if (tab === "calendar") loadCalendar();
@@ -1993,9 +1996,7 @@ function setGraphMode(m) {
   graphMode = m;
   syncRefreshCue(); // the offer belongs to the graph surface alone
   syncLayoutRail();
-  // Only the graph has two renderers. On the other four the segment would be a
-  // control with nothing to switch.
-  $("#renderer-tabs").hidden = m !== "graph";
+  buildSurfaceLegend();
   const isMap = m === "map";
   // folders / areas / read render in-page. They take the whole pane, so both
   // iframes hide and the note search goes with them: it flies the graph camera
@@ -2042,7 +2043,59 @@ $("#graph-refresh").addEventListener("click", () => {
   setGraphMode("graph"); // graphStale is already true, so this is the rebuild
 });
 
-$("#graph-bar").addEventListener("click", (e) => {
+// --- the legend's per-surface half -------------------------------------------
+// What the marks in front of you MEAN, for the one surface you are on. Every
+// surface already stated this somewhere - the shape views printed it as a grey
+// line inside their own pane, the graph hid its renderer in a toolbar - so this
+// is one home for six scattered captions, not six new ones.
+//
+// A key and, where the surface has one, its controls. Only the graph has a
+// control here today: the two renderers. The blank left by the others is not a
+// gap to fill with knobs - a control that changes nothing worth changing is
+// worse than none - but the obvious candidates when they earn their keep are a
+// depth cap on map, a fill rule on folders (mixing vs size), a sort on the
+// areas matrix, and a "areas covered" cut on read.
+const SURFACE_KEYS = {
+  graph: ["node = note · size = how much the vault routes through it · colour = area",
+          "lines are filtered in the panel below"],
+  map: ["ring = hops from the root · angle = how alike two notes read",
+        "pick a different root from the search above"],
+  folders: ["tile area = notes in the folder · fill = how much the folder mixes areas",
+            "click a folder to descend, the crumbs walk back"],
+  areas: ["cell = links between two areas · diagonal = the area's own cohesion"],
+  read: ["stops in area order, biggest first · each hub then what it opens onto"],
+  path: ["− comes before this note · + is what it unlocks · ● is where you are",
+         "RefD over the resolved links; re-root from any chip"],
+};
+
+function buildSurfaceLegend() {
+  const box = $("#lg-surface");
+  box.innerHTML = "";
+  const key = SURFACE_KEYS[graphMode] || [];
+  // Only the graph has two renderers. On the other five a segment here would be
+  // a control with nothing to switch.
+  if (graphMode === "graph") {
+    const seg = mkEl("div", "gmode-tabs");
+    seg.id = "renderer-tabs";
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "renderer");
+    for (const [r, why] of [["3d", "WebGL, three dimensions"],
+                            ["2d", "canvas, two dimensions, with note labels"]]) {
+      const b = mkEl("button", null, r.toUpperCase());
+      b.type = "button";
+      b.dataset.renderer = r;
+      b.title = why;
+      b.setAttribute("aria-pressed", "false");
+      seg.appendChild(b);
+    }
+    box.appendChild(seg);
+    syncRenderer("");   // paint the fresh pair from what the frame last said
+  }
+  for (const line of key) box.appendChild(mkEl("div", "lg-key", line));
+  syncLegendOffset();
+}
+
+$("#lg-surface").addEventListener("click", (e) => {
   // The renderer lives inside the frame (it owns the WebGL/canvas instance), so
   // this asks rather than sets. Nothing is painted here on the way out: the
   // frame answers with the mode it actually built, which is the only value that
@@ -2053,13 +2106,32 @@ $("#graph-bar").addEventListener("click", (e) => {
   if (f.contentWindow) f.contentWindow.postMessage({ type: "silica-set-renderer", mode: r }, "*");
 });
 
+// The frame's HUD is anchored to the frame's own top-right, which is where this
+// legend sits. It cannot see this element, so it is told how tall it is and
+// parks underneath — the two then read as one stack against that edge rather
+// than as one panel covering another.
+function syncLegendOffset() {
+  const f = $("#graph-frame");
+  if (!f || !f.contentWindow) return;
+  const h = $("#legend").getBoundingClientRect().height;
+  f.contentWindow.postMessage({ type: "silica-legend-h", h: Math.round(h) }, "*");
+}
+new ResizeObserver(syncLegendOffset).observe($("#legend"));
+
 // The frame states its renderer on every build and on every switch, embedded or
 // not. Before the first answer the segment shows neither: an unanswered toolbar
 // that guesses 3D is a toolbar that is wrong for as long as the graph takes to
 // build.
+// Remembered, because the segment is now BUILT per surface rather than hidden:
+// leaving graph for folders and coming back makes a fresh pair of buttons, and
+// the frame announces only on a build or a switch. Without this the segment
+// came back blank on a graph that was plainly still in 2D.
+let lastRenderer = "";
+
 function syncRenderer(mode) {
+  if (mode) lastRenderer = mode;
   document.querySelectorAll("#renderer-tabs button")
-    .forEach((b) => setActive(b, b.dataset.renderer === mode));
+    .forEach((b) => setActive(b, b.dataset.renderer === lastRenderer));
 }
 
 // #graph-frame finishes loading only once the server is done building — drop the
@@ -2068,6 +2140,10 @@ $("#graph-frame").addEventListener("load", () => {
   $("#graph-loading").hidden = true;
   replayGraphFocus(); // re-sync whatever is focused after a (re)load
   syncDrawerToViews(); // ditto for the drawer, which hides this frame's HUD
+  // …and for the legend. A contentWindow exists long before the document in it
+  // has a listener, so every earlier post was dropped: measured, the HUD sat at
+  // top:10px under a legend 203px tall and lost its first six rows.
+  syncLegendOffset();
 });
 $("#map-frame").addEventListener("load", () => { $("#map-loading").hidden = true; });
 
@@ -2181,8 +2257,6 @@ function renderFolders(s) {
     crumbs.appendChild(mk(p, i + 1));
   });
   head.appendChild(crumbs);
-  head.appendChild(mkEl("span", "shape-sub",
-    "area = notes · fill = how much the folder mixes areas · click a folder to descend"));
   pane.appendChild(head);
 
   const rows = folderLevel(s.notes, folderPrefix, new Set(s.areas.map((a) => a.id)));
@@ -2237,7 +2311,7 @@ function renderAreas(s) {
     for (let j = i + 1; j < s.areas.length; j++) if (s.matrix[i][j]) linked++;
   }
   head.appendChild(mkEl("span", "shape-sub",
-    `${s.areas.length} areas · ${linked} of ${pairs} pairs share a link · diagonal is cohesion`));
+    `${s.areas.length} areas · ${linked} of ${pairs} pairs share a link`));
   pane.appendChild(head);
 
   pane.appendChild(couplingMatrix(s.areas, s.matrix));
@@ -2255,8 +2329,7 @@ function renderReading(s) {
   const head = mkEl("div", "shape-head");
   const r = s.reading;
   head.appendChild(mkEl("strong", null, "A way through"));
-  head.appendChild(mkEl("span", "shape-sub",
-    `${r.stops.length} stops · areas biggest first, each hub then what it opens onto`));
+  head.appendChild(mkEl("span", "shape-sub", `${r.stops.length} stops`));
   pane.appendChild(head);
   // The path is a roll on a reading measure, so on a wide screen it cannot fill
   // the pane and should not try. What the width is worth here is a way back:
@@ -4608,12 +4681,19 @@ function repaintMermaid() {
 const MIN_PROSE = 560;   // px of transcript that must survive, ~47ch of prose once
                          // the sheet's and the row's padding come out of it
 const MIN_DRAWER = 320;  // below this the drawer stops being worth its own pane
-const SIDE_W = 264;      // must match --side-w
 let sidebarYielded = false;
+
+// The rail is draggable, so its width is read and never assumed: a constant
+// here would go stale the first time anyone touched the handle, and the drawer
+// would size itself against a rail that is no longer that wide.
+function sideW() {
+  return parseInt(getComputedStyle(document.documentElement)
+    .getPropertyValue("--side-w"), 10) || 264;
+}
 
 // What the drawer may take before the transcript drops below its floor.
 function drawerBudget(sidebarOn) {
-  return window.innerWidth - (sidebarOn ? SIDE_W : 0) - MIN_PROSE;
+  return window.innerWidth - (sidebarOn ? sideW() : 0) - MIN_PROSE;
 }
 
 // Single owner of the open-drawer layout: decides whether the sidebar can stay,
@@ -4648,11 +4728,14 @@ function restoreYieldedSidebar() {
 
 // This drawer is the app's ONE right-edge surface, in three modes. Two are the
 // same file read two ways: `note` is the reader, `diff` is that file against how
-// it stood before this session touched it. The third, `work`, is the run, and it
-// was an #work aside of its own against this same edge until the CSS that kept
-// the two apart said what the arrangement really was - `body.note-open #work:
-// display none`, i.e. the surface that says what the agent is doing was off for
-// as long as any note was open. A mode cannot collide with its own siblings.
+// it stood before this session touched it. The third, `node`, is what you
+// POINTED at, which is a different subject from either.
+//
+// That third mode was called `work` and drew two unrelated things behind one
+// name: the run on chat, the node on explore. A segment cannot be named after
+// one of its two subjects. The run moved to the left rail's Work compartment,
+// where nothing competes with it and it stays readable WHILE a note is open;
+// this mode kept the node, and now carries the name of what it draws.
 //
 // (It also once carried a `context` mode, which drew the /context payload the
 // work panel's node scope also drew: two panels at the same edge, the same
@@ -4662,54 +4745,48 @@ function restoreYieldedSidebar() {
 // The click contract, unchanged in principle and now stated once: NAMING a note
 // means "I want to read it", so a wikilink, the file tree and a search hit land
 // on `note`. POINTING at one means "what is this", so a graph node, a map card
-// and a metrics row land on `work`. A second click on a node is "read it" said
+// and a metrics row land on `node`. A second click on a node is "read it" said
 // with the gesture, and lands back on `note`.
 let drawerMode = "note";
-
-// Read HERE, at load, and not where it is used at the bottom of this file:
-// syncDrawerMode() writes this key on every call and the restore has to run
-// after the boot tab (which closes the sidebar), so by then the first sync has
-// already overwritten it with the closed state. A preference read late is a
-// preference read after it was answered.
-const bootWantsWork = localStorage.getItem("work-open") === "1";
 
 function syncDrawerMode() {
   const path = lastNotePath || lastViewedPath;
   const open = notePanel.classList.contains("open");
   document.querySelectorAll("#note-mode button").forEach((b) => {
-    setActive(b, b.dataset.mode === drawerMode);
-    // A note this session never touched has no diff, and a session that has
-    // opened none has no note either: an enabled segment onto an empty pane is a
-    // promise the sidebar cannot keep. `work` is never disabled - it is about the
-    // run, which exists whether or not anything has been read.
+    const on = b.dataset.mode === drawerMode;
+    setActive(b, on);
+    // A note this session never touched has no diff, a session that has opened
+    // none has no note, and a session that has pointed at nothing has no node:
+    // an enabled segment onto an empty pane is a promise the sidebar cannot
+    // keep. Never the mode that is SHOWING, though - the header toggle can open
+    // the node pane on its own empty state, and a lit segment you cannot press
+    // reads as a broken control rather than as a pane with nothing in it.
     if (b.dataset.mode === "diff") {
-      b.disabled = !changedPaths.has(path);
+      b.disabled = !on && !changedPaths.has(path);
       b.title = b.disabled ? "this session has not changed this note"
                            : "what this session changed in this note";
+    } else if (b.dataset.mode === "node") {
+      b.disabled = !on && !nodePicked;
+      b.title = b.disabled ? "point at a node on explore or metrics"
+                           : "what you pointed at";
     } else if (b.dataset.mode === "note") {
-      b.disabled = !path;
+      b.disabled = !on && !path;
       b.title = b.disabled ? "no note opened yet" : "read the note";
     }
   });
   $("#note-body").hidden = drawerMode !== "note";
   $("#note-diff").hidden = drawerMode !== "diff";
-  $("#work-body").hidden = drawerMode !== "work";
-  // The five actions act ON the open note, and the scope chip and the live dot
-  // belong to the run: each row states the mode it came from and nothing else.
-  $("#note-actions").hidden = drawerMode === "work";
-  $("#work-scope").hidden = drawerMode !== "work";
-  $("#work-state").hidden = drawerMode !== "work";
-  // Pressed means "the sidebar is showing the RUN", not "the sidebar is open":
-  // this button opens exactly one of the three modes, and lighting it while the
-  // panel shows a note would name the wrong one.
-  const on = open && drawerMode === "work";
-  setActive($("#work-toggle"), on);
-  $("#work-toggle").title = on ? "hide the work panel" : "show what the agent is doing";
-  // The sidebar's one persisted preference, written from the single place that
-  // knows both halves of it. Not "was the sidebar open": the NOTE segment
-  // reopens the last note on a click, and restoring a file you had finished with
-  // is not the same promise as restoring a pane you keep.
-  localStorage.setItem("work-open", on ? "1" : "0");
+  $("#node-pane").hidden = drawerMode !== "node";
+  // The five actions act ON the open note; the two chips belong to the node.
+  // Each row states the mode it came from and nothing else.
+  $("#note-actions").hidden = drawerMode === "node";
+  $("#node-scope").hidden = drawerMode !== "node";
+  $("#node-state").hidden = drawerMode !== "node";
+  // Pressed means the drawer is OPEN, and nothing finer: this is the only
+  // control it has once it is shut, and which of the three modes is showing is
+  // what the segment above already says.
+  setActive($("#drawer-toggle"), open);
+  $("#drawer-toggle").title = open ? "hide the note sidebar" : "show the note sidebar";
 }
 
 // Shared tail of both openers: raise the panel and let fitPanes negotiate the
@@ -4725,14 +4802,21 @@ function showDrawer(title) {
   syncDrawerMode(); // the segments and the header toggle key on `open`, set above
 }
 
-// Work opens without a path, which is the whole difference between it and the
-// other two: it is about the run. The empty title leaves #note-title as the
-// header's flex spacer, with the scope chip and the live dot in it instead.
-function openWork() {
-  drawerMode = "work";
+// Node opens without a path, which is the whole difference between it and the
+// other two: it is about what you pointed at, which may be a ghost with no file
+// behind it at all. The empty title leaves #note-title as the header's flex
+// spacer, with the two chips in it instead.
+let nodePicked = false; // has anything been pointed at this session
+
+function openNodePane() {
+  drawerMode = "node";
   showDrawer("");
 }
-window.openWorkDrawer = openWork; // work.js: pointing at a node asks for this pane
+// The flag is set HERE and not in openNodePane, because this is the only entry
+// that is an actual pick. The segment above calls the same opener and is
+// disabled until this has fired, and the header toggle falls back to this pane
+// on a session that has read nothing — neither of those is a node.
+window.openNodeDrawer = () => { nodePicked = true; openNodePane(); };
 
 async function openNote(path) {
   if (!path) return;
@@ -4794,7 +4878,7 @@ $("#note-mode").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-mode]");
   if (!b || b.disabled || b.dataset.mode === drawerMode) return;
   const path = lastNotePath || lastViewedPath;
-  if (b.dataset.mode === "work") openWork();
+  if (b.dataset.mode === "node") openNodePane();
   else if (b.dataset.mode === "diff") openDiff(path);
   else openNote(path);
 });
@@ -4862,15 +4946,28 @@ function closeNote() {
   restoreYieldedSidebar();
   lastNotePath = null; // lastViewedPath survives — the NOTE segment can reopen
   focusGraphNode(null);
-  syncDrawerMode(); // unlights #work-toggle and clears the reopen-on-work pref
+  syncDrawerMode(); // the segments key on `open`, cleared above
 }
 
-// The header's sidebar button owns exactly one mode, so it toggles that mode and
-// not the panel: on a sidebar already open reading a note it SWINGS to the run
-// rather than closing what you were reading.
-$("#work-toggle").addEventListener("click", () => {
-  if (notePanel.classList.contains("open") && drawerMode === "work") closeNote();
-  else openWork();
+// The header's one control for the drawer: open it, or shut it. It does not
+// pick a mode, it RESTORES one — whichever you left it on, degraded to the next
+// one that has something behind it, because a segment can go dead between two
+// opens (a diff needs this session to have touched the file).
+function reopenDrawer() {
+  const path = lastNotePath || lastViewedPath;
+  if (drawerMode === "diff" && changedPaths.has(path)) { openDiff(path); return; }
+  if (drawerMode !== "node" && path) { openNote(path); return; }
+  if (drawerMode === "node" && nodePicked) { openNodePane(); return; }
+  if (path) { openNote(path); return; }
+  // Nothing read and nothing pointed at: the node pane is the one mode with a
+  // real thing to say about that, so it opens on its own empty state rather
+  // than on a reader with no file in it.
+  openNodePane();
+}
+
+$("#drawer-toggle").addEventListener("click", () => {
+  if (notePanel.classList.contains("open")) closeNote();
+  else reopenDrawer();
 });
 // The two turns a suggestion drafts. They live here and not in work.js, which
 // is the only surface that offers them, because a prompt written twice is two
@@ -4907,7 +5004,12 @@ window.ghostWritePrompt = ghostWritePrompt;
 // one function, rather than growing a second copy of "resolve the term, then
 // focus whatever carries it".
 async function lightConcept(term, btn) {
+  // Clicking the lit one drops it. A concept lights a SET, and a set you can
+  // only ever swap for another set is a mode you are stuck in: there was no
+  // gesture at all for "show me the graph again", short of opening a note.
+  const drop = btn.classList.contains("lit");
   document.querySelectorAll(".wk-pill.lit").forEach((e) => e.classList.remove("lit"));
+  if (drop) { focusGraphNodes([]); return; }
   btn.classList.add("lit");
   if (activeTab !== "graph") showTab("graph");
   try {
@@ -4941,6 +5043,22 @@ $("#note-map").addEventListener("click", () => {
   document.querySelector('.tab[data-tab="graph"]').click();
   rootMap(note);
 });
+
+// The same jump for the reading order, which the node panel's ladder footer
+// hands off to. Exported rather than duplicated: the drawer knows which note it
+// is on and nothing else about explore's modes, and rootPath is the one place
+// that knows how to enter Path rooted somewhere.
+window.openLadder = (note) => {
+  if (!note) return;
+  // rootPath BEFORE the tab, and no pre-set graphMode: the map button can
+  // pre-set its mode because rootMap is replayed on tab-enter, and path has no
+  // such replay - showTab's setGraphMode(graphMode) draws off pathRootedPath
+  // and nothing else. Pre-setting the mode therefore started an UNROOTED draw
+  // first, and the landing measures forty ladders, so it also finished last
+  // and overwrote the rooted one: Path opened on the picker every time.
+  rootPath(note);
+  document.querySelector('.tab[data-tab="graph"]').click();
+};
 
 // summarize / explain / quiz — dispatch the reader slash-command for the open
 // note as a chat turn. The drawer stays open (the peek dock tucks under it and
@@ -5021,6 +5139,41 @@ $("#peek-open-chat").addEventListener("click", () => {
   document.querySelector('.tab[data-tab="chat"]').click(); // tab handler closes the peek
 });
 $("#peek-close").addEventListener("click", closePeek);
+
+// --- rail resize (drag right edge, clamped) ---------------------------------
+// The mirror of #note-resize below, and it exists for the same reason: the one
+// line that says WHICH vault you are reading sat at the foot of a 264px column
+// and was clipped there, so the answer was reachable only by hovering it.
+const SIDE_MIN_W = 200, SIDE_MAX_W = 520;
+
+function setSideW(w) {
+  document.documentElement.style.setProperty("--side-w", w + "px");
+}
+
+const savedSideWidth = parseInt(localStorage.getItem("side-width"), 10);
+if (savedSideWidth) setSideW(Math.min(SIDE_MAX_W, Math.max(SIDE_MIN_W, savedSideWidth)));
+
+$("#side-resize").addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  const startX = e.clientX, startWidth = sideW();
+  const onMove = (e2) => {
+    // The same prose floor the drawer obeys: widening the rail must not be a
+    // way around it, or the two panes together squeeze the transcript to
+    // nothing from opposite edges.
+    const open = document.body.classList.contains("note-open");
+    const cap = open ? window.innerWidth - MIN_PROSE - MIN_DRAWER : SIDE_MAX_W;
+    setSideW(Math.min(SIDE_MAX_W, Math.max(SIDE_MIN_W,
+      Math.min(cap, startWidth + (e2.clientX - startX)))));
+  };
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    localStorage.setItem("side-width", sideW());
+    fitPanes(); // the drawer's budget just changed under it
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+});
 
 // --- note panel resize (drag left edge, clamped) ----------------------------
 const NOTE_MIN_W = 280, NOTE_MAX_W = 800;
@@ -5116,9 +5269,15 @@ document.addEventListener("click", (e) => {
   // the way it does today, rather than opening a new tab on a 404.
   const ext = e.target.closest('a[href^="http:"], a[href^="https:"]');
   if (ext) { e.preventDefault(); window.open(ext.href, "_blank", "noopener"); return; }
+  // isConnected FIRST, and not as one more `closest` — a row inside the drawer
+  // whose own handler re-renders the list has already been detached by the time
+  // this runs, and closest() on a detached node answers "outside" for every
+  // selector below. That is what closed the sidebar on every Read-first click:
+  // the panel the click asked to walk was the panel it took away.
   if (drawerBefore && drawerBefore === drawerNow() &&  // untouched by this click
+      e.target.isConnected &&
       !e.target.closest("#note-panel") && !e.target.closest("#sidebar") &&
-      !e.target.closest("#dock") && !e.target.closest("#work-toggle")) closeNote();
+      !e.target.closest("#dock")) closeNote();
 });
 $("#note-close").addEventListener("click", closeNote);
 // (Escape is handled once, at the bottom of this file, in priority order.)
@@ -6600,4 +6759,3 @@ document.querySelector(
 // the sidebar on `work` narrates a run, and the state it would open on by
 // default is the state it spends most of its time in - empty, beside a
 // transcript that is 630px narrower for it.
-if (bootWantsWork) openWork();

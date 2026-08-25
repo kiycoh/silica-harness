@@ -2474,7 +2474,6 @@ def _note_structure(canon: str) -> dict:
         return {}
     if not st or not st.get("in_graph"):
         return {}
-    name = lambda p: {"name": _clean_name(p), "path": p}  # noqa: E731
     return {
         "coreness": st["coreness"],
         "articulation": st["articulation"],
@@ -2486,9 +2485,53 @@ def _note_structure(canon: str) -> dict:
         "surprise": round(st["surprise"] * 100),
         "dissonance": (None if st["dissonance"] is None
                        else round(st["dissonance"] * 100)),
-        "prerequisites": [name(p) for p in st["prerequisites"]],
-        "unlocks": [name(p) for p in st["unlocks"]],
+        # prerequisites/unlocks are NOT here: they are the +-1 rungs of the
+        # ladder below, and the panel draws that instead. Two spellings of one
+        # relation in one payload is the drift this file's tests exist to stop.
     }
+
+
+def _note_ladder(canon: str, *, near: int = 2, per_rung: int = 3) -> dict:
+    """Where this note sits in a reading order, not just who touches it.
+
+    The two flat lists this replaced could not say the one thing the DAG knows:
+    that a prerequisite has a prerequisite. `ladder` walks three hops each way,
+    and the drawer draws the near rungs at `near`; everything past that is a
+    count and a hand-off to the Path surface, which is the one place in the app
+    that draws a whole ladder. Same reason `per_rung` exists: a 310px column
+    that prints all 21 dependents of a hub buries every section under it.
+
+    Empty dict, never a rung of one: a note with no direction around it has no
+    reading order, and a section holding only the note you are already on is a
+    heading with nothing under it.
+    """
+    from silica.kernel.report.structure import ladder as build_ladder
+
+    try:
+        lad = build_ladder(canon)
+    except Exception:
+        logger.debug("context: ladder failed for %s", canon, exc_info=True)
+        return {}
+    if not lad["nodes"]:
+        return {}
+    by_depth: dict[int, list[str]] = {}
+    for n in lad["nodes"]:
+        by_depth.setdefault(n["depth"], []).append(n["path"])
+    rungs, further = [], 0
+    for d in sorted(by_depth):
+        paths = sorted(by_depth[d], key=_clean_name)
+        # Past the near rungs the drawer says how many rather than which: the
+        # names are the Path surface's job and it has the width for them.
+        if abs(d) > near:
+            further += len(paths)
+            continue
+        rungs.append({
+            "depth": d,
+            "notes": [_row(q) for q in paths[:per_rung]],
+            "hidden": max(0, len(paths) - per_rung),
+        })
+    return {"rungs": rungs, "further": further, "root": lad["root"],
+            "cycles": lad["cycles"], "truncated": lad["truncated"]}
 
 
 @app.get("/context")
@@ -2574,6 +2617,7 @@ def context(path: str = "", name: str = "", ghost: bool = False):
         "related": {"frontmatter": frontmatter, "outgoing": outgoing, "backlinks": backlinks},
         "suggested": _suggested(canon, rel, linked, resolve),
         "structure": _note_structure(canon),
+        "ladder": _note_ladder(canon),
         # Without embeddings `related` ranks on co-occurrence alone, and the
         # section looks thin for a reason the reader cannot see from here.
         # silica_related's own hint wins when it has one — it knows more about
@@ -3231,7 +3275,7 @@ async def start_endpoint(payload: dict):
 
 @app.get("/")
 def index():
-    # Cache-bust app.js/app.css by content hash: StaticFiles sets no
+    # Cache-bust the three churning assets by content hash: StaticFiles sets no
     # Cache-Control, so browsers serve them stale from heuristic freshness
     # (edited JS never reaches the page). A content-keyed URL can't be stale.
     # The big vendored bundles keep their long-lived cache — only these churn.
@@ -3240,7 +3284,10 @@ def index():
     from silica.config import CONFIG
 
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    for asset in ("app.js", "app.css"):
+    # work.js belongs here as much as the other two: it owns the whole node
+    # panel and churns with it, and without a version an edit to it reaches
+    # nobody who has already loaded the page once.
+    for asset in ("app.js", "app.css", "work.js"):
         ver = hashlib.sha256((STATIC_DIR / asset).read_bytes()).hexdigest()[:8]
         html = html.replace(f"/static/{asset}", f"/static/{asset}?v={ver}")
     # The preference, not the resolution: "auto" is a question only the browser

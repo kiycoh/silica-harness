@@ -411,12 +411,14 @@ def test_the_work_panel_reads_the_structure_block_through_the_projection():
     proj = re.search(r"// --- projection:begin.*?// --- projection:end", js, re.S).group(0)
     assert "structure: c.structure || null," in proj
     assert "function structureRows(st)" in proj
-    # Read first / Unlocks are rows that point at notes, so they use the same
-    # section builder every other neighbour list does.
-    assert 'nodeSection("Read first", st.prerequisites || [])' in js.replace(
-        ", (r) => ({ why: folderOf(r.path) }))", ")")
-    assert 'nodeSection("Unlocks", st.unlocks || [])' in js.replace(
-        ", (r) => ({ why: folderOf(r.path) }))", ")")
+    # The direction is a spine, not two lists: a rung is a DEPTH, so "read
+    # first" and "unlocks" are -1 and +1 of one section and the chain behind
+    # them keeps going. The projection carries it through whole, like the
+    # structure block, so the server stays the only place that decides which
+    # rungs are near enough to name.
+    assert "ladder: c.ladder || null," in proj
+    assert "function ladderSection(d)" in js
+    assert "nodeSection(\"Read first\"" not in js and "nodeSection(\"Unlocks\"" not in js
 
 
 def test_the_structure_row_has_a_warning_state_and_a_neutral_one():
@@ -504,7 +506,11 @@ def test_context_carries_the_structure_block(client, tmp_vault, monkeypatch):
     # Rounded to whole percent at the seam: the raw pct-rank difference carries
     # four decimals of noise from a betweenness sampled at 400 pivots.
     assert st["surprise"] == 41 and st["dissonance"] == 50
-    assert st["prerequisites"] == [{"name": "B", "path": "B.md"}]
+    # The direction is NOT in this block. prerequisites/unlocks are the +-1
+    # rungs of `ladder`, which carries the same relation two hops further, and
+    # the panel draws that: shipping both spellings in one payload is how the
+    # two would have drifted.
+    assert "prerequisites" not in st and "unlocks" not in st
 
 
 def test_context_omits_the_block_for_a_note_the_graph_does_not_hold(client, tmp_vault,
@@ -532,6 +538,55 @@ def _fake_map(monkeypatch, **kw):
     object.__setattr__(m, "_sizes", {})
     monkeypatch.setattr(structure, "structure_map", lambda: m)
     return m
+
+
+def test_context_carries_the_reading_order_as_rungs_around_this_note(client, tmp_vault,
+                                                                    monkeypatch):
+    """BASE -> MID -> TIP, asked from the middle: the drawer has to see both
+    ends, which is the whole reason the two flat lists were not enough. MID's
+    prerequisite list said BASE and stopped; the rung at -1 says BASE and the
+    rung at +1 says TIP, off one walk."""
+    for n in ("BASE", "MID", "TIP"):
+        tmp_vault.note(f"{n}.md", n.lower())
+    _fake_map(
+        monkeypatch,
+        degree={"BASE.md": 1, "MID.md": 1, "TIP.md": 1},
+        prereq={"MID": ["BASE"], "TIP": ["MID"]},
+        unlocks={"BASE": ["MID"], "MID": ["TIP"]},
+    )
+    lad = client.get("/context", params={"path": "MID.md"}).json()["ladder"]
+    assert [r["depth"] for r in lad["rungs"]] == [-1, 0, 1]
+    assert [n["name"] for r in lad["rungs"] for n in r["notes"]] == ["BASE", "MID", "TIP"]
+    assert lad["root"] == "MID.md"
+
+
+def test_a_rung_past_the_near_ones_is_a_count_and_not_a_name(client, tmp_vault, monkeypatch):
+    """A 310px column that prints every hop of a four-deep chain buries the
+    sections under it. Depth 3 is `further`, and the footer hands it to Path."""
+    for i in range(5):
+        tmp_vault.note(f"L{i}.md", f"level {i}")
+    _fake_map(
+        monkeypatch,
+        degree={f"L{i}.md": 1 for i in range(5)},
+        prereq={f"L{i}": [f"L{i - 1}"] for i in range(1, 5)},
+        unlocks={f"L{i}": [f"L{i + 1}"] for i in range(4)},
+    )
+    lad = client.get("/context", params={"path": "L0.md"}).json()["ladder"]
+    assert [r["depth"] for r in lad["rungs"]] == [0, 1, 2]
+    # L3 only: `further` counts what the WALK found and the drawer declined to
+    # name, and the walk stops at three hops, so L4 was never in it. The footer
+    # says "1 further out" and Path, which walks the same three, draws it.
+    assert lad["further"] == 1
+
+
+def test_a_note_with_no_direction_around_it_gets_no_reading_order(client, tmp_vault,
+                                                                  monkeypatch):
+    """Not a rung of one. A section holding only the note you are already on is
+    a heading with nothing under it."""
+    tmp_vault.note("A.md", "a")
+    _fake_map(monkeypatch, degree={"A.md": 1, "B.md": 1, "C.md": 1}, prereq={"C": ["B"]},
+              unlocks={"B": ["C"]})
+    assert client.get("/context", params={"path": "A.md"}).json()["ladder"] == {}
 
 
 def test_path_landing_ranks_two_sided_ladders_first(client, tmp_vault, monkeypatch):

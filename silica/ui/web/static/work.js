@@ -1,7 +1,9 @@
-// Work: the right sidebar's third mode, and the only surface in this app that
-// reads the narration. It was a column of its own at that same right edge until
-// the note drawer, also at that edge, was found to be switching it off on every
-// open; app.js owns the sidebar and this file fills one of its three panes.
+// Work: the left rail's last compartment, and the only surface in this app that
+// reads the narration. It fills TWO panes now, at opposite edges, and the split
+// is the point: the run goes left (#work-body, always there, readable while a
+// note is open), what you POINTED at goes right (#node-pane, the drawer mode
+// named after it). One name used to cover both, and it drew the run on chat and
+// the node on explore - so the segment labelled `work` was wrong half the time.
 //
 // `silica/agent/narration.py` has written an append-only account of every run
 // since it shipped, and `/narration/sse` has served it live for just as long.
@@ -213,8 +215,8 @@ function projectRun(beats) {
 }
 
 // --- the report projection ---------------------------------------------------
-// On the metrics view this column stops narrating the run and states the
-// report. Everything the metrics view shows is derived from the report in front
+// On the metrics view with nothing selected, the node pane states the report:
+// the same gesture aimed at the vault rather than at one note. Everything the metrics view shows is derived from the report in front
 // of it; the one thing it cannot derive is what MOVED, which is why the server
 // keeps the previous reading (silica/kernel/report/history.py) and hands it back
 // with the payload.
@@ -353,6 +355,11 @@ function projectNode(node, ctx) {
     // number is turned into the sentence it means: the projection stays a
     // projection, and the thresholds live in one place a test can reach.
     structure: c.structure || null,
+    // The reading order around it: rungs by depth, the note itself at 0. Passed
+    // through whole for the same reason `structure` is - the server decided
+    // which rungs are near enough to name and which are only a count, and a
+    // second opinion about that in JS is a second thing to keep in step.
+    ladder: c.ladder || null,
     // Why a section came back thin, from the machine that came back thin.
     // Without it "Similar (0)" reads as "this note has no relatives" when what
     // it means is "nobody has run /embed".
@@ -427,20 +434,26 @@ function structureRows(st) {
   // with a header, a name and a close button, and all three belonged to being a
   // second surface at an edge that already had one. app.js owns whether the
   // sidebar is open and which mode it shows; this file only fills the pane.
-  const body = document.getElementById("work-body");
+  // The node/report pane, in the right drawer.
+  const body = document.getElementById("node-pane");
   if (!body) return;
-  const head = document.getElementById("work-state");
-  // What this mode is ABOUT, beside the segment that says what it is. Empty on
-  // the run itself: the segment is already named after it.
-  const scope = document.getElementById("work-scope");
+  const head = document.getElementById("node-state");
+  // `report` on the one view that can point at the vault rather than at a note.
+  // Empty on a node: the segment beside it is already named after that.
+  const scope = document.getElementById("node-scope");
+  // The run, in the left rail. Its own head is the live dot in the summary, so
+  // the compartment says whether anything is happening while it is folded shut.
+  const runBody = document.getElementById("work-body");
+  const runState = document.getElementById("work-state");
 
   let beats = [], sid = null, curSid = null, run = null, tick = null;
-  // Which tab is up: on metrics this column is the Report, on explore the Node.
+  // Which tab is up: it decides what the NODE pane draws (the report on metrics,
+  // the node on either view that can select one). The rail's Work compartment
+  // does not ask - the run is the same run on all four.
   // Read from the DOM and not left at "chat" until the first silica:view: app.js
   // selects the boot tab while it is parsing, which is BEFORE this file loads,
-  // so a deep link to #metrics or #explore used to land on a column narrating
-  // the run on a view that has something else to say - and stayed that way
-  // until the reader clicked a tab.
+  // so a deep link to #metrics used to land on a pane drawing something else,
+  // and stayed that way until the reader clicked a tab.
   const bootTab = document.querySelector(".tab.active");
   let view = bootTab ? bootTab.dataset.tab : "chat";
   let report = null;   // the last /metrics payload, which rides app.js's fetch
@@ -726,10 +739,31 @@ function structureRows(st) {
     return i > 0 ? p.slice(0, i) : "";
   };
 
+  // The two lists whose rows have a direction get an arrow instead of the
+  // swatch: leaving for what this note points at, arriving for what points at
+  // it. Same 3px accent bar on every other section, because "declared" and
+  // "similar" are symmetric relations and an arrow on them would claim an
+  // order the vault never recorded.
+  const ARROW = {
+    out: "M4 12 L12 4 M6.5 4 L12 4 L12 9.5",   // leaving, up and to the right
+    in: "M12 4 L4 12 M9.5 12 L4 12 L4 6.5",    // arriving, down and to the left
+  };
+
+  function dirArrow(dir) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "wk-src-ar");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", ARROW[dir]);
+    svg.appendChild(path);
+    return svg;
+  }
+
   function nodeRow(r, opt) {
     const o = opt || {};
-    const row = el("div", "wk-src" + (o.action ? " has-act" : ""));
-    row.appendChild(el("span", "wk-src-sw" + (o.warn ? " warn" : "")));
+    const row = el("div", "wk-src" + (o.action ? " has-act" : "") + (o.dir ? " dir" : ""));
+    row.appendChild(o.dir ? dirArrow(o.dir) : el("span", "wk-src-sw" + (o.warn ? " warn" : "")));
     const t = el("button", "wk-srct");
     t.type = "button";
     t.appendChild(el("div", "wk-src-n", r.name || r.path || ""));
@@ -746,11 +780,22 @@ function structureRows(st) {
       v.appendChild(m);
     }
     if (v.childElementCount) t.appendChild(v);
-    // Pointing at a row walks the column to that node, which is the same verb
-    // the graph click has. A row with no note behind it (a ghost) has nowhere
-    // to walk to, and its offer is the button on the right instead.
-    if (r.path && window.showNode) {
-      t.addEventListener("click", () => window.showNode({ path: r.path }));
+    // A row here NAMES a note, so it reads it: the drawer swings to note mode on
+    // the one you clicked. It used to only point - the column walked to that
+    // node and the drawer stayed on a list you had just left, which is the one
+    // reading of "click" nobody expects from a list of note titles.
+    // Both calls, in this order: showNode first so the column behind the note
+    // is the column for the note you are now reading (it raises work mode, and
+    // openNote takes the drawer back off it in the same task, so nothing
+    // paints in between); a row that only opened would leave the pane one
+    // `work` click away from a node you left two notes ago.
+    // A row with no note behind it (a ghost) has nowhere to go, and its offer
+    // is the button on the right instead.
+    if (r.path && window.openNote) {
+      t.addEventListener("click", () => {
+        if (window.showNode) window.showNode({ path: r.path });
+        window.openNote(r.path);
+      });
     } else {
       t.disabled = true;
       t.style.cursor = "default";
@@ -786,9 +831,64 @@ function structureRows(st) {
     body.appendChild(more);
   }
 
+  // The reading order, as a position rather than a label. Two flat lists said
+  // "read first" and "unlocks" and could not say the one thing the DAG knows -
+  // that a prerequisite has a prerequisite of its own - so a chain three deep
+  // read as two unrelated piles. A rung says the same thing with less: -2 is
+  // before -1 is before you, and the note you are on is IN the list rather than
+  // implied between two headings.
+  //
+  // Rungs only, never the edges: this column is 310px and the wires between
+  // rungs are what the Path surface exists to draw. The footer hands off to it
+  // rather than growing a second, smaller drawing of the same DAG here.
+  const rungLabel = (n) => (n === 0 ? "●" : (n < 0 ? "−" : "+") + Math.abs(n));
+
+  function ladderSection(d) {
+    const lad = d.ladder;
+    if (!lad || !(lad.rungs || []).length) return;
+    const count = lad.rungs.reduce((a, r) => a + r.notes.length + r.hidden, 0) + lad.further;
+    body.appendChild(sectionHead("Reading order", count));
+    for (const rung of lad.rungs) {
+      for (const n of rung.notes) {
+        const here = n.path === lad.root;
+        const row = el("div", "wk-src rung" + (here ? " here" : ""));
+        row.appendChild(el("span", "wk-lad-d", rungLabel(rung.depth)));
+        const t = el("button", "wk-srct");
+        t.type = "button";
+        t.appendChild(el("div", "wk-src-n", n.name || n.path));
+        const v = el("div", "wk-src-v");
+        // "here" earns the only word on this row that is not a folder: without
+        // it a spine of five titles gives no clue which one you are standing on.
+        v.appendChild(el("span", null, here ? "here" : folderOf(n.path)));
+        t.appendChild(v);
+        // The note you are already reading is not a place to go.
+        if (here) { t.disabled = true; t.style.cursor = "default"; }
+        else t.addEventListener("click", () => {
+          if (window.showNode) window.showNode({ path: n.path });
+          if (window.openNote) window.openNote(n.path);
+        });
+        row.appendChild(t);
+        body.appendChild(row);
+      }
+      if (rung.hidden) body.appendChild(el("div", "wk-lad-x", rung.hidden + " more on this rung"));
+    }
+    // One line, and it is a hand-off, not a summary: everything the drawer
+    // decided not to name is named in full one click away.
+    const foot = el("button", "wk-lad-f");
+    foot.type = "button";
+    foot.textContent = (lad.further ? lad.further + " further out · " : "") + "open full ladder";
+    foot.addEventListener("click", () => {
+      if (window.openLadder) window.openLadder(d.path);
+    });
+    body.appendChild(foot);
+  }
+
   function renderNode() {
     const d = projectNode(node, nodeCtx);
-    scope.textContent = "node";
+    // Empty, not "node": the segment beside this chip is now literally labelled
+    // NODE, and a chip repeating it is the same word twice on one strip. The
+    // chip earns its place on the one reading that is NOT a node - the report.
+    scope.textContent = "";
     head.textContent = d.ghost ? "unresolved" : "";
     head.className = "wk-num";
     body.textContent = "";
@@ -886,15 +986,13 @@ function structureRows(st) {
     }
     // The one direction the vault knows. Above the undirected lists because a
     // reading order answers "what now" and they answer "what else".
-    const st = d.structure || {};
-    nodeSection("Read first", st.prerequisites || [], (r) => ({ why: folderOf(r.path) }));
-    nodeSection("Unlocks", st.unlocks || [], (r) => ({ why: folderOf(r.path) }));
+    ladderSection(d);
 
     // Same grammar as "Similar, not linked" on purpose: both name a relation
     // the vault knows about and the prose does not carry.
     nodeSection("Declared, not linked", d.related, (r) => ({ why: folderOf(r.path) }));
-    nodeSection("Links out", d.out, (r) => ({ why: folderOf(r.path) }));
-    nodeSection("Linked from", d.from, (r) => ({ why: folderOf(r.path) }));
+    nodeSection("Links out", d.out, (r) => ({ why: folderOf(r.path), dir: "out" }));
+    nodeSection("Linked from", d.from, (r) => ({ why: folderOf(r.path), dir: "in" }));
     nodeSection("Missing", d.missing, (r) => ({
       warn: true, why: r.why, action: "write it", go: true,
       prompt: window.writeGhostPrompt ? window.writeGhostPrompt(r.name, d.title) : "",
@@ -916,7 +1014,7 @@ function structureRows(st) {
 
     if (!d.says.length && !d.concepts.length && !d.related.length && !d.out.length
         && !d.from.length && !d.missing.length && !d.similar.length && !srows.length
-        && !(st.prerequisites || []).length && !(st.unlocks || []).length) {
+        && !(d.ladder && (d.ladder.rungs || []).length)) {
       const e = el("div", "wk-empty");
       e.appendChild(el("div", "wk-empty-d",
         "nothing indexed for this note yet. Run /report or /embed to build the graph"));
@@ -924,30 +1022,12 @@ function structureRows(st) {
     }
   }
 
-  function render() {
-    run = projectRun(beats);
-    const state = run.running ? "live" : (run.rows.length ? "done" : "idle");
-    // The top strip says the run's state on every view, this column only on
-    // some, so the strip is painted before the branch and not inside it.
-    paintTopRun(run, state);
-    // The node you pointed at outranks both the run and the report, on either
-    // view that is made of rows pointing at notes. It used to be explore alone,
-    // because everywhere else the note drawer answered instead - with a second
-    // rendering of this same /context payload. There is one rendering now, so
-    // the gate had to widen with it or a metrics row would route here and land
-    // on a column still drawing the report.
-    //
-    // Chat and calendar stay out: nothing on either selects a node, so a node
-    // showing beside a transcript is a selection made on another view that you
-    // can neither see the source of nor drop from here. With nothing selected
-    // this column is the Work panel it has always been, which is what a graph
-    // you are still looking around in has to say.
-    if ((view === "graph" || view === "metrics") && node) { renderNode(); return; }
-    if (view === "metrics" && report) { renderReport(); return; }
-    scope.textContent = "";
-    head.textContent = state;
-    head.className = "wk-state" + (run.running ? " live" : "");
-    body.textContent = "";
+  // The run, in the rail. No view gate and no competition: this compartment has
+  // one subject and it is the same on all four views.
+  function renderRun(state) {
+    runState.textContent = state;
+    runState.className = "wk-state" + (run.running ? " live" : "");
+    runBody.textContent = "";
 
     if (!run.rows.length) {
       const e = el("div", "wk-empty");
@@ -955,7 +1035,7 @@ function structureRows(st) {
       e.appendChild(el("div", "wk-empty-d",
         "Every step of the next turn lands here: what the model thought, which "
         + "tools it ran, what it read and what it changed in the vault."));
-      body.appendChild(e);
+      runBody.appendChild(e);
       return;
     }
 
@@ -966,21 +1046,49 @@ function structureRows(st) {
     if (run.shape) meta.appendChild(el("span", "wk-num", run.shape));
     if (run.model) meta.appendChild(el("span", "wk-num", run.model.split("/").pop()));
     rh.appendChild(meta);
-    body.appendChild(rh);
+    runBody.appendChild(rh);
 
     const tl = el("div", "wk-tl" + (run.running ? " live" : ""));
     for (const r of run.rows) tl.appendChild(beatRow(r));
-    body.appendChild(tl);
+    runBody.appendChild(tl);
     paintSpine(tl);
 
     if (run.writes.length) {
-      body.appendChild(sectionHead("Writes", run.writes.length));
-      for (const w of run.writes) body.appendChild(writeCardEl(w));
+      runBody.appendChild(sectionHead("Writes", run.writes.length));
+      for (const w of run.writes) runBody.appendChild(writeCardEl(w));
     }
     if (run.sources.length) {
-      body.appendChild(sectionHead("Sources", run.sources.length));
-      for (const s of run.sources) body.appendChild(sourceRow(s));
+      runBody.appendChild(sectionHead("Sources", run.sources.length));
+      for (const s of run.sources) runBody.appendChild(sourceRow(s));
     }
+  }
+
+  // The drawer's node mode. The view gate is unchanged from when this shared a
+  // pane with the run: chat and calendar select nothing, so a node showing
+  // beside a transcript would be a selection made on another view that you can
+  // neither see the source of nor drop from here.
+  function renderCtx() {
+    if ((view === "graph" || view === "metrics") && node) { renderNode(); return; }
+    if (view === "metrics" && report) { renderReport(); return; }
+    scope.textContent = "";
+    head.textContent = "";
+    body.textContent = "";
+    const e = el("div", "wk-empty");
+    e.appendChild(el("div", "wk-empty-t", "Nothing selected"));
+    e.appendChild(el("div", "wk-empty-d",
+      "Point at a node on explore, or at a row on metrics, and what the vault "
+      + "knows about it lands here: its links, its area, what reads like it."));
+    body.appendChild(e);
+  }
+
+  function render() {
+    run = projectRun(beats);
+    const state = run.running ? "live" : (run.rows.length ? "done" : "idle");
+    // The top strip says the run's state on every view, so it is painted before
+    // either pane and not inside one of them.
+    paintTopRun(run, state);
+    renderRun(state);
+    renderCtx();
   }
 
   // A running turn has to tick, or the elapsed reads as a clock that stopped
@@ -1029,10 +1137,8 @@ function structureRows(st) {
     // mode. The BARE announce only — that is the one carrying the click. The
     // filled one arrives a round trip later, by which time the reader may have
     // opened a note, and raising the pane again would take back a surface they
-    // asked for after they asked for it. (It could not before: this pane was a
-    // separate panel that `body.note-open #work` simply hid, so a late announce
-    // wrote into something already off-screen.)
-    if (node && !nodeCtx && window.openWorkDrawer) window.openWorkDrawer();
+    // asked for after they asked for it.
+    if (node && !nodeCtx && window.openNodeDrawer) window.openNodeDrawer();
     render();
   });
   // One fetch, two surfaces: app.js loads /metrics for the view and hands the

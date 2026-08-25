@@ -62,12 +62,18 @@ def test_the_area_list_is_the_answer_to_the_row_that_counts_it():
 
 
 def test_the_controls_that_are_not_legend_are_one_fold_down():
+    """Named Forces and not Layout: the app's own legend is painted directly
+    above this panel and carries a Layout compartment of its own, which switches
+    which of the six SURFACES you are on. Two folds a centimetre apart, one named
+    after the other's subject, is one fold you open by mistake every time."""
     hud = _hud(_render())
-    fold = hud[hud.index('<details id="layout-fold">'):]
+    fold = hud[hud.index('<details id="forces-fold">'):]
+    assert "<summary class=\"section-title\">Forces</summary>" in fold
     for control in ("sl-repel", "sl-dist", "sl-center", "resetForces()",
                     "onForceSlider()", "Rebuild"):
-        assert control in fold, f"{control} is not under the Layout fold"
-    assert '<details id="layout-fold" open' not in hud
+        assert control in fold, f"{control} is not under the Forces fold"
+    assert '<details id="forces-fold" open' not in hud
+    assert "layout-fold" not in hud, "the old name is still in the panel"
 
 
 def test_nothing_the_frame_drives_lost_its_id():

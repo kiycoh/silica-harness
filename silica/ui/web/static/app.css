@@ -811,20 +811,37 @@ body.note-open #view-calendar {
   display: flex;
 }
 
-/* --- unified left sidebar: vault stats · search · files · history ----------- */
+/* --- unified left sidebar: search · files · history · work ------------------
+   The column does NOT scroll. It used to, and the cost was paid at the bottom
+   by the one line that says which vault you are reading: with the tree open,
+   the vault path was below the fold and its own text was clipped by 264px.
+   Compartments negotiate instead — a closed one is a summary row, an open one
+   takes a share and scrolls INSIDE itself — so every compartment's title is
+   always on screen and the foot never leaves it. */
 #sidebar {
+  position: relative;
   flex: 0 0 var(--side-w);
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line-2);
   background: var(--chrome-glass);
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   transition: flex-basis var(--dur) var(--ease);
-  scrollbar-width: none;
 }
 
-#sidebar::-webkit-scrollbar {
+/* The mirror of #note-resize at the other edge. Outside the padding rather than
+   over it, so it never eats a click meant for a tree row. */
+#side-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 2;
+}
+
+body.sidebar-collapsed #side-resize {
   display: none;
 }
 
@@ -837,6 +854,46 @@ body.sidebar-collapsed #sidebar {
   padding: 0.8rem;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+}
+
+/* An open compartment is a box that scrolls itself. `0 1 auto` and not `1 1 0`:
+   Pinned and This session are three rows each, and a share of the column is a
+   share of empty space taken from the three below them. */
+details.side-section[open] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 1 auto;
+}
+
+/* The three worth the height. Files is the tree, History is the chats, Work is
+   the run: each is a list with no natural end, so each gets an equal share of
+   whatever the folded ones left and scrolls inside it. `1 1 0` and not
+   `1 1 auto` so the share does not depend on how much is currently in them —
+   a rail whose proportions change as a run grows is a rail that moves under
+   the cursor. */
+#side-files[open],
+#side-history[open],
+#side-work[open] {
+  flex: 1 1 0;
+  min-height: 5rem;
+}
+
+#side-work {
+  border-bottom: none;
+}
+
+/* Chrome wraps everything after <summary> in an anonymous ::details-content
+   box, so THAT is the flex item of the compartment and .side-body is a child of
+   it. Measured: a 316px compartment holding a 1637px body that painted straight
+   over the two compartments under it. Both rules stand, and they agree: an
+   engine without ::details-content makes .side-body the item itself, which the
+   rule above already sizes the same way. */
+details.side-section[open]::details-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .side-title {
@@ -869,7 +926,11 @@ details.side-section:hover>summary.side-title .si {
 .side-body {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
 }
 
 details.side-section>summary.side-title {
@@ -1037,7 +1098,7 @@ details.side-section:hover>summary.side-title {
   opacity: 0.55;
 }
 
-/* --- the rail's Layout compartment (explore only) ---------------------------
+/* --- the legend's Layout compartment ----------------------------------------
    The active surface is marked by a 3px swatch and not by a filled row: the
    toolbar's active button is already a solid accent block, and two accent
    fills on one screen for the same fact read as two different states. */
@@ -1083,14 +1144,14 @@ details.side-section:hover>summary.side-title {
 }
 
 /* --- the rail's floor: which folder this is ---------------------------------
-   Sticky and not merely last: the rail scrolls with the tree open, and the one
-   line that says which vault you are reading is the one line that must not
-   scroll away. Solid background for the same reason - the chrome glass is
-   translucent, and a translucent footer over a moving tree is unreadable. */
+   The column no longer scrolls, so this is simply last and always on screen.
+   Solid background all the same - the chrome glass is translucent, and a
+   translucent footer over a tree scrolling inside the compartment above it is
+   unreadable. Widen the rail to read a long path in full: that handle is why
+   this line stopped being clipped. */
 #railfoot {
   margin-top: auto;
-  position: sticky;
-  bottom: 0;
+  flex: none;
   z-index: 1;
   padding: 0.55rem 0.8rem;
   border-top: 1px solid var(--line);
@@ -1208,20 +1269,13 @@ details.side-section:hover>summary.side-title {
   color: var(--ash-dim);
 }
 
-/* file tree (markup from /vault_info — same emitter as the graph viewer) */
-#side-files {
-  display: block;
-}
-
+/* file tree (markup from /vault_info — same emitter as the graph viewer)
+   No max-height and no scroll of its own: .side-body is the box that scrolls,
+   and a viewport cap inside it was the old arrangement's answer to a rail that
+   scrolled as a whole. Two scrolls nested one inside the other is a tree you
+   have to scroll twice to reach the bottom of. */
 #tree {
-  max-height: 34vh;
-  overflow-y: auto;
   font-size: 13px;
-  scrollbar-width: none;
-}
-
-#tree::-webkit-scrollbar {
-  display: none;
 }
 
 #tree-collapse {
@@ -1445,21 +1499,11 @@ details.side-section:hover>summary.side-title {
   color: var(--ash-dim);
 }
 
-/* history — last section, capped list + expand link, sidebar scrolls */
-#side-history {
-  border-bottom: none;
-}
-
+/* history — same as the tree above: the compartment's share is the cap, and the
+   body inside it is the one scroll. */
 #sessions {
   display: flex;
   flex-direction: column;
-  max-height: 32vh;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-
-#sessions::-webkit-scrollbar {
-  display: none;
 }
 
 #sessions:empty::after {
@@ -3263,6 +3307,124 @@ details.side-section:hover>summary.side-title {
   }
 }
 
+/* --- the legend: one panel, all six explore surfaces ------------------------
+   Anchored to the picture, not to the window chrome, because everything in it
+   is a reading OF the picture. Layout and Areas were two compartments of the
+   left rail until now — a screen's width from the thing they described, and
+   present on a transcript that has no areas to colour.
+
+   Same 216px as the graph frame's HUD and the same right margin: on the graph
+   surface the two stack against one edge and read as one panel, which is why
+   the frame is told this element's height (silica-legend-h) instead of being
+   covered by it. */
+#legend {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 6;
+  width: 216px;
+  max-height: calc(100% - 1.2rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-s, 4px);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--lift);
+  scrollbar-width: thin;
+}
+
+/* The drawer is fixed against the same edge, and the two overlapping is the
+   defect the frame's HUD already answers by hiding. This one does not hide:
+   Layout is how you leave the surface you are on, and a way out that disappears
+   when you open a note is a way out you cannot use. */
+body.note-open #legend {
+  right: calc(var(--note-w, 630px) + 0.6rem);
+}
+
+.lg-title {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  color: var(--ash-dim);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lg-title::-webkit-details-marker {
+  display: none;
+}
+
+.lg-title::after {
+  content: "▸";
+  margin-left: auto;
+  padding-left: 0.5rem;
+}
+
+.lg-sec[open]>.lg-title::after {
+  content: "▾";
+}
+
+.lg-sec:hover>.lg-title {
+  color: var(--ash);
+}
+
+.lg-title .si {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  margin-right: 0.4rem;
+  opacity: 0.62;
+}
+
+/* Which of the six you are on, stated on the row that switches them: closed,
+   the fold would otherwise name the control and never the state. Hidden while
+   open, where the pressed row below says it. */
+#lg-layout-now {
+  margin-left: 0.5rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ash);
+}
+
+#lg-layout[open] #lg-layout-now {
+  display: none;
+}
+
+.lg-body {
+  margin-top: 0.45rem;
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* What the marks in front of you mean. Prose, deliberately: it is read once per
+   surface and never clicked, so it takes the smallest type in the panel and
+   none of its contrast. */
+.lg-key {
+  color: var(--ash-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+#lg-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+#lg-surface .gmode-tabs {
+  align-self: flex-start;
+}
+
 /* explore toolbar: the head itself is invisible — mode buttons + the active
    mode's controls float over the graph as chips, not a full-width banner.
    pointer-events:none lets the transparent gaps pass clicks to the graph. */
@@ -3744,13 +3906,6 @@ body.dragging #drop-hint {
      still separates it from the note, exactly as the app header is separated
      from what it sits over. */
   background: transparent;
-}
-
-.np-ico {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  color: var(--ash-dim);
 }
 
 #note-title {
@@ -4333,10 +4488,6 @@ body.note-open #toasts {
 
 /* --- settings button: the gear alone. It carried the model name until the name
    moved under the composer, where the conversation it describes is. */
-#settings-btn {
-  border-left: 1px solid var(--line);
-}
-
 #settings-btn svg {
   flex-shrink: 0;
   opacity: 0.75;
@@ -4354,7 +4505,6 @@ body.note-open #toasts {
 /* --- help panel: the app's only answer to "what can I do here" -------------- */
 #help-btn {
   font-size: 13px;
-  border-left: 1px solid var(--line);
   min-width: 2.6rem;
   justify-content: center;
 }
@@ -5659,8 +5809,14 @@ body.note-open #toasts {
   /* #graph-bar is absolute over the whole view so it can float on the graph
      canvas. These panes have content at the top instead, so they clear it —
      and the ask-from-here dock floats over the bottom, so they clear that too
-     or the last row of a scrolled list sits under the composer. */
-  padding: 3.4rem 1.1rem 5.5rem;
+     or the last row of a scrolled list sits under the composer.
+
+     The right inset is #legend's band, the same 236px #graph-bar reserves. A
+     translucent panel over a canvas is a HUD; over a treemap it is a tile whose
+     label you cannot read — measured, the second-largest folder's corner sat
+     under it. The content is centred inside what is left, so the inset reads as
+     margin rather than as a shove. */
+  padding: 3.4rem 236px 5.5rem 1.1rem;
 }
 
 /* Every one of these three has content that is wider than tall and narrower
@@ -6898,11 +7054,20 @@ body.note-open #toasts {
   color: var(--frost);
 }
 
-/* Both ride in the drawer's one header and are shown only on the WORK segment.
-   The chip is inline, so [hidden] carries itself; this one declares display and
+/* The chip is inline, so [hidden] carries itself; this one declares display and
    would keep it. */
 .wk-state[hidden] {
   display: none;
+}
+
+/* In the rail it is the compartment's own reading, so it sits at the far end of
+   the title row: folded shut, the dot is the whole answer to "is anything
+   happening". Lowercase against the title's caps for the same reason the counts
+   beside Pinned and This session are. */
+#side-work>.side-title>.wk-state {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .wk-state.live::before {
@@ -6913,10 +7078,17 @@ body.note-open #toasts {
 /* The pane itself, on the same footing as #note-body and #note-diff: one of the
    drawer's three children, shown by the segment that names it. No display of its
    own, so the [hidden] JS sets is the whole switch. */
-#work-body {
+#node-pane {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  --sb: var(--line);
+}
+
+/* The run's pane is a rail compartment, not a drawer child: .side-body above
+   already owns its height and its scroll, so all this carries is the rule
+   colour the beat spine reads. */
+#work-body {
   --sb: var(--line);
 }
 
@@ -7403,6 +7575,83 @@ body.note-open #toasts {
   grid-template-columns: 3px minmax(0, 1fr) auto;
 }
 
+/* A direction reads as a direction, not as a swatch: the two link lists are the
+   only sections whose rows have one, and a 3px bar said the same thing on both.
+   Wider first column only here - every other section keeps the bar, and a 10px
+   gutter on all of them would indent rows that have nothing to put in it. */
+.wk-src.dir {
+  grid-template-columns: 10px minmax(0, 1fr);
+}
+
+.wk-src.dir.has-act {
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+}
+
+/* The reading order: a depth chip where every other section has a swatch. It
+   is wider than the 3px bar and than the 10px arrow because it carries two
+   glyphs ("−2"), and only these rows pay for it. */
+.wk-src.rung {
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+
+.wk-lad-d {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  text-align: center;
+}
+
+/* The note you are standing on. It is in the list rather than implied between
+   two headings, so it has to be the one row that does not read as a place to
+   go: no hover lift, and the accent moved off the chip and onto the name. */
+.wk-src.rung.here {
+  background: var(--slate-2);
+}
+
+.wk-src.rung.here:hover {
+  background: var(--slate-2);
+}
+
+.wk-src.rung.here .wk-lad-d,
+.wk-src.rung.here .wk-src-n {
+  color: var(--accent);
+}
+
+.wk-lad-x {
+  padding: 0.1rem 0.85rem 0.3rem 1.4rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.wk-lad-f {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.85rem 0.6rem 1.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--ash-dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.wk-lad-f:hover {
+  color: var(--accent);
+}
+
+.wk-src-ar {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .wk-srct {
   min-width: 0;
   padding: 0;
@@ -7492,7 +7741,7 @@ body.note-open #toasts {
   color: var(--ash-dim);
 }
 
-#work-toggle[aria-pressed="true"] {
+#drawer-toggle[aria-pressed="true"] {
   color: var(--frost);
   background: var(--slate-2);
 }

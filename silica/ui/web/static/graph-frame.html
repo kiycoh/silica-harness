@@ -168,10 +168,14 @@ ${legend_items}      <div class="legend-item active" id="legend-all" onclick="fi
     </div>
 
     <!-- Not legend: the three forces and the rebuild are what you reach for
-         once, when the layout itself is wrong. Folded, because a slider you
-         touch once a month should not cost a third of the panel every day. -->
-    <details id="layout-fold">
-      <summary class="section-title">Layout</summary>
+         once, when the simulation itself is wrong. Folded, because a slider you
+         touch once a month should not cost a third of the panel every day.
+         Called Forces and not Layout: the app's own legend above this panel
+         carries a Layout compartment, and that one switches which of the six
+         SURFACES you are on. Two folds a centimetre apart, one named after the
+         other's subject, is one fold you open by mistake every time. -->
+    <details id="forces-fold">
+      <summary class="section-title">Forces</summary>
       <div class="fold-body">
         <div class="force-row">Repel<span class="fv" id="fv-repel">1.0&times;</span></div>
         <input type="range" class="force-slider" id="sl-repel" min="-0.7" max="0.7" step="0.01" value="0" oninput="onForceSlider()">

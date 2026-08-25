@@ -57,10 +57,10 @@ def test_the_run_needs_no_fold_of_its_own():
     for dead in ("work-fold", "--work-w", "#work-close"):
         assert dead not in rules, f"app.css still folds a second panel via {dead}"
     assert "work-fold" not in work and "work-fold" not in app
-    # the preference still decides, and one place writes it: whether the sidebar
-    # is open is app.js's, so the pane cannot disagree with the panel holding it
-    assert 'localStorage.setItem("work-open"' in app
-    assert "work-open" not in work
+    # There is no preference left to keep in step: the run moved to a rail
+    # compartment, where <details open> in the markup IS the restore. app.js
+    # still owns whether the rail is out, and reads the fold off the DOM.
+    assert "work-open" not in app and "work-open" not in work
 
 
 def test_the_composer_hint_is_a_clause_the_fitter_can_drop():

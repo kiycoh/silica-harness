@@ -172,19 +172,26 @@ def test_the_panel_is_wired_into_the_page():
     assert "/narration/sse" in WORK_JS.read_text()
 
 
-def test_the_run_is_a_mode_of_the_one_right_sidebar():
-    """There were two asides at the right edge and the CSS said what that really
-    was: `body.note-open #work { display: none }`, i.e. the one surface that says
-    what the agent is doing was switched off for as long as any note was open.
-    The run is a segment of the note sidebar now, so it cannot collide with the
-    other two -- and the rules that kept the pair apart have to be gone, not
-    merely unused, or the merged panel inherits a hiding rule for itself."""
+def test_the_run_and_the_node_are_two_panes_at_two_edges():
+    """One name used to cover both. The `work` segment drew the RUN on chat and
+    the NODE on explore, so the label was wrong half the time and the run was
+    unreadable whenever you were reading a note. The run is a rail compartment
+    now (left, always there); the drawer kept the node and took its name.
+
+    The rules that once kept a second right-edge aside out of the drawer's way
+    have to stay gone, not merely unused."""
     html, css, js = INDEX.read_text(), APP_CSS.read_text(), WORK_JS.read_text()
     drawer = html[html.index('<aside id="note-panel"'):]
-    for pane in ("note-body", "note-diff", "work-body"):
-        assert f'id="{pane}"' in drawer, f"{pane} is not a pane of the sidebar"
+    for pane in ("note-body", "note-diff", "node-pane"):
+        assert f'id="{pane}"' in drawer, f"{pane} is not a pane of the drawer"
+    assert 'id="work-body"' not in drawer, "the run is back in the right drawer"
     modes = re.findall(r'data-mode="(\w+)"', drawer)
-    assert sorted(modes) == ["diff", "note", "work"], modes
+    assert sorted(modes) == ["diff", "node", "note"], modes
+    # the run's pane is a compartment of the rail, and the last one
+    rail = html[html.index('<aside id="sidebar">'):html.index('<section id="view-chat"')]
+    secs = re.findall(r'<details class="side-section" id="(side-\w+)"', rail)
+    assert secs[-1] == "side-work", secs
+    assert 'id="work-body"' in rail
     # one surface at this edge, so nothing hides one half of it from the other
     assert '<aside id="work"' not in html
     # comments stripped: the rules are named in the prose that explains why they
@@ -202,25 +209,55 @@ def test_the_scope_chip_rides_the_shared_header_and_nothing_renames_it():
     above the panes, so it is stated once whichever pane is showing."""
     html, js = INDEX.read_text(), WORK_JS.read_text()
     head = html[html.index('<aside id="note-panel"'):html.index('id="note-actions"')]
-    assert 'id="work-scope"' in head and 'id="work-state"' in head
-    # nothing writes over the segment's name: the three views set the chip
+    assert 'id="node-scope"' in head and 'id="node-state"' in head
+    # the run's own dot rides the compartment that holds the run, so it says
+    # whether anything is happening while that compartment is folded shut
+    rail = html[html.index('<aside id="sidebar">'):html.index('<section id="view-chat"')]
+    assert 'id="work-state"' in rail[rail.index('id="side-work"'):]
+    # nothing writes over the segment's name: the two readings set the chip
     assert "work-title" not in js and "wk-title" not in html
-    assert sorted(re.findall(r'scope\.textContent = "(\w*)"', js)) == ["", "node", "report"]
+    # "node" is not among them: the segment beside the chip carries that word
+    # already, and the chip earns its place on the one reading that is not a node
+    assert sorted(re.findall(r'scope\.textContent = "(\w*)"', js)) == ["", "", "report"]
 
 
-def test_the_sidebars_mark_is_a_sidebar_and_not_a_document():
-    """A glyph each was how you told the two right-edge panels apart. With one
-    panel there is nothing to tell apart, so the mark names the surface -- and it
-    is the same glyph as the header button that opens it, or the control and the
-    thing it opens are two signs for one act."""
+def test_the_toggle_restores_a_mode_rather_than_picking_one():
+    """A segment can go dead between two opens -- `diff` needs this session to
+    have touched the file, `node` needs something to have been pointed at -- so
+    reopening on the remembered mode blindly lands on an empty pane. The ladder
+    degrades, and its last rung is the one mode with a real empty state."""
+    app = (WEB / "static" / "app.js").read_text()
+    fn = app[app.index("function reopenDrawer() {"):]
+    fn = fn[:fn.index("\n}")]
+    assert 'drawerMode === "diff" && changedPaths.has(path)' in fn
+    assert 'drawerMode === "node" && nodePicked' in fn
+    assert fn.rstrip().endswith("openNodePane();"), "the ladder has no last rung"
+    # and the flag that gates `node` is set by the PICK, not by the opener the
+    # toggle shares with it -- or this fallback would enable a segment for a
+    # node nobody chose
+    assert "window.openNodeDrawer = () => { nodePicked = true; openNodePane(); };" in app
+    assert "nodePicked = true" not in app[app.index("function openNodePane() {"):
+                                          app.index("window.openNodeDrawer")]
+
+
+def test_the_drawer_glyph_is_on_the_button_and_nowhere_else():
+    """The header carries exactly one control for the right drawer, it wears the
+    drawer's glyph, and the drawer does not wear it again.
+
+    Two things were wrong before. It briefly opened the rail's Work compartment
+    — a header button for something that already has a <summary> and an icon in
+    the folded rail. And the open drawer repeated the same glyph in its own
+    header: a sign saying "this is the drawer", addressed to someone already
+    reading the drawer. On the button it names a surface you cannot see; inside
+    it names nothing."""
     html = INDEX.read_text()
+    assert 'id="work-toggle"' not in html, "the compartment button is back in the header"
+    toggle = html[html.index('id="drawer-toggle"'):html.index('id="stop"')]
+    assert re.search(r"<rect[^>]*>", toggle), "the button lost the drawer glyph"
     drawer = html[html.index('<aside id="note-panel"'):html.index('id="note-actions"')]
-    mark = re.search(r'<svg class="np-ico".*?</svg>', drawer, re.S)
-    assert mark, "the sidebar has no mark"
-    shape = re.search(r'<rect[^>]*>', mark.group(0))
-    assert shape, "the mark is not the sidebar glyph"
-    toggle = html[html.index('id="work-toggle"'):html.index('id="stop"')]
-    assert shape.group(0) in toggle, "the button that opens it wears a different glyph"
+    assert "np-ico" not in re.sub(r"<!--.*?-->", "", drawer, flags=re.S), \
+        "the open drawer states its own name again"
+    assert "np-ico" not in (WEB / "static" / "app.css").read_text()
     # and it is the ONE control: #note-last was an accent-blue document glyph
     # beside it opening the same sidebar on a different mode. Markup only —
     # index.html keeps a line saying what stood there and why it does not.
@@ -245,22 +282,19 @@ def test_a_click_that_moves_the_sidebar_never_also_closes_it():
     assert app.index("drawerBefore = drawerNow()") < app.index("drawerBefore === drawerNow()")
 
 
-def test_the_kept_pane_survives_its_own_boot():
-    """Two orderings, both of which opened the sidebar and shut it again inside
-    one frame -- which reads as a preference that was never saved rather than one
-    that was undone. The restore has to run AFTER the boot tab, because switching
-    tabs closes the sidebar; and the preference has to be READ before that, because
-    syncDrawerMode() writes the key on every call and the first call happens with
-    the sidebar still closed."""
+def test_the_run_needs_no_boot_preference_to_survive_a_reload():
+    """There was a `work-open` key and an ordering puzzle around it: the pane had
+    to be reopened AFTER the boot tab (which closed the drawer) and the key read
+    BEFORE the first sync (which overwrote it). Both are gone with the move. The
+    run is a rail compartment, and <details open> in the markup is the whole
+    restore -- no key, no ordering, nothing to get wrong."""
     app = (WEB / "static" / "app.js").read_text()
-    read = app.index("const bootWantsWork")
-    sync = app.index("function syncDrawerMode(")
-    assert read < sync, "the preference is read after the function that overwrites it"
-    restore = app.index("if (bootWantsWork) openWork()")
-    boot_tab = app.index('`.tab[data-tab="${[')
-    assert boot_tab < restore, "the boot tab is clicked after the restore, and closes it"
-    # ...and one place writes the key, or the two can disagree about it
-    assert app.count('localStorage.setItem("work-open"') == 1
+    html = INDEX.read_text()
+    assert "bootWantsWork" not in app and "work-open" not in app
+    rail = html[html.index('<aside id="sidebar">'):html.index('<section id="view-chat"')]
+    assert '<details class="side-section" id="side-work" open>' in rail
+    # nothing in JS decides whether the compartment is out: the <details> is
+    assert "side-work" not in app
 
 
 def test_every_rail_compartment_wears_its_own_icon():
@@ -271,7 +305,7 @@ def test_every_rail_compartment_wears_its_own_icon():
     rail = html[html.index('<aside id="railmini"'):html.index('<aside id="sidebar">')]
     sections = re.findall(r'<details class="side-section" id="(side-\w+)"[^>]*>\s*'
                           r'<summary class="side-title">(.*?)</summary>', html, re.S)
-    assert len(sections) == 6, [s[0] for s in sections]
+    assert len(sections) == 5, [s[0] for s in sections]
     for sec, summary in sections:
         assert 'class="si"' in summary, f"{sec} has no icon in its header"
         # the shape itself, not just any icon: the first path/polygon/circle of

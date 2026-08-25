@@ -208,10 +208,40 @@ def test_both_renderers_break_the_inferred_line():
     """2D has the dash natively; 3D has no dash at all, but every link there is
     already merged into one LineSegments, and LineSegments IS the dash
     primitive - it draws disjoint vertex pairs. So the buffer carries a
-    per-edge segment count rather than a flat two vertices.
+    per-edge segment count rather than a flat two vertices, and that count comes
+    from a period in WORLD units: a long link gets more dashes, never longer
+    ones, which is the only version of the pattern that reads the same on every
+    edge in the picture.
     """
     import silica.ui.web.graph_view as gv
 
     js = gv._asset("graph-frame.js")
     assert ".linkLineDash(" in js, "2D draws the absent layers solid"
-    assert "DASH_SEGS" in js and "segOff" in js, "the merged buffer is still one segment per link"
+    assert "DASH_PERIOD" in js and "DASH_CAP" in js, (
+        "the 3D dash is a world-unit period with a bounded per-edge count")
+    assert "DASH_SEGS" not in js, (
+        "a fixed segment count makes the dash a FRACTION of the link, so a long "
+        "edge draws long strokes with furrows cut in them")
+
+
+def test_the_3d_mark_carries_the_rings_2d_draws():
+    """The legend's NODE rows promise four readings in either renderer, and two
+    of them - the state ring and load-bearing - used to exist in 2D only. They
+    ride the one per-node channel this view has: the bundle shares a material
+    per COLOUR and a geometry per size, so the value has to arrive on the object
+    itself, immediately before its draw.
+    """
+    import silica.ui.web.graph_view as gv
+
+    js = gv._asset("graph-frame.js")
+    assert "onBeforeRender = nodeRingStep" in js, (
+        "the ring colour is per NODE, and onBeforeRender is the only hook that "
+        "runs per object while the material and the geometry are shared")
+    assert "uSilState" in js and "uSilCut" in js, (
+        "both rings, not one: a note can be a hub and load-bearing at once, "
+        "which is why 2D draws them as two circles and not one")
+    assert "RING_MIN_PX" in js, (
+        "under a floor there is no note left under 6.5px of ring - 2D spends "
+        "its zoom gate on the same problem")
+    assert "n._dim" in js[js.index("function nodeRingStep"):], (
+        "a dimmed note is a dot in 2D; a ring on it would outrank the focus")

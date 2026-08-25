@@ -503,18 +503,32 @@ const EDGE_FALLBACK = LIGHT ? DATA.colors.extracted_paper : DATA.colors.extracte
 const ABSENT = new Set(["GAP", "PROPOSED", "COUPLED"]);
 const isDashed = l => ABSENT.has(l.type);
 
-// Three dashes and two gaps, as fractions of the link. Ink 0.78 of the length,
-// split so a dash lands on each end: a broken line that stopped short of its
-// target would read as a link that does not arrive, which is a different claim
-// from the one this channel makes.
+// A dash is a LENGTH, not a fraction of the link. Three segments spread over
+// the whole span made the pattern scale with the edge - the two gaps were 11%
+// of it each - so a long link drew three long strokes with two furrows cut in
+// them rather than a broken line. This is the upgrade the note that stood here
+// named, a period in world units with a per-edge count, and it obeys the rule
+// the zone geometry already does (ZONE_BULB): a constant would be wrong the
+// moment the distance slider moved, so the period rides baseDist().
 //
-// ponytail: the count is fixed, so a long link gets long dashes. Fine at this
-// vault's spread; the fix if a picture ever reads as noise is a period in world
-// units with a per-edge count, which costs a variable-length span the segOff
-// table below already knows how to carry. Revisit if a vault's longest link is
-// past 6x its median.
-const DASH_SEGS = 3;
-const DASH_T = [0, 0.26, 0.37, 0.63, 0.74, 1];
+// A dash still lands on each end. A broken line that stopped short of its
+// target would read as a link that does not arrive, which is a different claim
+// from the one this channel makes. With k dashes and k-1 gaps filling [0,1] at
+// gap ratio r, the period is 1/(k-r) and the ink (1-r)/(k-r), which puts the
+// last dash's far end exactly on 1.
+// 1:3 gap to ink, which is DASH_2D's 2px against 6px and the legend swatch's
+// too: one ratio, so the two views and the key under them draw one pattern.
+const DASH_GAP = 0.25;                                     // of the period
+const DASH_PERIOD = () => 0.10 * baseDist() * forceMul.dist;
+// Two, so even the shortest link still reads as broken; the ceiling is what
+// keeps the buffer a fixed allocation. 24 covers a link 2.4x the layout's own
+// spacing - past that the dashes lengthen again, which is the old behaviour and
+// only for the outliers. Raise it (6 floats per dashed edge per step) if a
+// vault ever draws an absent edge that reads solid.
+const DASH_MIN = 2, DASH_CAP = 24;
+// 2D keeps its own pair: the canvas painter runs inside the zoom transform, so
+// the pattern is already in the same graph units the period above works in, and
+// nothing there scales with the link.
 const DASH_2D = [6, 2];
 
 // Memoised because 2D calls this for every visible link on every frame, and
@@ -559,7 +573,7 @@ function linkPaint(l) {
 // survives the merge. Fog applies to the shared material like it did to the
 // per-link ones.
 //
-// No THREE global exists (same constraint as faceteNodes below), and no
+// No THREE global exists (same constraint as flattenNodes below), and no
 // LineSegments instance exists to steal a constructor from. A Line instance
 // does — and the renderer branches on the isLineSegments FLAG, not the class,
 // so a Line wearing the flag renders as GL_LINES. The donor is the ONE line
@@ -598,13 +612,12 @@ function segRGBA(Color, s) {
 function buildLinkSeg() {
   const line = RAW_EDGES.length && RAW_EDGES[0].__lineObj;
   if (!line) return;               // digest not run yet; next frame retries
-  const E = RAW_EDGES.length;
-  // Segments, not links: a dashed edge is DASH_SEGS disjoint pairs in the same
-  // buffer. Counted rather than allocated at the worst case, because the dashed
-  // rows are the three SMALL ones (18 edges of 4938 on the reference vault), so
-  // the true size is E+36 where DASH_SEGS * E would have been three times the
-  // buffer to draw the same picture.
-  const S = RAW_EDGES.reduce((n, e) => n + (isDashed(e) ? DASH_SEGS : 1), 0);
+  // Segments, not links: a dashed edge is up to DASH_CAP disjoint pairs in the
+  // same buffer. Allocated at the DASHED rows' worst case rather than the whole
+  // graph's, because those rows are the three SMALL ones (18 edges of 4938 on
+  // the reference vault), so the true size is E+432 where DASH_CAP * E would
+  // have been 24 times the buffer to draw the same picture.
+  const S = RAW_EDGES.reduce((n, e) => n + (isDashed(e) ? DASH_CAP : 1), 0);
   const pos = new Float32Array(S * 6);
   const col = new Float32Array(S * 8);
   const Attr = line.geometry.getAttribute("position").constructor;
@@ -618,11 +631,15 @@ function buildLinkSeg() {
   obj.frustumCulled = false;       // positions churn every tick; skip bounds
   obj.raycast = () => {};        // the pointer belongs to the nodes
   (line.parent || Graph.scene()).add(obj);
-  // segOff[i] is where edge i's segments start and segOff[i+1] where they end,
-  // so the span carries the count and no second array has to stay in step with
-  // it. E+1 long for the sentinel.
+  // Solid and dashed are kept apart, and the dashed ones ride at the END of the
+  // buffer. Their segment COUNT follows the layout - a period in world units
+  // over a length that moves every tick - so any edge stored after them would
+  // have its colours slide out from under it on every frame. Behind them,
+  // nothing does: the solid colours are written once per repaint and never
+  // touched again, which is what keeps a per-tick recount off the wire.
   LinkSeg = { obj, pos, col, colorCls: line.material.color.constructor,
-              edges: [], off: new Uint32Array(E + 1) };
+              solid: [], dashed: [], dashCol: new Float32Array(0),
+              dashK: new Uint8Array(0) };
   repaintLinkSeg();
 }
 
@@ -631,45 +648,75 @@ function buildLinkSeg() {
 // re-pass that used to rebuild 9k materials.
 function repaintLinkSeg() {
   if (!LinkSeg) return;
-  const edges = LinkSeg.edges = RAW_EDGES.filter(e => !e._hidden && !libOwnsLink(e));
-  const off = LinkSeg.off;
-  let s = 0;
-  for (let i = 0; i < edges.length; i++) {
-    const c = segRGBA(LinkSeg.colorCls, linkPaint(edges[i]));
-    off[i] = s;
-    const k = isDashed(edges[i]) ? DASH_SEGS : 1;
-    for (let j = 0; j < k; j++) {
-      LinkSeg.col.set(c, (s + j) * 8);
-      LinkSeg.col.set(c, (s + j) * 8 + 4);
-    }
-    s += k;
+  const solid = [], dashed = [];
+  for (const e of RAW_EDGES) {
+    if (e._hidden || libOwnsLink(e)) continue;
+    (isDashed(e) ? dashed : solid).push(e);
   }
-  off[edges.length] = s;
-  LinkSeg.obj.geometry.setDrawRange(0, s * 2);
+  LinkSeg.solid = solid; LinkSeg.dashed = dashed;
+  for (let i = 0; i < solid.length; i++) {
+    const c = segRGBA(LinkSeg.colorCls, linkPaint(solid[i]));
+    LinkSeg.col.set(c, i * 8);
+    LinkSeg.col.set(c, i * 8 + 4);
+  }
+  // The dashed colours are RESOLVED here, because linkPaint and the sRGB
+  // conversion are the expensive half, and WRITTEN in the position pass, which
+  // is the only place that knows where each one landed.
+  LinkSeg.dashCol = new Float32Array(dashed.length * 4);
+  for (let i = 0; i < dashed.length; i++)
+    LinkSeg.dashCol.set(segRGBA(LinkSeg.colorCls, linkPaint(dashed[i])), i * 4);
+  // Zeroed rather than kept: 0 is not a legal dash count, so the pass below
+  // sees every dashed edge as changed and lays its colours down at least once.
+  LinkSeg.dashK = new Uint8Array(dashed.length);
   LinkSeg.obj.geometry.getAttribute("color").needsUpdate = true;
   writeLinkSegPositions();
 }
 
 function writeLinkSegPositions() {
-  const { pos, edges, off, obj } = LinkSeg;
-  for (let i = 0; i < edges.length; i++) {
-    const a = NODE_BY_ID[edges[i].from], b = NODE_BY_ID[edges[i].to];
+  const { pos, col, solid, dashed, dashCol, dashK, obj } = LinkSeg;
+  // The solid case keeps its straight 1:1 write. It is most of the buffer on
+  // any vault, and it runs every tick a node can still move.
+  for (let i = 0; i < solid.length; i++) {
+    const a = NODE_BY_ID[solid[i].from], b = NODE_BY_ID[solid[i].to], o = i * 6;
+    pos[o]     = a.x || 0; pos[o + 1] = a.y || 0; pos[o + 2] = a.z || 0;
+    pos[o + 3] = b.x || 0; pos[o + 4] = b.y || 0; pos[o + 5] = b.z || 0;
+  }
+  const period = DASH_PERIOD();
+  let s = solid.length, moved = false;
+  for (let i = 0; i < dashed.length; i++) {
+    const a = NODE_BY_ID[dashed[i].from], b = NODE_BY_ID[dashed[i].to];
     const ax = a.x || 0, ay = a.y || 0, az = a.z || 0;
-    const s = off[i], k = off[i + 1] - s, o = s * 6;
-    // The solid case keeps its straight write. It is most of the buffer on any
-    // vault, and it runs every tick a node can still move.
-    if (k === 1) {
-      pos[o]     = ax;       pos[o + 1] = ay;       pos[o + 2] = az;
-      pos[o + 3] = b.x || 0; pos[o + 4] = b.y || 0; pos[o + 5] = b.z || 0;
-      continue;
-    }
     const dx = (b.x || 0) - ax, dy = (b.y || 0) - ay, dz = (b.z || 0) - az;
+    const k = Math.max(DASH_MIN, Math.min(DASH_CAP,
+      Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz) / period)));
+    if (dashK[i] !== k) { dashK[i] = k; moved = true; }
+    const p = 1 / (k - DASH_GAP), ink = p * (1 - DASH_GAP);
     for (let j = 0; j < k; j++) {
-      const q = o + j * 6, t0 = DASH_T[j * 2], t1 = DASH_T[j * 2 + 1];
+      const q = (s + j) * 6, t0 = j * p, t1 = t0 + ink;
       pos[q]     = ax + dx * t0; pos[q + 1] = ay + dy * t0; pos[q + 2] = az + dz * t0;
       pos[q + 3] = ax + dx * t1; pos[q + 4] = ay + dy * t1; pos[q + 5] = az + dz * t1;
     }
+    s += k;
   }
+  // Only when the packing actually moved. The colour buffer is 158KB on the
+  // reference vault and a needsUpdate re-uploads all of it; the dash counts
+  // change while the layout settles and then stop, so this pays once per
+  // change instead of 60 times a second forever.
+  if (moved) {
+    let t = solid.length;
+    for (let i = 0; i < dashed.length; i++) {
+      const c0 = dashCol[i * 4], c1 = dashCol[i * 4 + 1],
+            c2 = dashCol[i * 4 + 2], c3 = dashCol[i * 4 + 3];
+      for (let j = 0, k = dashK[i]; j < k; j++) {
+        const q = (t + j) * 8;
+        col[q]     = c0; col[q + 1] = c1; col[q + 2] = c2; col[q + 3] = c3;
+        col[q + 4] = c0; col[q + 5] = c1; col[q + 6] = c2; col[q + 7] = c3;
+      }
+      t += dashK[i];
+    }
+    obj.geometry.getAttribute("color").needsUpdate = true;
+  }
+  obj.geometry.setDrawRange(0, s * 2);
   obj.geometry.getAttribute("position").needsUpdate = true;
 }
 
@@ -686,6 +733,14 @@ function linkSegStep() {
 // --- 3D: the same crystal the mark is cut from ------------------------------
 // PARTICLES/SHADING come from the settings panel (Display). Both off is the
 // bundle's own look: smooth lit spheres, no fog, still edges.
+//
+// The two lights below stopped lighting the NOTES when those became flat marks
+// (see flattenNodes). They are kept, and kept tuned, because the particle and
+// arrow meshes are still MeshLambert and still the bundle's: with PARTICLES on
+// they are the only lit things in the scene, and a neutral office rig on them
+// would read as another app's dots crossing this one's ground. With PARTICLES
+// off the rig lights nothing, and the fog and the lens are the whole of what
+// SHADING still buys.
 const PARTICLES = DATA.particles;
 const SHADING = DATA.shading;
 // Everything here is a bundle default undone. Out of the box the scene is lit
@@ -725,22 +780,212 @@ const CRYSTAL = LIGHT ? {
   fov: 42,                        // 50 is the wide-angle look; this is a lens
 };
 
-// Re-facet after every wholesale material rebuild. refreshPaint triggers one on
+// --- 3D nodes: a flat mark, not a lit bead ----------------------------------
+// A note is a 2D mark. 2D draws it as one - a filled disc, and rings that hold
+// a constant SCREEN width whatever the zoom (drawNode). 3D drew a lit sphere,
+// and a lit sphere is an OBJECT: the gradient running across it is the whole
+// reason it reads as one. So the notes here stop being lit. The fill is the
+// community colour flat, edge to edge, and the silhouette is the only shape
+// information the mark carries - which is what makes it the same mark in both
+// views. Nothing has to be turned toward the camera: a uniformly coloured
+// sphere IS a camera-facing disc, identical from every angle, so the geometry
+// does the billboarding for free and there is no orientation to keep in step.
+// Size still falls off with distance; that and the fog are all that is left of
+// depth once the shading is gone, which is why the fog stays.
+//
+// A fragment-shader replacement, not material properties, and that is not a
+// preference: the bundle's node digest keeps a material only while
+// material.color.equals(nodeColor(n)), so zeroing the diffuse to kill the light
+// would make it discard and rebuild every node material on every focus change.
+// Reading diffuseColor in the shader leaves the colour where the bundle expects
+// to find it, and the rebuild never fires.
+//
+// The rim is the constant-width ring, and it is exact rather than fitted: on a
+// sphere dot(normal, view) reaches 0 at the silhouette from every angle, and
+// dividing it by its own screen-space derivative turns that into a distance in
+// PIXELS from the edge. So the ring is RIM_PX wide on a hub, on a leaf, near
+// and far - the property that makes it read as drawn on the screen rather than
+// modelled in the scene, and the same reason drawNode divides its own ring by
+// the zoom. Painted in the background colour, so two overlapping discs separate
+// instead of fusing into one blob: the reading the lit version used to get from
+// its gradient for free.
+const RIM_PX = 1.2;
+// The two rings 2D draws around the disc (drawNode): hub/orphan on the state
+// channel, load-bearing on its own outside it. Until now the 3D view had
+// neither, so the legend's four NODE rows promised a reading half of them could
+// not deliver here and the tooltip was the only place it landed.
+//
+// One deviation from 2D, and it is forced: 2D puts its rings OUTSIDE the disc
+// so the community hue keeps its full area, and a sphere has no outside - the
+// silhouette is where the geometry ends. So the bands are laid INWARD from the
+// edge and the hue gives up its outer 6.5px on a ringed note. The ORDER is 2D's
+// and that is what the reading rests on: load-bearing outside the state ring,
+// state ring outside the hue.
+//
+// The widths are pixels, which is the whole point of the metric below, and the
+// floor is what 2D spends its zoom gate on: under RING_MIN_PX of disc there is
+// no room for 6.5px of ring and no note left under it, so the mark goes back to
+// being a plain dot rather than an alarm made of rings.
+const RING_S_PX = 1.6, RING_C_PX = 1.3, RING_GAP_PX = 1.2, RING_MIN_PX = 13;
+// The silhouette IS the mark now, so it cannot be a hexagon - resolution 6 was
+// right only while the facets were the point. 32 rather than 20, and the ring
+// is what decided it: the bands are laid out from the INTERPOLATED normal,
+// which sweeps non-linearly across a chord, so a coarse sphere makes the ring
+// trace a visible polygon and vary in width around it. Measured on a node
+// filling ~120px: at 20 the chords and the width wobble both read, at 32
+// neither does. 2048 triangles a node against 72, ~2.4M a frame on the
+// reference vault - and the render budget only pays for them while something
+// moves. Revisit at 5k notes, or if a weak iGPU ever drops frames on a drag.
+const NODE_RES = 32;
+// The bundle caches one sphere geometry per node VALUE, and size is
+// round(16 + 40*betweenness, 2) - a near-continuous float, so it was caching
+// one geometry per note. Rounded it is at most 41 of them, and cbrt() flattens
+// the half-unit into a ~1% radius error nobody can see. Worth doing at any
+// resolution; unaffordable at 20.
+const nodeVal3D = n => Math.round(n.size || 16);
+
+// The per-node channel, and the only one this view has: the bundle shares one
+// material per COLOUR and one geometry per size, so neither can carry a value
+// that belongs to a single note. These three arrays are shared by every node
+// material, and the object about to be drawn rewrites them - three uploads
+// uniforms inside setProgram, which runs AFTER Object3D.onBeforeRender, so what
+// is written there lands on that node's draw and on nothing else's. Every node
+// material also compiles to ONE program (the colours are uniforms, not
+// defines), so there is one uniform cache and it sees every change.
+const U_STATE = new Float32Array(4);   // rgb + width in px; 0 = no ring
+const U_CUT   = new Float32Array(4);
+const U_BANDS = new Float32Array(2);   // knockout width, gap width
+
+// Built once, from the first Color the scene hands over. The injection lands
+// BEFORE the colorspace conversion, so the rim has to be in the working space -
+// which is exactly the conversion Color applies on the way in, so the value is
+// read off the instance instead of converted a second time by hand.
+//
+// ONE patch object for every material, and it has to stay one: the program
+// cache key is onBeforeCompile.toString(), so a second closure with different
+// GLSL but the same source text would silently be handed this one's program.
+let flatPatch = null;
+function buildFlatPatch(Color) {
+  const c = new Color(GP.bgHex);
+  const bg = "vec3(" + c.r.toFixed(5) + "," + c.g.toFixed(5) + "," +
+             c.b.toFixed(5) + ")";
+  const LIT = "vec3 outgoingLight = reflectedLight.directDiffuse + " +
+              "reflectedLight.indirectDiffuse + totalEmissiveRadiance;";
+  // rho is the disc's radial coordinate, 0 at the centre and 1 at the
+  // silhouette, and unlike dot(normal, view) it is LINEAR in screen radius - so
+  // its gradient is the same everywhere on the disc and (1-rho)/|grad rho| is a
+  // distance in pixels, not merely something proportional to one. That is what
+  // lets the bands below be specified as widths and mean it. dFdx/dFdy rather
+  // than fwidth() because fwidth sums the two axes and would make the ring up
+  // to 41% thinner on the diagonals than on the axes - invisible on the 1.2px
+  // knockout alone, a wobble once there are three bands stacked.
+  const FLAT = "vec3 outgoingLight = diffuseColor.rgb;\n" +
+    "float _f = abs(dot(normalize(normal), normalize(vViewPosition)));\n" +
+    "float _rho = sqrt(max(0.0, 1.0 - _f * _f));\n" +
+    "float _d = (1.0 - _rho) / max(length(vec2(dFdx(_rho), dFdy(_rho))), 1e-6);\n" +
+    // Every boundary is an offset from the one outside it, and a ring of width
+    // 0 collapses its band AND the gap after it - so a note with no ring lays
+    // down exactly the knockout this started as. The mix target is the
+    // background rather than the ring colour when the width is 0, because two
+    // smoothsteps at the same edge do not cancel: they would leave a 1px ghost
+    // of a ring that is not there.
+    "float _e0 = uSilBands.x;\n" +
+    "float _e1 = _e0 + uSilCut.w;\n" +
+    "float _e2 = _e1 + (uSilCut.w > 0.0 ? uSilBands.y : 0.0);\n" +
+    "float _e3 = _e2 + uSilState.w;\n" +
+    "float _e4 = _e3 + (uSilState.w > 0.0 ? uSilBands.y : 0.0);\n" +
+    "vec3 _bg = " + bg + ";\n" +
+    "vec3 _c = _bg;\n" +
+    "_c = mix(_c, uSilCut.w   > 0.0 ? uSilCut.rgb   : _bg, smoothstep(_e0 - 0.5, _e0 + 0.5, _d));\n" +
+    "_c = mix(_c, _bg, smoothstep(_e1 - 0.5, _e1 + 0.5, _d));\n" +
+    "_c = mix(_c, uSilState.w > 0.0 ? uSilState.rgb : _bg, smoothstep(_e2 - 0.5, _e2 + 0.5, _d));\n" +
+    "_c = mix(_c, _bg, smoothstep(_e3 - 0.5, _e3 + 0.5, _d));\n" +
+    "outgoingLight = mix(_c, outgoingLight, smoothstep(_e4 - 0.5, _e4 + 0.5, _d));";
+  const DECL = "uniform vec4 uSilState;\nuniform vec4 uSilCut;\n" +
+               "uniform vec2 uSilBands;\n";
+  return sh => {
+    // Not a swallowed failure: a bundle upgrade that rewrites the lambert
+    // shader leaves the notes lit, which is a LOOK and not a break, and this
+    // view has no other way to say the patch stopped landing.
+    if (sh.fragmentShader.indexOf(LIT) < 0) {
+      console.warn("node flat patch: lambert outgoingLight anchor is gone");
+      return;
+    }
+    sh.fragmentShader = DECL + sh.fragmentShader.replace(LIT, FLAT);
+    sh.uniforms.uSilState = { value: U_STATE };
+    sh.uniforms.uSilCut = { value: U_CUT };
+    sh.uniforms.uSilBands = { value: U_BANDS };
+  };
+}
+
+// The three ring colours, once, in the working space - the same conversion the
+// merged link buffer does for the same reason (segRGBA).
+let RING_RGB = null;
+function buildRingRGB(Color) {
+  const rgb = s => segRGBA(Color, s).slice(0, 3);
+  return { hub: rgb(GP.ringHub), orphan: rgb(GP.ringOrphan), cut: rgb(GP.ringCut) };
+}
+
+// Resolved once per node, because neither answer can change: both come off the
+// exported data, which is also why 2D's own legend counts run once at load.
+function nodeRings(n) {
+  // STATE_RING is the gate, not a second list: the states that get a ring are
+  // decided once, in that table, with the reason for each omission. A ghost
+  // therefore gets no state ring but keeps the load-bearing one, as in 2D.
+  const st = nodeState(n);
+  const s = STATE_RING[st] ? RING_RGB[st] : null;
+  return (s || n.cut) ? { s, c: n.cut ? RING_RGB.cut : null } : null;
+}
+
+// Per object, per frame, immediately before its draw. Costs one distance and
+// eight writes on 1150 nodes; the arrays are shared, so a node with no ring
+// still has to zero the widths or it would inherit the last node's.
+function nodeRingStep(renderer, scene, camera) {
+  const dpr = renderer.getPixelRatio();
+  U_BANDS[0] = RIM_PX * dpr; U_BANDS[1] = RING_GAP_PX * dpr;
+  U_STATE[3] = U_CUT[3] = 0;
+  const n = this.__data, r = this.geometry.parameters;
+  // __data is the bundle's own back-pointer from the mesh to the note, the same
+  // one its click and tooltip paths read. No ring rather than a throw if a
+  // future bundle stops setting it.
+  if (!n || !n.__rings || n._dim || !r) return;
+  // The derivative above measures in DEVICE pixels, so the projection has to as
+  // well: domElement.height is the drawing buffer, not the CSS box.
+  const e = this.matrixWorld.elements, c = camera.matrixWorld.elements;
+  const dist = Math.hypot(e[12] - c[12], e[13] - c[13], e[14] - c[14]);
+  const rpx = r.radius * (0.5 * renderer.domElement.height /
+                          Math.tan(camera.fov * Math.PI / 360)) / dist;
+  if (rpx < RING_MIN_PX * dpr) return;
+  const s = n.__rings.s, k = n.__rings.c;
+  if (s) { U_STATE[0] = s[0]; U_STATE[1] = s[1]; U_STATE[2] = s[2];
+           U_STATE[3] = RING_S_PX * dpr; }
+  if (k) { U_CUT[0] = k[0]; U_CUT[1] = k[1]; U_CUT[2] = k[2];
+           U_CUT[3] = RING_C_PX * dpr; }
+}
+
+// Re-patch after every wholesale material rebuild. refreshPaint triggers one on
 // every focus change (see its comment), so this cannot be a one-shot. The flag
 // rides on the material itself: a rebuilt material simply arrives without one,
 // which makes the repeat cost a 1150-entry loop that writes nothing.
 // __threeObj is the bundle's own per-node handle — 18x cheaper than walking the
 // scene, which also carries ~2700 particle meshes that want none of this.
-function faceteNodes() {
+function flattenNodes() {
   let Color = null;
   for (const n of RAW_NODES) {
-    const m = n.__threeObj && n.__threeObj.material;
+    const o = n.__threeObj, m = o && o.material;
     if (!m) continue;
     if (!Color) Color = m.color.constructor;
+    if (!RING_RGB) RING_RGB = buildRingRGB(Color);
+    if (!flatPatch) flatPatch = buildFlatPatch(Color);
+    if (n.__rings === undefined) n.__rings = nodeRings(n);
+    // Outside the material guard: the hook rides the MESH, and a mesh can be
+    // rebuilt while its (shared, already patched) material is not.
+    if (o.onBeforeRender !== nodeRingStep) o.onBeforeRender = nodeRingStep;
     if (m.__silica) continue;
-    // A 6-segment sphere stops pretending to be round and becomes a facet
-    // cluster. The geometry never changed; it just stopped being smoothed.
-    m.flatShading = true;
+    // The material arrives smooth-shaded and stays that way: the bands read the
+    // normal FIELD, and a faceted one would draw 20-sided rings inside a round
+    // silhouette.
+    m.onBeforeCompile = flatPatch;
     m.needsUpdate = true;
     m.__silica = 1;
   }
@@ -750,7 +995,7 @@ function faceteNodes() {
 function styleScene() {
   if (!SHADING || is2D() || !Graph || !Graph.scene) return;
   const sc = Graph.scene();
-  const Color = faceteNodes();
+  const Color = flattenNodes();
   if (!Color) return;
   // Per-light flags, not one scene-level one. The bundle populates its scene
   // lazily: at construction and immediately after graphData it holds only the
@@ -1096,8 +1341,9 @@ function buildGraph() {
     // admits exactly one lib line into existence: the constructor donor. A
     // falsy accessor result skips object creation entirely, so the other 9k
     // Lines and their materials are never built at all. linkWidth 0 keeps the
-    // donor a cheap Line rather than a cylinder mesh; fewer sphere segments.
-    G.linkWidth(0).nodeResolution(6)
+    // donor a cheap Line rather than a cylinder mesh. The sphere detail and the
+    // bucketed value belong to the flat mark, not to perf (see NODE_RES).
+    G.linkWidth(0).nodeResolution(SHADING ? NODE_RES : 6).nodeVal(nodeVal3D)
       .linkVisibility(l => l === RAW_EDGES[0] || (libOwnsLink(l) && !l._hidden))
       // "handled" for merged links and for the donor, which stays degenerate;
       // lib-owned particle carriers keep the default update and really move.
@@ -1135,9 +1381,11 @@ function buildGraph() {
         const st = nodeState(n);
         if (st !== "note") bits.push(st);
         const zone = (showZones && n.sgroup >= 0) ? ZONE_LABEL[n.sgroup] : null;
-        // Appended on the same terms as the zone, and for the same reason: 3D
-        // has no ring, so with the layer up this line is the only place the
-        // reading can land at all.
+        // Appended on the same terms as the zone. The mark carries the ring now
+        // (RING_S_PX), so this line is no longer the only place the reading
+        // lands - but the ring says load-bearing and cannot say how MANY
+        // strands, and it is gone below RING_MIN_PX of disc, which is most of a
+        // zoomed-out frame.
         const cut = n.cut
           ? "load-bearing · strands " + (n.strands || 0) : null;
         return '<div class="g3d-tip"><b>' + escHtml(n.label) + '</b>' +
@@ -1839,6 +2087,11 @@ window.addEventListener("message", e => {
   // The app's toolbar owns the renderer segment when embedded.
   if (e.data && e.data.type === "silica-set-renderer") {
     setMode(e.data.mode === "2d" ? "2d" : "3d");
+  }
+  // The app's legend sits at this frame's top-right corner, in the host's DOM.
+  // The HUD parks under it rather than being covered by it.
+  if (e.data && e.data.type === "silica-legend-h") {
+    document.body.style.setProperty("--legend-h", (e.data.h || 0) + "px");
   }
   if (e.data && e.data.type === "silica-host-drawer") {
     document.body.classList.toggle("host-drawer-open", !!e.data.open);

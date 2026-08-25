@@ -106,8 +106,9 @@ body.embedded #sidebar{display:none}
 /* The three rows that draw an absence, broken here because they are broken on
    the canvas: a full swatch over a dashed line is a legend that lies about the
    picture under it.
-   6px ink and 2px gap are DASH_2D, and three periods fill the 24px the way
-   DASH_SEGS fills a link, so the two ends of the frame agree by construction.
+   6px ink and 2px gap are DASH_2D, and 1:3 is DASH_GAP, which is what the 3D
+   buffer lays down over its own world-unit period - so the swatch is the
+   pattern in either view, and the two ends of the frame agree by construction.
    The light rule repeats rather than only swapping the token because :where()
    carries no specificity, so it needs the same two classes and source order to
    land over the dark one. */
@@ -152,7 +153,11 @@ body.host-drawer-open #focus-bar{right:calc(var(--drawer-w,0px) + 10px)}
 #graph-wrap{flex:1;min-width:0;position:relative;overflow:hidden}
 #graph{width:100%;height:100%}
 /* HUD — floating legend/filter panel anchored to the graph itself */
-#hud{position:absolute;top:10px;right:10px;z-index:5;width:216px;max-height:calc(100% - 20px);
+/* --legend-h is the height of the app's own legend, which is painted OVER this
+   frame at this same corner and which this document cannot see. Zero when the
+   frame is opened standalone, where there is no such panel. */
+#hud{position:absolute;top:calc(10px + var(--legend-h,0px));right:10px;z-index:5;width:216px;
+      max-height:calc(100% - 20px - var(--legend-h,0px));
       display:flex;flex-direction:column;gap:12px;padding:12px;overflow-y:auto;
       background:var(--hud-fill);border:1px solid var(--line-2)}
 /* The embedding page's note drawer overlays this frame's right edge, where

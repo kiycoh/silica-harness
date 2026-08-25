@@ -65,19 +65,22 @@ def test_the_notices_are_behind_the_chip_not_camped_in_the_rail():
 
 
 def test_the_rail_holds_what_only_the_rail_can():
-    """Pinned, this session's writes, the vault's areas, the files, the chats:
-    compartments none of them stated anywhere else in the app -- plus Layout,
-    which the explore deck added above them and which leaves with that view."""
+    """Pinned, this session's writes, the files, the chats, the run: compartments
+    none of them stated anywhere else in the app. Layout and Areas stood here too
+    and no longer do -- both are readings of ONE view, and a control for the
+    picture belongs against the picture (#legend, inside #view-graph)."""
     rail = _block(INDEX.read_text(), '<aside id="sidebar">', "</aside>")
     order = [m for m in re.findall(r'id="(side-[a-z]+)"', rail)]
-    # side-search reads INSIDE side-files: the filter narrows that tree, and
-    # floating on its own between two other compartments it was a box with no
-    # stated subject.
-    assert order == ["side-layout", "side-pinned", "side-changes",
-                     "side-areas", "side-files", "side-search",
-                     "side-history"], order
-    for body in ("id=\"pinned\"", "id=\"areas\""):
-        assert body in rail
+    # side-resize is the drag handle, not a compartment; side-search reads
+    # INSIDE side-files, because the filter narrows that tree and floating on
+    # its own between two compartments it was a box with no stated subject.
+    assert order == ["side-resize", "side-pinned", "side-changes",
+                     "side-files", "side-search", "side-history",
+                     "side-work"], order
+    assert 'id="pinned"' in rail
+    # ...and the two that left are in the legend, once each
+    view = _block(INDEX.read_text(), '<section id="view-graph"', "</section>")
+    assert 'id="layout-modes"' in view and 'id="areas"' in view
 
 
 def test_the_strip_is_one_bar_and_not_six_compartments():
@@ -110,7 +113,7 @@ def test_the_strip_and_the_panel_say_the_same_word():
     derivations would let the strip read idle while the panel beside it fills."""
     src = WORK_JS.read_text()
     assert src.count('run.running ? "live"') == 1
-    assert "head.textContent = state;" in src
+    assert "runState.textContent = state;" in src
     assert "paintTopRun(run, state);" in src
 
 
