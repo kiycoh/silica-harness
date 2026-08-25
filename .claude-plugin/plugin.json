@@ -5,7 +5,13 @@
   "author": {
     "name": "Alessandro Carosia"
   },
-  "keywords": ["memory", "knowledge-graph", "obsidian", "vault", "mcp"],
+  "keywords": [
+    "memory",
+    "knowledge-graph",
+    "obsidian",
+    "vault",
+    "mcp"
+  ],
   "skills": "./silica/skills",
   "mcpServers": "./mcp.json",
   "hooks": "./hooks/hooks.json"
