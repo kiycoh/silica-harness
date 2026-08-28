@@ -38,6 +38,7 @@ CORE_TOOLS = (
     "silica_read_note",
     "silica_outline",
     "silica_links",
+    "silica_file_links",
     "silica_graph_explain",
     "silica_props",
     "silica_files",

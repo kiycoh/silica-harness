@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any
 import networkx as nx
-from silica.kernel.link.ast import extract_links_typed, resolve_relative
+from silica.kernel.link.ast import NON_MD_EXTENSIONS, extract_refs_typed, resolve_relative
 
 from silica.driver.base import (
     GraphIndexMixin,
@@ -138,6 +138,18 @@ class ObsidianFSBackend(GraphIndexMixin):
         self._graph = nx.DiGraph()
         self._unresolved_links: set[tuple[str, str]] = set() # (source_path, raw_target)
         self._alias_pairs: dict[str, list[str]] = {}         # path -> frontmatter aliases
+        # Note↔file reference maps. Two keyspaces, never merged: embeds are
+        # vault-relative (resolved against the census below), `documents:`
+        # entries are repo-relative (validated at write by codedocs). Kept out
+        # of self._graph on purpose — orphans/snapshot/graph-gate semantics
+        # are note↔note and must not shift because a note gained a figure.
+        self._assets_lower: dict[str, str] = {}              # rel_path.lower() -> rel_path
+        self._assets_by_name: dict[str, list[str]] = {}      # basename.lower() -> [rel_path]
+        self._asset_edges: dict[str, list[str]] = {}         # note path -> resolved assets
+        self._asset_notes: dict[str, list[str]] = {}         # asset path -> [note path]
+        self._unresolved_assets: dict[str, list[str]] = {}   # note path -> raw targets
+        self._documents_edges: dict[str, list[str]] = {}     # note path -> documents: paths
+        self._documents_notes: dict[str, list[str]] = {}     # documents: path -> [note path]
         self._needs_reindex: bool = True
         self._dirty_paths: set[str] = set()           # paths patched since last full rebuild
         # LRU-bounded at _BODY_CACHE_CAP entries (a note is a few KB, so the
@@ -322,6 +334,79 @@ class ObsidianFSBackend(GraphIndexMixin):
             sorted_refs = sorted(refs, key=lambda r: (r.path.count("/"), r.path.lower()))
             return sorted_refs[0]
 
+    def _resolve_asset(self, target: str, source_path: str = "") -> str | None:
+        """Resolve a file reference to a censused vault asset, Obsidian-style.
+
+        Mirrors `_resolve_target`'s rules on the asset census instead of
+        generalizing it: that resolver is entangled with NoteRef and the .md
+        suffix, and the shared part is three lines of tie-breaking.
+        # ponytail: linear suffix scan over the census — index it per-suffix
+        # only if a vault ever censuses >10k assets.
+        """
+        t = resolve_relative(target, source_path)
+        if t is None:
+            return None  # escapes the vault root: no censused file can match
+        t = t.strip().replace("\\", "/").lstrip("/")
+        if not t:
+            return None
+        low = t.lower()
+        hit = self._assets_lower.get(low)
+        if hit:
+            return hit
+        shortest = lambda paths: sorted(paths, key=lambda p: (p.count("/"), p.lower()))[0]
+        if "/" in t:
+            cands = [p for lp, p in self._assets_lower.items() if lp.endswith("/" + low)]
+            return shortest(cands) if cands else None
+        cands = self._assets_by_name.get(low) or []
+        if not cands:
+            return None
+        if "/" in source_path:
+            src_dir = source_path.rsplit("/", 1)[0] + "/"
+            same = [p for p in cands if p.rsplit("/", 1)[0] + "/" == src_dir]
+            if same:
+                return shortest(same)
+        return shortest(cands)
+
+    def _index_file_refs(self, rel_path: str, content: str, file_targets: list[str]) -> None:
+        """Record one note's file references: resolved embeds into the forward
+        and inverse maps, misses into `_unresolved_assets` (counted, never
+        silently dropped), and `documents:` frontmatter into its own
+        repo-relative keyspace."""
+        for ft in file_targets:
+            hit = self._resolve_asset(ft, source_path=rel_path)
+            if hit:
+                bucket = self._asset_edges.setdefault(rel_path, [])
+                if hit not in bucket:
+                    bucket.append(hit)
+                    self._asset_notes.setdefault(hit, []).append(rel_path)
+            else:
+                misses = self._unresolved_assets.setdefault(rel_path, [])
+                if ft not in misses:
+                    misses.append(ft)
+        docs = fm.documents_in(content)
+        if docs:
+            self._documents_edges[rel_path] = docs
+            for d in docs:
+                notes = self._documents_notes.setdefault(d, [])
+                if rel_path not in notes:
+                    notes.append(rel_path)
+
+    def _drop_file_refs(self, rel_path: str) -> None:
+        """Remove one note from every file-reference map (delete or re-upsert)."""
+        for asset in self._asset_edges.pop(rel_path, []):
+            notes = self._asset_notes.get(asset)
+            if notes and rel_path in notes:
+                notes.remove(rel_path)
+                if not notes:
+                    del self._asset_notes[asset]
+        self._unresolved_assets.pop(rel_path, None)
+        for d in self._documents_edges.pop(rel_path, []):
+            notes = self._documents_notes.get(d)
+            if notes and rel_path in notes:
+                notes.remove(rel_path)
+                if not notes:
+                    del self._documents_notes[d]
+
     @_locked
     def _rebuild_index(self):
         logger.debug("Rebuilding FS graph index...")
@@ -330,6 +415,13 @@ class ObsidianFSBackend(GraphIndexMixin):
         self._graph.clear()
         self._unresolved_links.clear()
         self._alias_pairs.clear()
+        self._assets_lower.clear()
+        self._assets_by_name.clear()
+        self._asset_edges.clear()
+        self._asset_notes.clear()
+        self._unresolved_assets.clear()
+        self._documents_edges.clear()
+        self._documents_notes.clear()
 
         # Stamped BEFORE the file pass, deliberately: a note created between
         # the two walks is missed by this pass but its folder mtime is already
@@ -353,8 +445,18 @@ class ObsidianFSBackend(GraphIndexMixin):
 
             for file in files:
                 if not file.endswith(".md"):
+                    # Asset census, same walk for free (the dirent is already
+                    # in hand). Extension-filtered so a repo-root vault's
+                    # source tree never floods it; freshness rides the same
+                    # dir-mtime roster as notes — a new file bumps its
+                    # folder's mtime, which reads as drift and rebuilds.
+                    low = file.lower()
+                    if low.endswith(NON_MD_EXTENSIONS):
+                        rel_asset = (Path(root) / file).relative_to(self.vault_path).as_posix()
+                        self._assets_lower[rel_asset.lower()] = rel_asset
+                        self._assets_by_name.setdefault(low, []).append(rel_asset)
                     continue
-                
+
                 path = Path(root) / file
                 rel_path_file = path.relative_to(self.vault_path).as_posix()
 
@@ -385,12 +487,14 @@ class ObsidianFSBackend(GraphIndexMixin):
         for rel_path_file, path in files_to_process:
             try:
                 content = path.read_text(encoding="utf-8")
-                for target, scaffold in extract_links_typed(content).items():
+                typed, file_targets = extract_refs_typed(content)
+                for target, scaffold in typed.items():
                     ref = self._resolve_target(target, source_path=rel_path_file)
                     if ref:
                         self._add_link_edge(rel_path_file, ref.path, scaffold=scaffold)
                     else:
                         self._unresolved_links.add((rel_path_file, target))
+                self._index_file_refs(rel_path_file, content, file_targets)
 
                 # Frontmatter aliases — harvested here because this pass already
                 # holds every body in hand; a separate props_of() sweep would
@@ -442,6 +546,7 @@ class ObsidianFSBackend(GraphIndexMixin):
                         r for r in self._notes_by_name[name_lower] if r.path != rel_path
                     ]
             self._dirty_paths.discard(rel_path)
+            self._drop_file_refs(rel_path)
             return
 
         # --- upsert node ---
@@ -456,12 +561,15 @@ class ObsidianFSBackend(GraphIndexMixin):
             self._notes_by_name[name_lower].append(ref)
 
         # --- rebuild edges for this path ---
-        for target, scaffold in extract_links_typed(content).items():
+        typed, file_targets = extract_refs_typed(content)
+        for target, scaffold in typed.items():
             target_ref = self._resolve_target(target, source_path=rel_path)
             if target_ref:
                 self._add_link_edge(rel_path, target_ref.path, scaffold=scaffold)
             else:
                 self._unresolved_links.add((rel_path, target))
+        self._drop_file_refs(rel_path)   # replace, never accumulate, on re-upsert
+        self._index_file_refs(rel_path, content, file_targets)
 
         if (al := fm.aliases_of(content)):
             self._alias_pairs[rel_path] = al
@@ -779,6 +887,45 @@ class ObsidianFSBackend(GraphIndexMixin):
         for s, t in self._unresolved_links:
             results.append(Link(source=self._node_ref(s), target=t.removesuffix(".md")))
         return results
+
+    @_locked
+    def file_refs_of(self, ref: NoteRef | str) -> dict:
+        """Files one note references: resolved embeds (vault-relative), its
+        `documents:` entries (repo-relative), and unresolved raw targets."""
+        self._ensure_index()
+        path = self._path_of(ref)
+        if not path:
+            return {"embeds": [], "documents": [], "unresolved": []}
+        return {
+            "embeds": list(self._asset_edges.get(path, [])),
+            "documents": list(self._documents_edges.get(path, [])),
+            "unresolved": list(self._unresolved_assets.get(path, [])),
+        }
+
+    @_locked
+    def file_backlinks(self, path: str) -> dict:
+        """Notes referencing a file: by body embed and by `documents:`.
+
+        The embed leg resolves `path` like a link target (basename included);
+        the documents leg matches the repo-relative entry exactly, plus a
+        basename-suffix convenience — the two keyspaces are looked up side by
+        side, never merged into one map (a vault-relative and a repo-relative
+        path can name the same file with different strings).
+        """
+        self._ensure_index()
+        t = (path or "").strip().replace("\\", "/").lstrip("/")
+        embeds: list[str] = []
+        if t:
+            resolved = self._resolve_asset(t)
+            if resolved:
+                embeds = list(self._asset_notes.get(resolved, []))
+        docs = list(self._documents_notes.get(t, []))
+        if t and not docs:
+            suffix = "/" + t.lower()
+            for d, notes in self._documents_notes.items():
+                if d.lower().endswith(suffix):
+                    docs.extend(notes)
+        return {"embeds": embeds, "documents": sorted(dict.fromkeys(docs))}
 
     @_locked
     def graph_snapshot(self, refs: list[NoteRef] | None = None) -> GraphSnapshot:

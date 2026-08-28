@@ -9,8 +9,18 @@ from markdown_it import MarkdownIt
 
 _MD = MarkdownIt()  # stateless parser, shared by every parse below
 
+# One list, two jobs: extract_links DROPS these targets (a file is not a note;
+# before .ipynb/.mov/.tiff joined 2026-08-27, each such link sat in the
+# backends' unresolved set as a phantom dangling NOTE) and extract_file_refs
+# RETURNS them as the note→file reference bucket. Deliberately a superset of
+# text/media.py's _IMG_EXT_TUPLE: that list is "what to strip from prose"
+# (visual media only — a .zip or .ipynb link must stay in the text), this one
+# is "what is a file". Extension allowlist, not "has a dot": note titles like
+# "Node.js" or "Web 2.0" must stay note targets.
 NON_MD_EXTENSIONS = (
-    '.png', '.jpg', '.jpeg', '.pdf', '.webp', '.svg', '.gif', '.mp4', '.zip', '.html', '.css'
+    '.png', '.jpg', '.jpeg', '.pdf', '.webp', '.svg', '.gif', '.bmp',
+    '.tif', '.tiff', '.avif', '.mp4', '.mov', '.avi', '.mkv',
+    '.zip', '.html', '.css', '.ipynb',
 )
 
 # Wikilink target extraction: captures the target of [[Target]], [[Target|alias]]
@@ -89,11 +99,39 @@ def extract_links(content: str) -> list[str]:
     return _extract_links_ast(content)
 
 
+def extract_file_refs(content: str) -> list[str]:
+    """Non-md file targets a note references: ![[img.jpg]] embeds, [[doc.pdf]]
+    wikilinks, ![alt](x.png) images and [label](x.ipynb) links, in order,
+    deduped. Remote (http/https/mailto) sources never appear — the walk in
+    `_extract_refs_ast` filters them before the buckets exist.
+
+    Same marker-scan fast path as extract_links, and provably so: every file
+    ref carries one of its markers (`![[` contains `[[`; `![](x.png)` and
+    `[l](x.pdf)` contain a non-web `](`), so a scan-negative note has no file
+    refs either.
+    """
+    content = textwrap.dedent(content)
+    if not _LINK_MARKER_RE.search(content):
+        return []
+    return _extract_refs_ast(content)[1]
+
+
 def _extract_links_ast(content: str) -> list[str]:
     """`extract_links` without the marker scan, on already-dedented content.
 
     Split out so the equivalence between the two paths is a thing the tests
     can assert directly (tests/test_wikilink_fast_path.py) instead of a claim.
+    """
+    return _extract_refs_ast(content)[0]
+
+
+def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
+    """One parse, two buckets: (note targets, file targets).
+
+    The split lives at the extension check that used to silently drop file
+    targets — everything upstream (walk, filters, normalization) is shared,
+    so the two buckets can never disagree about what counts as a reference
+    (ADR-0029: one link generator).
     """
     tokens = _MD.parse(content)
 
@@ -118,6 +156,7 @@ def _extract_links_ast(content: str) -> list[str]:
     walk(tokens)
 
     cleaned = []
+    files: list[str] = []
     for text in text_pieces:
         # Match [[target]] links (allowing characters like # and ^)
         raw_targets = re.findall(r'\[\[([^\]|]+)(?:\|[^\]]*)?\]\]', text)
@@ -134,15 +173,18 @@ def _extract_links_ast(content: str) -> list[str]:
             # to match them; this is the outlier that did not.
             if t.startswith('#') or t.startswith('^'):
                 continue
-            # Split off heading/section part
+            # Split off heading/section part. For a file target this also
+            # drops an Obsidian sub-reference ([[doc.pdf#page=3]] → doc.pdf).
             t = t.split('#', 1)[0].strip()
             if not t:
                 continue
             if t.lower().endswith(NON_MD_EXTENSIONS):
+                if t not in files:
+                    files.append(t)
                 continue
             if t not in cleaned:
                 cleaned.append(t)
-    return cleaned
+    return cleaned, files
 
 
 _FRONTMATTER_BLOCK_RE = re.compile(r"\A\s*---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
@@ -163,13 +205,26 @@ def extract_links_typed(content: str) -> dict[str, bool]:
     prose, whatever else mentions it. Same targets, same order as
     `extract_links`.
     """
-    all_targets = extract_links(content)
+    return extract_refs_typed(content)[0]
+
+
+def extract_refs_typed(content: str) -> tuple[dict[str, bool], list[str]]:
+    """`extract_links_typed` plus the file bucket, from one shared parse.
+
+    The per-note call for the backends' index pass: two separate calls
+    (typed + extract_file_refs) would parse every link-bearing note twice
+    for nothing — the parse is the hot loop's measured cost.
+    """
+    content = textwrap.dedent(content)
+    if not _LINK_MARKER_RE.search(content):
+        return {}, []
+    all_targets, files = _extract_refs_ast(content)
     if not all_targets:
-        return {}
+        return {}, files
     m = _FRONTMATTER_BLOCK_RE.match(content)
     body = content[m.end():] if m else content
     prose = set(extract_links(_HEADING_LINE_RE.sub("", body)))
-    return {t: t not in prose for t in all_targets}
+    return {t: t not in prose for t in all_targets}, files
 
 
 def parse_headings(body: str) -> list[dict]:

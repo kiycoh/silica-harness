@@ -243,6 +243,17 @@ class ObsidianDriver(Protocol):
         """Unresolved wikilinks in the vault."""
         ...
 
+    def file_refs_of(self, ref: NoteRef | str) -> dict:
+        """Files a note references: body embeds/links plus `documents:`.
+        Shape: {"embeds": [...], "documents": [...], "unresolved": [...]} —
+        a backend without an asset index serves the empty shape, never None."""
+        ...
+
+    def file_backlinks(self, path: str) -> dict:
+        """Notes referencing a file, by embed and by `documents:`.
+        Shape: {"embeds": [...], "documents": [...]}."""
+        ...
+
     def graph_snapshot(self, refs: list[NoteRef] | None = None) -> GraphSnapshot:
         """Graph snapshot for non-regression gating.
 

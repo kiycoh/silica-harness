@@ -64,6 +64,35 @@ def aliases_of(content):
         return []
     return [str(x).strip() for x in raw if str(x).strip()]
 
+def documents_in(content):
+    """The `documents:` paths of a note, as a flat list of strings.
+
+    Same head-guard economics as aliases_of: a note without the key never
+    reaches the YAML parser, so the backends can harvest the whole vault in
+    their existing body pass. Only the SHAPE lives here — the semantic
+    contract (repo-relative, validated at write, staleness vs code_ref) stays
+    in kernel/code/codedocs.py, which the driver must not import: its module
+    top pulls codeast, and with it tree-sitter.
+    """
+    m = FM_RE.match(content)
+    if not m or "documents" not in m.group(1):
+        return []
+    try:
+        data = yaml.safe_load(m.group(1)) or {}
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    raw = data.get("documents")
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw.strip()] if raw.strip() else []
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
 def add_alias(content, alias):
     """Add `alias` to a note's `aliases:`, idempotently. Returns the new content.
 

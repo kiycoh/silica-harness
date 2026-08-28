@@ -504,6 +504,7 @@ def silica_related(note: str, k: int = 5, memory: bool = True) -> dict[str, Any]
         resolved = False
     if not resolved:
         query_path = note  # unresolved: treat the input itself as a path
+    note_path = query_path if resolved else ""  # pre-cooccur_key form, for file_refs_of
     query_path = cooccur_key(query_path)
 
     embed_store = get_store()
@@ -595,6 +596,17 @@ def silica_related(note: str, k: int = 5, memory: bool = True) -> dict[str, Any]
             for r in results
         ],
     }
+    if note_path:
+        try:
+            fr = DRIVER.file_refs_of(note_path)
+            files = {kind: v for kind, v in fr.items() if v and kind != "unresolved"}
+            if files:
+                # Structural section, not a retrieval leg: what the seed note
+                # references on disk (embeds, documents:). Never enters fusion
+                # (ADR-0018 boundary); omitted when empty to save tokens.
+                out["files"] = files
+        except Exception:
+            pass  # a backend without file refs must not fail the related call
     if not results:
         # Empty is ambiguous — say why so the caller acts instead of guessing.
         if not resolved:

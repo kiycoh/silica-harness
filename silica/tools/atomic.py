@@ -367,6 +367,41 @@ def silica_backlinks(name: str) -> list:
     return [r.path for r in refs]
 
 
+class FileLinksArgs(BaseModel):
+    target: str = Field(description="A note (name or path), OR a file path/basename (e.g. foto.jpg, analysis.ipynb, src/mod.py)")
+
+@tool(FileLinksArgs, cls="atomic")
+def silica_file_links(target: str) -> dict:
+    """Note↔file connections, both directions. Given a note: the files it
+    references (image/media/notebook embeds + `documents:` frontmatter) as
+    {note, embeds, documents, unresolved}. Given a file: the notes referencing
+    it as {file, embedded_in, documented_by}. Complements silica_links, which
+    sees only note→note wikilinks. Embeds are vault-relative paths;
+    `documents:` entries are repo-relative (code lane)."""
+    from silica.kernel.link.ast import NON_MD_EXTENSIONS
+
+    t = (target or "").strip()
+    # Notes win over files, but a file-shaped target (extension allowlist —
+    # a vault note can never end in one) skips the pointless note resolution.
+    if t and not t.lower().endswith(NON_MD_EXTENSIONS):
+        try:
+            note_path = DRIVER.read_note(t).ref.path
+        except Exception:
+            note_path = ""  # not a note: tolerated, the file direction answers below
+        if note_path:
+            out: dict = {"note": note_path}
+            out.update(DRIVER.file_refs_of(note_path))
+            return out
+    bl = DRIVER.file_backlinks(t)
+    out = {"file": t, "embedded_in": bl.get("embeds", []),
+           "documented_by": bl.get("documents", [])}
+    if not out["embedded_in"] and not out["documented_by"]:
+        out["hint"] = ("No note references this target — or it is neither a "
+                       "resolvable note nor a vault file. silica_files lists "
+                       "what exists under a folder.")
+    return out
+
+
 class EmptyArgs(BaseModel):
     pass
 

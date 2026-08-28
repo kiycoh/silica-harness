@@ -354,6 +354,15 @@ class ObsidianWSBackend(GraphIndexMixin):
             return []
         return [self._node_ref(s) for s in self._graph.predecessors(path)]
 
+    def file_refs_of(self, ref: NoteRef | str) -> dict:
+        # ponytail: no asset census over the WS API yet — empty shape is the
+        # declared degrade; implement when a WS session needs note↔file edges.
+        return {"embeds": [], "documents": [], "unresolved": []}
+
+    def file_backlinks(self, path: str) -> dict:
+        # ponytail: same degrade as file_refs_of.
+        return {"embeds": [], "documents": []}
+
     def orphans(self) -> list[NoteRef]:
         self._ensure_graph()
         return [self._graph.nodes[n]["ref"] for n, d in self._graph.in_degree() if d == 0]
