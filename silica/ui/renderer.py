@@ -114,8 +114,12 @@ def _head_result(text: str) -> str:
 
 # tool → (verb, arg key shown as the bold target). Command-form grammar: `verb "target"`.
 _TOOL_DESC: dict[str, tuple[str, str | None]] = {
-    "silica_search": ("search", "query"),
-    "silica_search_context": ("search", "query"),
+    # Two tools, two verbs. Both read "search" until 2026-08-27, and the panel
+    # then showed the same `search "boosting"` line answering `{"paths": []}`
+    # once and a page of body snippets the next — same badge, same argument,
+    # nothing on screen saying one matches titles and the other matches text.
+    "silica_search": ("search titles", "query"),
+    "silica_search_context": ("search inside", "query"),
     "silica_read_note": ("read", "name"),
     "silica_write_note": ("write note", "path"),
     "silica_patch_note": ("patch note", "name"),

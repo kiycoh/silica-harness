@@ -24,8 +24,8 @@
 // tests/test_work_panel.py pins it entry-for-entry to _TOOL_DESC in
 // silica/ui/renderer.py and fails when the two disagree.
 const TOOL_VERBS = {
-  "silica_search": ["search", "query"],
-  "silica_search_context": ["search", "query"],
+  "silica_search": ["search titles", "query"],
+  "silica_search_context": ["search inside", "query"],
   "silica_read_note": ["read", "name"],
   "silica_write_note": ["write note", "path"],
   "silica_patch_note": ["patch note", "name"],

@@ -105,7 +105,7 @@ def test_tools_carry_the_verb_and_the_target_the_renderer_would_print(tmp_path):
     run = _project(tmp_path, TRACE)
     tools = [r for r in run["rows"] if r["kind"] == "tool"]
     assert [(t["verb"], t["target"]) for t in tools] == [
-        ("search", "utilitarismo"),
+        ("search inside", "utilitarismo"),  # search_context, not silica_search
         ("read", "Morale"),
         ("patch note", "Filosofia/Morale.md"),
     ]
