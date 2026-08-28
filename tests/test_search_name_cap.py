@@ -36,6 +36,11 @@ def test_caps_and_says_so(monkeypatch):
     assert "120 notes matched" in out["truncated"]
 
 
-def test_no_match_returns_an_empty_answer(monkeypatch):
+def test_no_match_returns_an_empty_answer_that_names_the_other_two_tools(monkeypatch):
+    """Empty, but not silent: a bare 0 is what the caller read as "not in the
+    vault" when the term was only ever in the bodies (2026-08-27)."""
     _patch(monkeypatch, [])
-    assert atomic.silica_search("nothing") == {"paths": [], "matched": 0}
+    out = atomic.silica_search("nothing")
+    assert out["paths"] == [] and out["matched"] == 0
+    assert "silica_search_context" in out["hint"]
+    assert "silica_semantic_search" in out["hint"]

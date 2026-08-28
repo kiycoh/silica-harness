@@ -10,7 +10,10 @@ From SILICA.md §4.2:
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Iterable
+from functools import lru_cache
 
 from pathlib import Path
 
@@ -33,6 +36,38 @@ _FILES_CAP = 200
 class SearchArgs(BaseModel):
     query: str = Field(description="Text to search for in note names in the vault")
 
+
+# 868 names re-folded on every search, ~30 searches in one agent turn. Measured
+# 2026-08-27 on that vault: 0.767 ms per sweep uncached, 0.027 ms cached (439492
+# hits against 868 misses over five sweeps), 3.32 -> 2.44 ms end to end, 134 KB
+# held for 868 entries. `_fold` is pure, so a renamed note only leaves an entry
+# nobody asks for again — there is nothing to invalidate.
+#
+# maxsize is the whole contract, not a tuning knob: it must stay above the
+# vault's note count, because every search touches all of them and then one
+# throwaway query key. Undersized it is SLOWER than no cache at all — 256 on 872
+# names measured 0.899 ms, +17%, paying hash and eviction to reuse nothing.
+# ponytail: 8192 covers the roster plus the query churn up to ~8000 notes. Past
+# that the answer is not a bigger number — it is folding once when the index is
+# built and keeping the folded name on NoteRef, which needs no maxsize, no
+# eviction and no lock.
+@lru_cache(maxsize=8192)
+def _fold(text: str) -> str:
+    """Case and accents folded away: the form two titles are compared in.
+
+    `casefold` alone left 44 of 872 titles on an Italian vault unreachable by
+    anyone typing without the accent — "probabilita" answered 0 while
+    `Teoria delle probabilità.md` sat in the index (measured 2026-08-27).
+    Dropping the combining marks also makes the NFC vault and the NFD one a
+    macOS Obsidian writes compare equal, which no amount of casefolding does.
+    It deliberately collapses "papa" and "papà": this is the SEARCH surface,
+    where the reader picks from the hits. Wikilink resolution is a different
+    seam and must keep them apart.
+    """
+    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
+                   if not unicodedata.combining(c))
+
+
 # Same unbounded shape as search_context, one level down: substring-over-names
 # means a short query answers with the vault ("e" measured 575 paths / 41k chars
 # on a 719-note vault). A name lookup that returns 500 names has answered
@@ -44,24 +79,68 @@ _SEARCH_CAP = 40
 def silica_search(query: str) -> dict:
     """Search for notes by NAME/title match. Returns the paths of matching notes.
 
-    A note's wikilink name is its filename without the extension. For text
-    inside note bodies use silica_search_context; for meaning-based search when
-    you don't know the exact words use silica_semantic_search.
+    A note's wikilink name is its filename without the extension. Case and
+    accents are ignored, so "probabilita" finds `Probabilità bayesiana`. For
+    text inside note bodies use silica_search_context; for meaning-based search
+    when you don't know the exact words use silica_semantic_search.
 
-    Returns {paths, matched}: closest name match first, `truncated` when capped.
+    Returns {paths, matched}: closest name match first, `truncated` when capped,
+    `relaxed` when no title carries every word of the query and the hits only
+    share some of them.
     """
-    refs = DRIVER.search_names(query)
-    q = query.casefold()
+    q = _fold(query)
+    # Words, not the phrase. A title search used to be one substring test against
+    # one string, so a query that says more than the title does answered
+    # "nothing" with the note sitting right there: "regressione lineare multipla"
+    # missed `Regressione lineare.md` that semantic search scores 1.000. Measured
+    # 2026-08-27 on an 886-note vault, 22 of 29 searches in one turn came back
+    # empty and the study plan built on them declared owned material missing.
+    # Words under 3 chars match half the vault, so they only stand in when the
+    # query is nothing but short words.
+    tokens = [t for t in re.split(r"\W+", q) if len(t) > 2] or [q]
 
-    def rank(ref) -> tuple:
-        name = ref.name.casefold()
-        # 0/1/2: exact, prefix, substring. Then shorter name (a 6-char hit on
-        # an 8-char name is a better answer than on an 80-char one), then path.
-        tier = 0 if name == q else (1 if name.startswith(q) else 2)
-        return (tier, len(name), ref.path)
+    # One enumeration, scored in place. The phrase and the words are not two
+    # passes: a second lookup is a second round-trip on the ws backend (one
+    # `list_files` per token) and it can only re-find what this scan already saw.
+    scored: list[tuple] = []
+    for ref in DRIVER.search_names(""):
+        name = _fold(ref.name)
+        carried = sum(t in name for t in tokens)
+        if not carried:
+            continue
+        # 0/1/2 read the query literally (exact title, prefix, substring), 3 is
+        # every word present but scattered, 4 is only some of them. Tiers 0-3 are
+        # facts about the title; 4 is a guess, and merging the two turns
+        # `matched: 1` ("this is the note") into `matched: 12` ("pick one") —
+        # which is the number the caller reads as coverage. Then shorter name (a
+        # 6-char hit on an 8-char name is a better answer than on an 80-char
+        # one), then path.
+        if q in name:
+            tier = 0 if name == q else (1 if name.startswith(q) else 2)
+        else:
+            tier = 3 if carried == len(tokens) else 4
+        scored.append((tier, -carried, len(name), ref.path))
 
-    ranked = sorted(refs, key=rank)
-    out: dict = {"paths": [r.path for r in ranked[:_SEARCH_CAP]], "matched": len(ranked)}
+    scored.sort()
+    literal = [row for row in scored if row[0] < 4]
+    ranked = literal or scored
+    out: dict = {"paths": [row[-1] for row in ranked[:_SEARCH_CAP]], "matched": len(ranked)}
+    if not ranked:
+        # A bare 0 reads as "the vault does not have this". It does not: on the
+        # 2026-08-27 run `boosting` had no title but five notes mentioning it,
+        # and the plan built on that 0 marked the topic missing. Name the two
+        # tools that would have answered, at the one moment the caller is about
+        # to conclude otherwise.
+        out["hint"] = (
+            "no title matches. The term may still be in note bodies "
+            "(silica_search_context) or worded differently "
+            "(silica_semantic_search)."
+        )
+    if ranked and not literal:
+        out["relaxed"] = (
+            f"no title carries every word of '{query}'; these carry some. "
+            "Use silica_semantic_search to rank by meaning."
+        )
     if len(ranked) > _SEARCH_CAP:
         out["truncated"] = (
             f"{len(ranked)} notes matched; showing the {_SEARCH_CAP} closest name "
