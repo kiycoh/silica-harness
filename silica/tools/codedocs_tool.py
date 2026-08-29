@@ -107,3 +107,60 @@ def silica_code_pack(target: str, budget_chars: int = 24000) -> dict:
         # unwritable store is a tool-level error, not a crash of the caller.
         return {"status": "error", "message": str(e)}
     return {"status": "ok", **pack}
+
+
+class ImpactArgs(BaseModel):
+    range_spec: str = Field(
+        default="",
+        description=(
+            "Git range or ref (e.g. 'HEAD~3..HEAD', 'main..HEAD', one SHA = "
+            "that ref vs the working tree). Empty = uncommitted changes vs HEAD."
+        ),
+    )
+
+
+_IMPACT_CAP = 100  # entries; a diff wider than this is a rewrite, not a change
+
+
+@tool(ImpactArgs, cls="composed")
+def silica_impact(range_spec: str = "") -> dict:
+    """Which notes a code change touches: changed source files (working tree
+    vs HEAD by default, or a git range) classified cosmetic/structural, each
+    with the notes documenting it and the notes of its 1-hop import
+    neighbors, sorted structural-first by fan-in. The blast-radius call to
+    make before and after editing code the vault documents. Deterministic,
+    no LLM; a vault outside a git repo answers status "no_repo"."""
+    from silica.config import CONFIG
+    from silica.kernel.code.codegraph import compute_impact
+
+    vault = str(getattr(CONFIG, "vault_path", "") or "").strip()
+    if not vault:
+        return {"status": "error", "message": "no vault configured"}
+    try:
+        entries = compute_impact(vault, range_spec.strip() or None)
+    except (ValueError, OSError) as e:
+        # OSError for the same reason as code_pack: the graph load may write
+        # its derived store, and an unwritable store is a tool-level error.
+        return {"status": "error", "message": str(e)}
+    if entries is None:
+        return {
+            "status": "no_repo",
+            "message": "vault is not inside a git repository; the code lane is off",
+        }
+    return {
+        "status": "ok",
+        "total": len(entries),
+        "entries": [
+            {
+                "path": e.path,
+                "change_level": e.change_level,
+                "details": list(e.details),
+                "fan_in": e.fan_in,
+                "notes": list(e.notes),
+                "neighbor_notes": list(e.neighbor_notes),
+            }
+            for e in entries[:_IMPACT_CAP]
+        ],
+        # Never a silent cap (same discipline as the tabular lane).
+        "truncated": len(entries) > _IMPACT_CAP,
+    }

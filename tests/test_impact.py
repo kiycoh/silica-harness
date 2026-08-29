@@ -65,3 +65,40 @@ def test_impact_range_and_no_repo(tmp_path, monkeypatch):
     entries = codegraph.compute_impact(vault, f"{ref0}..{ref1}")
     e = next(en for en in entries if en.path == "m.py")
     assert e.change_level == "cosmetic"   # body-only commit in the range
+
+
+# --- silica_impact: the MCP-facing wrapper --------------------------------
+
+
+def test_impact_tool_serializes_entries_and_flags_the_cap(monkeypatch):
+    import silica.config
+    from silica.tools.codedocs_tool import _IMPACT_CAP, silica_impact
+
+    monkeypatch.setattr(silica.config.CONFIG, "vault_path", "/v")
+    fake = [
+        codegraph.ImpactEntry(
+            path=f"m{i}.py", change_level="structural", details=["+ f"],
+            fan_in=i, notes=["m.md"], neighbor_notes=[],
+        )
+        for i in range(_IMPACT_CAP + 1)
+    ]
+    monkeypatch.setattr(codegraph, "compute_impact", lambda v, r=None: fake)
+    out = silica_impact()
+    assert out["status"] == "ok" and out["total"] == _IMPACT_CAP + 1
+    assert len(out["entries"]) == _IMPACT_CAP and out["truncated"] is True
+    assert out["entries"][0] == {
+        "path": "m0.py", "change_level": "structural", "details": ["+ f"],
+        "fan_in": 0, "notes": ["m.md"], "neighbor_notes": [],
+    }
+
+
+def test_impact_tool_degrades_soft(monkeypatch):
+    import silica.config
+    from silica.tools.codedocs_tool import silica_impact
+
+    monkeypatch.setattr(silica.config.CONFIG, "vault_path", "")
+    assert silica_impact()["status"] == "error"  # no vault configured
+
+    monkeypatch.setattr(silica.config.CONFIG, "vault_path", "/v")
+    monkeypatch.setattr(codegraph, "compute_impact", lambda v, r=None: None)
+    assert silica_impact()["status"] == "no_repo"  # outside git: soft, not a crash
