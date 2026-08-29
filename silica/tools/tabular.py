@@ -170,12 +170,8 @@ def _sheet_rows(src: Path, sheet: str):
             return c.value
 
         return name, ([cell(c) for c in sh.row(r)] for r in range(sh.nrows))
-    try:
-        from openpyxl import load_workbook
-    except ImportError as e:
-        raise ValueError(
-            "reading .xlsx needs openpyxl: pip install 'silica-harness[bi]'"
-        ) from e
+    from openpyxl import load_workbook
+
     wb = load_workbook(src, read_only=True, data_only=True)
     name = _pick_sheet(wb.sheetnames, sheet)
     return name, (list(r) for r in wb[name].iter_rows(values_only=True))
@@ -255,13 +251,6 @@ def silica_query_table(
     numeric-looking VARCHAR column holds non-numbers — count what try_cast
     loses before trusting an aggregate.
     """
-    try:
-        import duckdb  # noqa: F401
-    except ImportError as e:
-        raise ValueError(
-            "the tabular lane needs DuckDB: pip install 'silica-harness[bi]'"
-        ) from e
-
     src = Path(path).expanduser()
     # Vault first, cwd second — mirrors convert._resolve_input. The profile
     # note prints its query example repo-relative (machine-portable), so the
@@ -376,8 +365,6 @@ def _describe_table(src: Path) -> dict[str, Any]:
             from openpyxl import load_workbook
 
             return {"sheets": load_workbook(src, read_only=True).sheetnames}
-        except ImportError:
-            return {"error": "reading .xlsx needs openpyxl (silica-harness[bi])"}
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
@@ -436,12 +423,6 @@ def silica_tables(folder: str = "", column: str = "", limit: int = 50) -> dict[s
     list their sheets (a sheet's schema costs one query_table call). Schemas
     come from a head sample; the types query_table replies with (whole-file
     sniff) are the ones to trust."""
-    try:
-        import duckdb  # noqa: F401
-    except ImportError as e:
-        raise ValueError(
-            "the tabular lane needs DuckDB: pip install 'silica-harness[bi]'"
-        ) from e
     import os
 
     from silica.config import CONFIG

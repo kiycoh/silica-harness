@@ -60,6 +60,17 @@ dependencies = [
   # replace a ~240 MB LibreOffice install for 5 of the 7 legacy formats.
   "striprtf>=0.0.29",
   "xlrd>=2.0",
+  # The tabular lane: `silica_tables` census, `silica_query_table` SQL and
+  # the /convert profile. One wheel, ~20 MB, no server and no ETL.
+  # Base and not an extra since 2026-08-29: behind `[bi]` the two tools
+  # registered and advertised themselves anyway (this module imports duckdb
+  # inside the call, so it always imports), and a client without the extra
+  # saw them, called them, and got an ImportError back as the answer.
+  "duckdb>=1.5.5",
+  # .xlsx/.xlsm sheets for silica_query_table: read in-process (values only)
+  # because DuckDB's own `excel` extension needs INSTALL, which the tool's
+  # sandbox blocks by design. `.xls` rides on xlrd above.
+  "openpyxl>=3.1",
   "python-dateutil>=2.9.0.post0",
 ]
 
@@ -103,20 +114,6 @@ pdf = [
 # same project. Note it inherits [pdf] and [rerank], so it pulls torch and
 # downloads several GB of weights on first use.
 all = ["silica-harness[gui,connect,mcp,rerank,pdf]"]
-# Opt-in tabular lane (`silica_tables` census + `silica_query_table` SQL) over
-# the .csv/.parquet files the vault holds. One wheel, ~20 MB, no server and no
-# ETL, imported only inside the tool bodies so the base install never pays for
-# it. Still out of [all] so the dependency stays a choice, but when installed
-# the lane serves on the default MCP surface (2026-08-29): the census plus the
-# schema-on-every-reply contract ground the SQL the old accuracy-gate worry was
-# about, and the residual failure mode is named in the tool docstring.
-bi = [
-    "duckdb>=1.5.5",
-    # .xlsx/.xlsm sheets for silica_query_table: read in-process (values only)
-    # because DuckDB's own `excel` extension needs INSTALL, which the tool's
-    # sandbox blocks by design. `.xls` rides on xlrd, already a base dep.
-    "openpyxl>=3.1",
-]
 
 [project.scripts]
 silica = "silica.cli:main"

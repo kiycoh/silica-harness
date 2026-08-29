@@ -126,14 +126,11 @@ def test_exposure_ladder_is_monotone():
 
 
 def test_default_surface_serves_the_navigation_tier():
-    import pytest
-
     from silica.ui import mcp
 
     exposed = mcp.exposed_tools()
     for name in ("silica_code_pack", "silica_impact"):
         assert name in exposed, name
-    pytest.importorskip("duckdb")  # the [bi] pair rides only with the extra
     for name in ("silica_query_table", "silica_tables"):
         assert name in exposed, name
 
@@ -146,19 +143,6 @@ def test_extended_tier_serves_ingest_and_topology():
                  "silica_delete", "silica_move"):
         assert name in ext, name
         assert name not in mcp.exposed_tools(), name  # extended, not default
-
-
-def test_missing_bi_extra_shrinks_the_surface_instead_of_crashing(monkeypatch):
-    from silica.ui import mcp
-
-    mcp.exposed_tools(all_tools=True)  # force full registration first
-    from silica.tools import TOOLS
-
-    for name in mcp.OPTIONAL_TOOLS:
-        monkeypatch.delitem(TOOLS, name, raising=False)
-    served = mcp.exposed_tools()
-    assert "silica_query_table" not in served
-    assert "silica_recall" in served  # the rest of the tier still serves
 
 
 def test_parse_cli_args_ladder_and_vault():

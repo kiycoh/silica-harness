@@ -118,16 +118,9 @@ MCP_EXCLUDED = {
 # Tool modules whose import may fail when their extra is absent; anything else
 # failing to import is the silent-unreachable defect, and the test says so.
 OPTIONAL_TOOL_MODULES = frozenset({
-    "silica.tools.tabular",        # [bi] extra
     "silica.sources.web_research",  # [web] extra
     "silica.sources.web_fetch",     # [web] extra
 })
-
-# Tools whose module is optional: absent from the registry when their extra is
-# not installed. The default/extended surfaces skip them instead of failing —
-# a server without [bi] still serves everything else — while any OTHER name
-# missing from a tier stays loud registry drift.
-OPTIONAL_TOOLS = frozenset({"silica_query_table", "silica_tables"})
 
 # MCP behavior hints. Writers are enumerated by hand — the registry carries no
 # write-capability bit — and test_mcp_surface pins the sets, so a newly served
@@ -197,6 +190,10 @@ def exposed_tools(all_tools: bool = False, extended: bool = False) -> dict[str, 
     import silica.tools.wrapped  # noqa: F401
     import silica.tools.codedocs_tool  # noqa: F401
     import silica.tools.delegate_tool  # noqa: F401
+    # The tabular lane rode in on OPTIONAL_TOOL_MODULES until duckdb became a
+    # base dependency (2026-08-29); without a plain import here its two CORE
+    # names never register and exposed_tools raises registry drift.
+    import silica.tools.tabular  # noqa: F401
     for _mod in OPTIONAL_TOOL_MODULES:
         try:
             __import__(_mod)
@@ -213,7 +210,7 @@ def exposed_tools(all_tools: bool = False, extended: bool = False) -> dict[str, 
     for n in CORE_TOOLS + (EXTENDED_TOOLS if extended else ()):
         if n in allowed:
             out[n] = allowed[n]
-        elif n not in OPTIONAL_TOOLS:
+        else:
             raise KeyError(f"{n}: named in a served tier but not registered — registry drift")
     return out
 

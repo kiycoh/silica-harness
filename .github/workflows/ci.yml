@@ -37,9 +37,9 @@ jobs:
       # --locked fails when uv.lock has drifted from pyproject.toml, so a
       # dependency edited without a relock dies here and not at a user's
       # install. Extras: exactly the ones the suite reaches for with
-      # importorskip (fastapi/uvicorn, websockets, mcp, duckdb, openpyxl).
+      # importorskip (fastapi/uvicorn, websockets, mcp).
       # [pdf] and [rerank] stay out: 3.8 GB of torch to run tests that skip.
-      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp --extra bi
+      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp
 
       - run: uv run pytest -q
 

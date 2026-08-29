@@ -413,11 +413,10 @@ uv tool install 'silica-harness[mcp]'      # MCP server: silica mcp
 uv tool install 'silica-harness[connect]'  # Obsidian plugin bridge: silica connect
 uv tool install 'silica-harness[pdf]'      # OCR, for documents with no text layer
 uv tool install 'silica-harness[rerank]'   # in-process cross-encoder rerank
-uv tool install 'silica-harness[bi]'       # SQL over a .csv/.parquet/.xlsx you point at
 uv tool install 'silica-harness[all]'      # gui, mcp, connect, pdf, rerank
 ```
 
-PDF, DOCX, EPUB and the legacy office formats need no extra: the base install converts them. `[pdf]` buys OCR for the scanned ones, and it is opt-in because it pulls torch, 3.8 GB against the default's 60 MB. `[all]` inherits it and `[rerank]`, so it downloads several GB of model weights the first time those run. `[bi]` stays outside `[all]` until the tabular lane has an accuracy gate: a wrong number reads as authoritative.
+PDF, DOCX, EPUB and the legacy office formats need no extra: the base install converts them. `[pdf]` buys OCR for the scanned ones, and it is opt-in because it pulls torch, 3.8 GB against the default's 60 MB. `[all]` inherits it and `[rerank]`, so it downloads several GB of model weights the first time those run. The tabular lane (`silica_tables`, `silica_query_table`, and the /convert profile) needs no extra either: DuckDB is a base dependency, one 20 MB wheel.
 
 Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted). The exit code is 0 when every check passed, 1 when one failed, and 2 when nothing failed but a row needs reading (a warning, or a check that could not answer): a script should treat 2 as neither.
 

@@ -3780,12 +3780,14 @@ wheels = [
 name = "silica-harness"
 source = { editable = "." }
 dependencies = [
+    { name = "duckdb" },
     { name = "httpx" },
     { name = "litellm" },
     { name = "markdown-it-py", extra = ["linkify"] },
     { name = "networkx" },
     { name = "numpy" },
     { name = "openai" },
+    { name = "openpyxl" },
     { name = "orjson" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
@@ -3815,10 +3817,6 @@ all = [
     { name = "six" },
     { name = "uvicorn" },
     { name = "websockets" },
-]
-bi = [
-    { name = "duckdb" },
-    { name = "openpyxl" },
 ]
 connect = [
     { name = "websockets" },
@@ -3850,7 +3848,7 @@ rerank = [
 
 [package.metadata]
 requires-dist = [
-    { name = "duckdb", marker = "extra == 'bi'", specifier = ">=1.5.5" },
+    { name = "duckdb", specifier = ">=1.5.5" },
     { name = "fastapi", marker = "extra == 'gui'" },
     { name = "httpx" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -3864,7 +3862,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "openai" },
-    { name = "openpyxl", marker = "extra == 'bi'", specifier = ">=3.1" },
+    { name = "openpyxl", specifier = ">=3.1" },
     { name = "orjson" },
     { name = "prompt-toolkit", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -3889,7 +3887,7 @@ requires-dist = [
     { name = "xlrd", specifier = ">=2.0" },
     { name = "yake", specifier = ">=0.7.3" },
 ]
-provides-extras = ["gui", "dev", "connect", "mcp", "rerank", "pdf", "all", "bi"]
+provides-extras = ["gui", "dev", "connect", "mcp", "rerank", "pdf", "all"]
 
 [[package]]
 name = "six"

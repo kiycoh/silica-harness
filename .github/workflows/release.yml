@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp --extra bi
+      - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp
 
       # A version on PyPI is burned even after a yank, so the irreversible step
       # gets the gate: no green suite, no publish. ci.yml runs the same command

@@ -4,8 +4,6 @@ import pytest
 
 from silica.tools.tabular import silica_query_table
 
-duckdb = pytest.importorskip("duckdb")  # the [bi] extra is opt-in
-
 
 @pytest.fixture
 def sales(tmp_path):
@@ -101,7 +99,7 @@ def test_byte_cap_truncates_wide_payloads(tmp_path):
 # --- Excel: one sheet per call, via the temp-CSV detour ----------------------
 
 def _xlsx(tmp_path, sheets: dict) -> str:
-    openpyxl = pytest.importorskip("openpyxl")
+    import openpyxl
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     for name, rows in sheets.items():
@@ -253,7 +251,7 @@ def test_census_escape_is_rejected(table_vault):
 
 
 def test_xlsx_entries_list_sheets(table_vault):
-    openpyxl = pytest.importorskip("openpyxl")
+    import openpyxl
 
     from silica.tools.tabular import silica_tables
 

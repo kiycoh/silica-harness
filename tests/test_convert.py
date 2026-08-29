@@ -1446,7 +1446,6 @@ def test_pdf_book_splits_into_multiple_inbox_notes(tmp_vault, monkeypatch):
 # --- tabular profile (csv/tsv/parquet → profile note, never rows) ------------
 
 def test_csv_profile_carries_stats_not_the_table(tmp_vault):
-    pytest.importorskip("duckdb")
     p = Path(CONFIG.vault_path) / "metrics.csv"
     p.write_text("name,value\n" + "\n".join(f"item{i},{i}" for i in range(50)) + "\n")
 
@@ -1461,29 +1460,7 @@ def test_csv_profile_carries_stats_not_the_table(tmp_vault):
     assert "item40" not in body                    # the table itself stayed on disk
 
 
-def test_csv_profile_without_duckdb_still_lists_columns(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)  # import raises ImportError
-    p = Path(CONFIG.vault_path) / "sales.csv"
-    p.write_text("region,amount\nnorth,100\nsouth,30\nsouth,20\n")
-
-    [note_rel] = conv.convert(str(p))
-
-    body = _inbox_note(note_rel).read_text(encoding="utf-8")
-    assert "region" in body and "amount" in body
-    assert "3 rows" in body
-    assert "[bi]" in body                          # names what the fallback lacks
-
-
-def test_parquet_profile_without_duckdb_names_the_extra(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)
-    p = Path(CONFIG.vault_path) / "data.parquet"
-    p.write_bytes(b"PAR1")
-    with pytest.raises(ValueError, match=r"\[bi\]"):
-        conv.convert(str(p))
-
-
 def test_csv_profile_sample_spans_the_file(tmp_vault):
-    pytest.importorskip("duckdb")
     p = Path(CONFIG.vault_path) / "sorted.csv"
     p.write_text("name,value\n" + "\n".join(f"row{i:03d},{i}" for i in range(100)) + "\n")
 
@@ -1495,24 +1472,7 @@ def test_csv_profile_sample_spans_the_file(tmp_vault):
     assert "row001" not in body                    # not the head slice
 
 
-def test_csv_fallback_sample_is_spread_and_deterministic(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)
-    p = Path(CONFIG.vault_path) / "big.csv"
-    p.write_text("name,value\n" + "\n".join(f"row{i:03d},{i}" for i in range(200)) + "\n")
-
-    [note_rel] = conv.convert(str(p))
-    picked = re.findall(r"row(\d{3})", _inbox_note(note_rel).read_text(encoding="utf-8"))
-    assert any(int(i) >= 100 for i in picked)      # beyond the head slice
-
-    # Same file, same sample: a nondeterministic sample would churn the note
-    # on every re-convert.
-    [note_rel2] = conv.convert(str(p))
-    picked2 = re.findall(r"row(\d{3})", _inbox_note(note_rel2).read_text(encoding="utf-8"))
-    assert picked == picked2
-
-
 def test_csv_profile_lists_low_cardinality_values(tmp_vault):
-    pytest.importorskip("duckdb")
     rows = []
     for i in range(60):
         # "north" sits in the middle of the domain: SUMMARIZE's min/max already
@@ -1532,7 +1492,6 @@ def test_csv_profile_lists_low_cardinality_values(tmp_vault):
 
 
 def test_categorical_section_skips_columns_min_max_already_shows(tmp_vault):
-    pytest.importorskip("duckdb")
     p = Path(CONFIG.vault_path) / "flags.csv"
     p.write_text(
         "dataflow,gender,value\n"
@@ -1550,8 +1509,7 @@ def test_categorical_section_skips_columns_min_max_already_shows(tmp_vault):
     assert "DF_ONLY" in body                       # still discoverable, via min/max
 
 
-def test_csv_profile_carries_documents_edge_inside_a_repo(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)  # the edge is not [bi]-gated
+def test_csv_profile_carries_documents_edge_inside_a_repo(tmp_vault):
     vault = Path(CONFIG.vault_path)
     subprocess.run(["git", "init", "-q"], cwd=vault, check=True)
     subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=vault, check=True)
@@ -1570,8 +1528,7 @@ def test_csv_profile_carries_documents_edge_inside_a_repo(tmp_vault, monkeypatch
     assert data.get("code_ref")                    # arms /stale for tracked files
 
 
-def test_csv_profile_outside_a_repo_gets_no_documents_edge(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)
+def test_csv_profile_outside_a_repo_gets_no_documents_edge(tmp_vault):
     p = Path(CONFIG.vault_path) / "sales.csv"
     p.write_text("a,b\n1,2\n")
 
@@ -1583,7 +1540,6 @@ def test_csv_profile_outside_a_repo_gets_no_documents_edge(tmp_vault, monkeypatc
 
 
 def test_csv_family_one_profile_for_shards(tmp_vault):
-    pytest.importorskip("duckdb")
     v = Path(CONFIG.vault_path)
     (v / "raw").mkdir()
     (v / "raw" / "vendite_sicilia_01.csv").write_text("region,amount\na,1\nb,2\nc,3\n")
@@ -1605,7 +1561,6 @@ def test_csv_family_one_profile_for_shards(tmp_vault):
 
 
 def test_family_members_are_not_reported_unconverted(tmp_vault):
-    pytest.importorskip("duckdb")
     from silica.tools.graph import _covering_stem
 
     v = Path(CONFIG.vault_path)
@@ -1623,7 +1578,6 @@ def test_family_members_are_not_reported_unconverted(tmp_vault):
 
 
 def test_csv_family_requires_a_counter_suffix(tmp_vault):
-    pytest.importorskip("duckdb")
     v = Path(CONFIG.vault_path)
     # Byte-identical header but different tables: SDMX exports share one
     # generic column layout across datasets (field test: censpop_lavoro_15piu
@@ -1639,7 +1593,6 @@ def test_csv_family_requires_a_counter_suffix(tmp_vault):
 
 
 def test_csv_family_needs_a_shared_name(tmp_vault):
-    pytest.importorskip("duckdb")
     v = Path(CONFIG.vault_path)
     (v / "a.csv").write_text("x,y\n1,2\n")
     (v / "b.csv").write_text("x,y\n3,4\n")
@@ -1654,7 +1607,6 @@ def test_csv_family_needs_a_shared_name(tmp_vault):
 
 
 def test_profile_survives_a_timezone_aware_column(tmp_vault):
-    pytest.importorskip("duckdb")
     # DuckDB infers TIMESTAMP WITH TIME ZONE and converting one to a Python
     # object needs pytz, which is in no install here: a real download ledger
     # (ISO timestamps with offsets) crashed the whole convert.
@@ -1676,7 +1628,6 @@ def test_profile_survives_a_timezone_aware_column(tmp_vault):
 
 
 def test_profile_reads_a_non_utf8_csv(tmp_vault):
-    pytest.importorskip("duckdb")
     # Public European data ships windows-1252 (4 of 26 CSVs in the field
     # vault). DuckDB's reader validates encoding and refuses the file, and
     # its own encoding='latin-1' still rejects the C1 range ISTAT uses for
@@ -1697,7 +1648,6 @@ def test_profile_reads_a_non_utf8_csv(tmp_vault):
 
 
 def test_profile_collapses_all_null_columns(tmp_vault):
-    pytest.importorskip("duckdb")
     p = Path(CONFIG.vault_path) / "notes.csv"
     p.write_text("a,b,NOTE_X,NOTE_Y\n" + "\n".join(f"{i},{i * 2},," for i in range(10)) + "\n")
 
@@ -1710,8 +1660,7 @@ def test_profile_collapses_all_null_columns(tmp_vault):
     assert "| NOTE_X |" not in body
 
 
-def test_profile_paths_are_repo_relative_inside_a_repo(tmp_vault, monkeypatch):
-    monkeypatch.setitem(sys.modules, "duckdb", None)
+def test_profile_paths_are_repo_relative_inside_a_repo(tmp_vault):
     vault = Path(CONFIG.vault_path)
     subprocess.run(["git", "init", "-q"], cwd=vault, check=True)
     p = vault / "data" / "m.csv"

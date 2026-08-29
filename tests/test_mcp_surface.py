@@ -15,13 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_core_tools_resolve_and_are_agent_visible():
-    from silica.tools import TOOLS
-    from silica.ui.mcp import OPTIONAL_TOOLS
-
     core = exposed_tools()
-    # Only a tool from an uninstalled optional extra may be missing from the
-    # default surface; anything else absent is registry drift.
-    assert set(CORE_TOOLS) - set(core) <= OPTIONAL_TOOLS - set(TOOLS)
+    # Every CORE name resolves: no served tier holds an optional tool.
+    assert not set(CORE_TOOLS) - set(core)
     for t in core.values():
         assert not t.internal and not t.sensitive
         # every exposed tool must yield a servable JSON schema

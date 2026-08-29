@@ -1228,46 +1228,6 @@ def _duckdb_profile_bound(src: Path, members: list[Path] | None,
                        [list(r) for r in sample], label, categorical, members)
 
 
-def _csv_basic_profile(src: Path) -> str:
-    """Header + row count + sample via the stdlib — the no-[bi] fallback.
-
-    No types and no stats: naming what is missing beats faking it, and the note
-    says how to get the rest.
-    """
-    import csv
-    import random
-
-    delimiter = "\t" if src.suffix.lower() == ".tsv" else ","
-    with src.open(newline="", encoding="utf-8", errors="replace") as fh:
-        reader = csv.reader(fh, delimiter=delimiter)
-        header = next(reader, [])
-        # Seeded reservoir, one pass: the head of a sorted export is a single
-        # stratum (same defect the DuckDB path fixes with spread indices), and
-        # the stdlib lane cannot stride without knowing n_rows first — that
-        # would mean reading the file twice. The fixed seed keeps re-convert
-        # from churning the note.
-        rng = random.Random(0)
-        kept: list[tuple[int, list]] = []
-        n_rows = 0
-        for i, row in enumerate(reader):
-            n_rows += 1
-            if i < _SAMPLE_ROWS:
-                kept.append((i, row))
-            else:
-                j = rng.randrange(i + 1)
-                if j < _SAMPLE_ROWS:
-                    kept[j] = (i, row)
-        sample = [row for _, row in sorted(kept)]
-    label = ("all rows" if n_rows <= _SAMPLE_ROWS
-             else f"{len(sample)} of {n_rows} rows, random")
-    columns_table = (
-        _md_table(["column"], [[h] for h in header])
-        + "\n\nTypes and per-column stats need DuckDB: "
-        "`pip install 'silica-harness[bi]'`, then re-run /convert."
-    )
-    return _profile_md(src, n_rows, columns_table, header, sample, label)
-
-
 def _convert_tabular(src: Path) -> list[str]:
     """Data file → profile note in the inbox. The rows never enter the vault.
 
@@ -1281,26 +1241,10 @@ def _convert_tabular(src: Path) -> list[str]:
     the family — converting shard 02 of 12 must refresh the same note, not
     mint a twelfth near-duplicate.
     """
-    try:
-        import duckdb  # noqa: F401
-        has_duckdb = True
-    except ImportError:
-        has_duckdb = False
-
-    # Family detection is duckdb-only: the stdlib fallback profiles one file,
-    # and stamping one shard's stats under the family's name would lie.
-    members = _tabular_family(src) if has_duckdb else [src]
+    members = _tabular_family(src)
     if len(members) > 1 and not _family_stem(members):
         members = [src]
-    if has_duckdb:
-        md = _duckdb_profile(src, members)
-    elif src.suffix.lower() == ".parquet":
-        # The stdlib reads CSV; nothing in the base install reads parquet.
-        raise ValueError(
-            "profiling parquet needs DuckDB: pip install 'silica-harness[bi]'"
-        ) from None
-    else:
-        md = _csv_basic_profile(src)
+    md = _duckdb_profile(src, members)
 
     from silica.driver import DRIVER
     from silica.kernel.vault_manifest import active_inbox_dir
