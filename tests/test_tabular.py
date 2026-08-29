@@ -142,3 +142,125 @@ def test_xlsx_multi_sheet_rejects_and_lists(tmp_path):
 def test_sheet_arg_on_a_csv_is_rejected(sales):
     with pytest.raises(ValueError, match="Excel"):
         silica_query_table(str(sales), "SELECT * FROM t", sheet="Data")
+
+
+def test_vault_relative_path_resolves(tmp_path, monkeypatch):
+    # The profile note cites the file repo-relative; the example it prints must
+    # be copy-pasteable, so the tool tries the vault before the cwd.
+    import silica.config
+
+    vault = tmp_path / "v"
+    (vault / "data").mkdir(parents=True)
+    (vault / "data" / "s.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    monkeypatch.setattr(silica.config.CONFIG, "vault_path", str(vault))
+    monkeypatch.chdir(tmp_path)  # cwd resolution alone would miss
+
+    out = silica_query_table("data/s.csv", "SELECT count(*) AS c FROM t")
+    assert out["rows"] == [[1]]
+
+
+def test_latin1_csv_is_readable(tmp_path):
+    # ISTAT and most European public exports ship windows-1252/latin-1, not
+    # utf-8; DuckDB's reader rejects those outright with a raw parser error.
+    p = tmp_path / "legenda.csv"
+    p.write_bytes(
+        "codice;descrizione\nP2;Variazione pi\xf9 che annua\n".encode("latin-1")
+    )
+    out = silica_query_table(str(p), "SELECT descrizione FROM t")
+    assert out["rows"] == [["Variazione pi\xf9 che annua"]]
+
+
+# --- silica_tables: the census before the query ---------------------------
+
+
+@pytest.fixture
+def table_vault(tmp_path, monkeypatch):
+    import silica.config
+
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "sales.csv").write_text(
+        "region,amount\nnorth,1\n", encoding="utf-8"
+    )
+    (tmp_path / "data" / "neet.csv").write_text(
+        "comune,neet_rate,year\nbagheria,0.31,2021\n", encoding="utf-8"
+    )
+    (tmp_path / "note.md").write_text("# not a table", encoding="utf-8")
+    (tmp_path / "prose.txt").write_text("plain text stays out", encoding="utf-8")
+    (tmp_path / "vendored").mkdir()
+    (tmp_path / "vendored" / "junk.csv").write_text("x\n1\n", encoding="utf-8")
+    (tmp_path / ".silicaignore").write_text("vendored\n", encoding="utf-8")
+    monkeypatch.setattr(silica.config.CONFIG, "vault_path", str(tmp_path))
+    return tmp_path
+
+
+def test_census_lists_schemas_not_prose(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    out = silica_tables()
+    paths = {t["path"] for t in out["tables"]}
+    assert paths == {"data/neet.csv", "data/sales.csv"}
+    by_path = {t["path"]: t for t in out["tables"]}
+    assert set(by_path["data/neet.csv"]["columns"]) == {"comune", "neet_rate", "year"}
+    assert out["total"] == 2 and out["truncated"] is False
+
+
+def test_census_respects_silicaignore(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    assert all("vendored" not in t["path"] for t in silica_tables()["tables"])
+
+
+def test_column_filter_names_its_matches(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    out = silica_tables(column="NEET")
+    assert [t["path"] for t in out["tables"]] == ["data/neet.csv"]
+    assert out["tables"][0]["matched"] == ["neet_rate"]
+
+
+def test_census_scopes_to_a_folder(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    (table_vault / "other").mkdir()
+    (table_vault / "other" / "x.csv").write_text("a\n1\n", encoding="utf-8")
+    out = silica_tables(folder="data")
+    assert {t["path"] for t in out["tables"]} == {"data/neet.csv", "data/sales.csv"}
+
+
+def test_census_limit_truncates_with_a_note(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    out = silica_tables(limit=1)
+    assert out["returned"] == 1 and out["truncated"] is True
+    assert "limit=1" in out["note"]
+    assert out["total"] == 2  # the census size survives the cap
+
+
+def test_unreadable_file_is_a_named_entry_not_a_dropped_path(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    (table_vault / "data" / "broken.parquet").write_bytes(b"\x00not parquet")
+    out = silica_tables()
+    broken = [t for t in out["tables"] if t["path"] == "data/broken.parquet"]
+    assert broken and "error" in broken[0]
+
+
+def test_census_escape_is_rejected(table_vault):
+    from silica.tools.tabular import silica_tables
+
+    with pytest.raises(ValueError, match="escapes"):
+        silica_tables(folder="../outside")
+
+
+def test_xlsx_entries_list_sheets(table_vault):
+    openpyxl = pytest.importorskip("openpyxl")
+
+    from silica.tools.tabular import silica_tables
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "Anagrafica"
+    wb.create_sheet("Pendolarismo")
+    wb.save(table_vault / "data" / "book.xlsx")
+    res = silica_tables()
+    entry = [t for t in res["tables"] if t["path"] == "data/book.xlsx"]
+    assert entry and entry[0]["sheets"] == ["Anagrafica", "Pendolarismo"]

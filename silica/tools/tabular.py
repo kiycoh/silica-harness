@@ -108,6 +108,36 @@ def _bind_source(con, path: Path) -> None:
         con.execute(f"CREATE VIEW t AS SELECT * FROM '{quoted}'")
 
 
+# Western-European ladder, tried in order. utf-8 first so a correct file is
+# never re-encoded; cp1252 before latin-1 because Windows exports put curly
+# quotes and the ellipsis in the C1 range (ISTAT's "…" is 0x85, which latin-1
+# reads as the NEL control); latin-1 last because it decodes every byte and
+# so can never itself raise.
+_TEXT_ENCODINGS = ("utf-8", "cp1252", "latin-1")
+
+
+def utf8_source(src: Path, tmpdir: Path) -> Path:
+    """`src` when it is already utf-8, else a re-encoded copy under `tmpdir`.
+
+    DuckDB's reader validates encoding and refuses anything else outright —
+    including bytes its own `encoding='latin-1'` rejects (0x85 again) — so the
+    decode happens here, in Python, where the ladder is ours to pick. Measured
+    on a real public-data vault: 4 of 26 CSVs were not utf-8.
+    """
+    raw = src.read_bytes()
+    for enc in _TEXT_ENCODINGS:
+        try:
+            text = raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if enc == "utf-8":
+            return src            # the common case copies nothing
+        out = tmpdir / src.name
+        out.write_text(text, encoding="utf-8")
+        return out
+    return src  # undecodable by latin-1 is impossible; bind and let DuckDB speak
+
+
 def _pick_sheet(names: list[str], sheet: str) -> str:
     """The requested sheet name, or the only one; ambiguity is a teaching error."""
     if sheet:
@@ -233,6 +263,14 @@ def silica_query_table(
         ) from e
 
     src = Path(path).expanduser()
+    # Vault first, cwd second — mirrors convert._resolve_input. The profile
+    # note prints its query example repo-relative (machine-portable), so the
+    # example must resolve from wherever the server happens to be running.
+    if not src.is_absolute():
+        from silica.config import CONFIG
+        vault = (CONFIG.vault_path or "").strip()
+        if vault and (Path(vault) / src).exists():
+            src = Path(vault) / src
     try:
         src = src.resolve(strict=True)
     except OSError as e:
@@ -256,6 +294,8 @@ def silica_query_table(
     with tempfile.TemporaryDirectory() as tmp:
         if suffix in SHEET_EXTS:
             sheet_name, bound = _sheet_to_csv(src, sheet, Path(tmp))
+        elif suffix in _SNIFFED_EXTS:
+            bound = utf8_source(src, Path(tmp))
         else:
             bound = src
         con = _connect(bound.parent)
@@ -302,3 +342,191 @@ def silica_query_table(
 
 # One file per call, so no joins across files. Binding a dict of path→name as
 # t1..tn is the design for the day a real question needs two tables at once.
+
+
+# The census deliberately drops .txt and .json from READABLE_EXTS: a vault's
+# .txt is prose more often than a table and .json is config more often than
+# records, so listing them would bury the real tables under false positives.
+# Both stay queryable by explicit path through silica_query_table.
+_CENSUS_EXTS = (".csv", ".tsv", ".parquet", ".ndjson", *SHEET_EXTS)
+_CATALOG_FILE_CAP = 500  # files walked before the census itself truncates
+# Head sample, not query_table's whole-file sniff: a catalog is orientation,
+# and the full sniff on a hundred-file vault costs seconds per call, while a
+# head-typed column corrupts nothing here — query_table re-sniffs in full.
+_CATALOG_SNIFF_ROWS = 2048
+
+
+def _describe_table(src: Path) -> dict[str, Any]:
+    """One census entry body: {"columns": …} | {"sheets": …} | {"error": …}.
+
+    The census must finish: an unreadable file becomes a named error entry,
+    never a dropped path or an aborted catalog.
+    """
+    import duckdb
+
+    if src.suffix.lower() in SHEET_EXTS:
+        # Sheets only, no per-sheet schema: opening every sheet of every
+        # workbook is a query_table call's worth of work per file.
+        try:
+            if src.suffix.lower() == ".xls":
+                import xlrd
+
+                book = xlrd.open_workbook(str(src), logfile=io.StringIO())
+                return {"sheets": book.sheet_names()}
+            from openpyxl import load_workbook
+
+            return {"sheets": load_workbook(src, read_only=True).sheetnames}
+        except ImportError:
+            return {"error": "reading .xlsx needs openpyxl (silica-harness[bi])"}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
+
+    def describe(path: Path) -> dict[str, str]:
+        quoted = str(path).replace("'", "''")
+        rel = (
+            f"read_csv('{quoted}', sample_size={_CATALOG_SNIFF_ROWS})"
+            if path.suffix.lower() in _SNIFFED_EXTS
+            else f"'{quoted}'"
+        )
+        # A bare connection, not _connect's sandbox: the SQL here is ours (a
+        # DESCRIBE over a resolved vault path), never model-authored.
+        con = duckdb.connect()
+        try:
+            rows = con.execute(f"DESCRIBE SELECT * FROM {rel}").fetchall()
+        finally:
+            con.close()
+        return {r[0]: r[1] for r in rows}
+
+    try:
+        return {"columns": describe(src)}
+    except Exception as first:
+        if src.suffix.lower() in _SNIFFED_EXTS:
+            # Retry through the encoding ladder before giving up: public-data
+            # exports are routinely cp1252 (4 of 26 CSVs on a real vault) and
+            # DuckDB refuses them outright.
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    return {"columns": describe(utf8_source(src, Path(tmp)))}
+            except Exception:
+                pass
+        return {"error": f"{type(first).__name__}: {first}"}
+
+
+class TablesArgs(BaseModel):
+    folder: str = Field(
+        default="",
+        description="Vault-relative folder to scope the census; empty = the whole vault",
+    )
+    column: str = Field(
+        default="",
+        description=(
+            "Case-insensitive substring filter: only tables with a matching "
+            "column name return, with the matches named"
+        ),
+    )
+    limit: int = Field(default=50, description="Max tables described in the reply")
+
+
+@tool(TablesArgs, cls="atomic")
+def silica_tables(folder: str = "", column: str = "", limit: int = 50) -> dict[str, Any]:
+    """Census of the vault's tabular files (.csv/.tsv/.parquet/.ndjson, Excel):
+    path, size and column schema per file, filterable by column name — the
+    orientation call before silica_query_table. column= answers "which table
+    holds NEET?" in one call instead of head-reading every file. Excel entries
+    list their sheets (a sheet's schema costs one query_table call). Schemas
+    come from a head sample; the types query_table replies with (whole-file
+    sniff) are the ones to trust."""
+    try:
+        import duckdb  # noqa: F401
+    except ImportError as e:
+        raise ValueError(
+            "the tabular lane needs DuckDB: pip install 'silica-harness[bi]'"
+        ) from e
+    import os
+
+    from silica.config import CONFIG
+    from silica.kernel.recall.paths import ignore_matcher
+
+    vault = (CONFIG.vault_path or "").strip()
+    if not vault:
+        raise ValueError("no vault configured")
+    root = Path(vault).resolve()
+    base = (root / folder).resolve() if folder.strip() else root
+    try:
+        base.relative_to(root)
+    except ValueError:
+        raise ValueError(f"{folder!r} escapes the vault") from None
+    if not base.is_dir():
+        raise ValueError(f"{folder or str(root)!r} is not a folder in the vault")
+
+    ignored = ignore_matcher(root)
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        # Same pruning as the note walks: dot-dirs, NOISE_DIRS + .silicaignore.
+        # Images/ too — conversion output, not data.
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if not d.startswith(".") and not ignored(d) and d != "Images"
+        )
+        for name in sorted(filenames):
+            if not name.startswith(".") and Path(name).suffix.lower() in _CENSUS_EXTS:
+                found.append(Path(dirpath) / name)
+        if len(found) > _CATALOG_FILE_CAP:
+            break
+    walk_truncated = len(found) > _CATALOG_FILE_CAP
+    found = found[:_CATALOG_FILE_CAP]
+
+    needle = column.strip().casefold()
+    tables: list[dict[str, Any]] = []
+    unsearchable = 0
+    scan_stopped = False
+    for src in found:
+        if len(tables) >= max(1, limit):
+            # Files past this point were never described: truncated, not absent.
+            scan_stopped = True
+            break
+        body = _describe_table(src)
+        if needle:
+            cols = body.get("columns")
+            if cols is None:
+                unsearchable += 1  # sheets/errors carry no columns to match
+                continue
+            matched = sorted(c for c in cols if needle in c.casefold())
+            if not matched:
+                continue
+            body = {**body, "matched": matched}
+        tables.append({
+            "path": src.relative_to(root).as_posix(),
+            "size_bytes": src.stat().st_size,
+            **body,
+        })
+
+    # Same byte discipline as query_table: 50 wide schemas can outweigh 200 rows.
+    kept, size = [], 0
+    for entry in tables:
+        size += len(json.dumps(entry, ensure_ascii=False, default=str)) + 2
+        if size > _PAYLOAD_BYTE_CAP:
+            break
+        kept.append(entry)
+
+    truncated = walk_truncated or scan_stopped or len(kept) < len(tables)
+    notes = []
+    if walk_truncated:
+        notes.append(f"census stopped at {_CATALOG_FILE_CAP} files; narrow with folder=")
+    if scan_stopped:
+        notes.append(f"stopped at limit={limit}; raise limit or narrow with folder=")
+    if len(kept) < len(tables):
+        notes.append(f"~{_PAYLOAD_BYTE_CAP // 1000} KB payload cap hit; narrow the census")
+    if needle and unsearchable:
+        notes.append(
+            f"{unsearchable} file(s) had no readable columns to match "
+            "(Excel workbooks or unreadable files)"
+        )
+    return {
+        # The census size, before filter and caps: "3 of 143" reads correctly.
+        "total": len(found),
+        "returned": len(kept),
+        "tables": kept,
+        "truncated": truncated,
+        **({"note": "; ".join(notes)} if notes else {}),
+    }
