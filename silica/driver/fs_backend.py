@@ -367,11 +367,14 @@ class ObsidianFSBackend(GraphIndexMixin):
                 return shortest(same)
         return shortest(cands)
 
-    def _index_file_refs(self, rel_path: str, content: str, file_targets: list[str]) -> None:
+    def _index_file_refs(self, rel_path: str, content: str, file_targets: list[str],
+                         mentions: list[str] = ()) -> None:
         """Record one note's file references: resolved embeds into the forward
         and inverse maps, misses into `_unresolved_assets` (counted, never
         silently dropped), and `documents:` frontmatter into its own
-        repo-relative keyspace."""
+        repo-relative keyspace. Backtick mentions resolve into the same edge
+        maps but their misses are dropped: an embed that misses is a broken
+        note, an inline cite that misses is prose."""
         for ft in file_targets:
             hit = self._resolve_asset(ft, source_path=rel_path)
             if hit:
@@ -383,6 +386,13 @@ class ObsidianFSBackend(GraphIndexMixin):
                 misses = self._unresolved_assets.setdefault(rel_path, [])
                 if ft not in misses:
                     misses.append(ft)
+        for mt in mentions:
+            hit = self._resolve_asset(mt, source_path=rel_path)
+            if hit:
+                bucket = self._asset_edges.setdefault(rel_path, [])
+                if hit not in bucket:
+                    bucket.append(hit)
+                    self._asset_notes.setdefault(hit, []).append(rel_path)
         docs = fm.documents_in(content)
         if docs:
             self._documents_edges[rel_path] = docs
@@ -487,14 +497,14 @@ class ObsidianFSBackend(GraphIndexMixin):
         for rel_path_file, path in files_to_process:
             try:
                 content = path.read_text(encoding="utf-8")
-                typed, file_targets = extract_refs_typed(content)
+                typed, file_targets, mentions = extract_refs_typed(content)
                 for target, scaffold in typed.items():
                     ref = self._resolve_target(target, source_path=rel_path_file)
                     if ref:
                         self._add_link_edge(rel_path_file, ref.path, scaffold=scaffold)
                     else:
                         self._unresolved_links.add((rel_path_file, target))
-                self._index_file_refs(rel_path_file, content, file_targets)
+                self._index_file_refs(rel_path_file, content, file_targets, mentions)
 
                 # Frontmatter aliases — harvested here because this pass already
                 # holds every body in hand; a separate props_of() sweep would
@@ -561,7 +571,7 @@ class ObsidianFSBackend(GraphIndexMixin):
             self._notes_by_name[name_lower].append(ref)
 
         # --- rebuild edges for this path ---
-        typed, file_targets = extract_refs_typed(content)
+        typed, file_targets, mentions = extract_refs_typed(content)
         for target, scaffold in typed.items():
             target_ref = self._resolve_target(target, source_path=rel_path)
             if target_ref:
@@ -569,7 +579,7 @@ class ObsidianFSBackend(GraphIndexMixin):
             else:
                 self._unresolved_links.add((rel_path, target))
         self._drop_file_refs(rel_path)   # replace, never accumulate, on re-upsert
-        self._index_file_refs(rel_path, content, file_targets)
+        self._index_file_refs(rel_path, content, file_targets, mentions)
 
         if (al := fm.aliases_of(content)):
             self._alias_pairs[rel_path] = al

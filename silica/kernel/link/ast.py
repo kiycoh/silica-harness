@@ -21,6 +21,10 @@ NON_MD_EXTENSIONS = (
     '.png', '.jpg', '.jpeg', '.pdf', '.webp', '.svg', '.gif', '.bmp',
     '.tif', '.tiff', '.avif', '.mp4', '.mov', '.avi', '.mkv',
     '.zip', '.html', '.css', '.ipynb',
+    # Tabular data (convert.py TABULAR_EXTS): a profile note names its source
+    # file, and as note targets these were the same phantom dangling links the
+    # 2026-08-27 batch fixed for notebooks.
+    '.csv', '.tsv', '.parquet',
 )
 
 # Wikilink target extraction: captures the target of [[Target]], [[Target|alias]]
@@ -80,6 +84,17 @@ _LINK_MARKER_RE = re.compile(
     r"|<[A-Za-z][A-Za-z0-9+.\-]{1,31}:(?<!<http:)(?<!<https:)(?<!<mailto:)"
 )
 
+# The mention fast path. Backtick cites carry none of the link markers above,
+# and widening _LINK_MARKER_RE to any backtick would send nearly every note to
+# the parser (prose is full of `code`). Anchoring the scan on the censused
+# extensions keeps the fast path honest: only a note that visibly carries a
+# path-shaped inline cite pays a parse. Field test 2026-08-28: 163/175 CSV
+# citations in a real vault were inline code, 0 were wikilinks.
+_CODE_MENTION_RE = re.compile(
+    r"`[^`\s]+\.(?:" + "|".join(re.escape(e[1:]) for e in NON_MD_EXTENSIONS) + r")`",
+    re.IGNORECASE,
+)
+
 
 def extract_links(content: str) -> list[str]:
     """Extract clean wikilinks (both [[target]] and ![[target]]).
@@ -126,16 +141,22 @@ def _extract_links_ast(content: str) -> list[str]:
 
 
 def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
-    """One parse, two buckets: (note targets, file targets).
+    """One parse, three buckets: (note targets, file targets, code mentions).
 
-    The split lives at the extension check that used to silently drop file
-    targets — everything upstream (walk, filters, normalization) is shared,
-    so the two buckets can never disagree about what counts as a reference
-    (ADR-0029: one link generator).
+    The note/file split lives at the extension check that used to silently
+    drop file targets — everything upstream (walk, filters, normalization) is
+    shared, so the two buckets can never disagree about what counts as a
+    reference (ADR-0029: one link generator). Mentions are the third bucket,
+    not a second generator: same parse, same walk, and the resolver downstream
+    is the same asset census — but a mention is a *casual* cite, so a miss is
+    dropped where a wikilink miss is reported. This is not the mention index
+    ADR-0029 deleted: that one fuzzy-matched note TITLES in prose; this
+    resolves literal path tokens.
     """
     tokens = _MD.parse(content)
 
     text_pieces: list[str] = []
+    mentions: list[str] = []
 
     def walk(toks: list) -> None:
         for t in toks:
@@ -144,6 +165,16 @@ def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
                     walk(t.children)
             elif t.type == "text":
                 text_pieces.append(t.content)
+            elif t.type == "code_inline":
+                # `data/raw/x.csv` in prose. Single path-shaped token only: a
+                # snippet with spaces is code, a token with a scheme is a URL,
+                # and only censused extensions can ever resolve. Fenced blocks
+                # never reach here — they are `fence` tokens, not code_inline.
+                c = t.content.strip()
+                if (c and not re.search(r"\s", c) and "://" not in c
+                        and c.lower().endswith(NON_MD_EXTENSIONS)
+                        and c not in mentions):
+                    mentions.append(c)
             elif t.type == "image":
                 src = t.attrs.get("src")
                 if src and not (src.startswith("http://") or src.startswith("https://") or src.startswith("mailto:")):
@@ -184,7 +215,7 @@ def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
                 continue
             if t not in cleaned:
                 cleaned.append(t)
-    return cleaned, files
+    return cleaned, files, mentions
 
 
 _FRONTMATTER_BLOCK_RE = re.compile(r"\A\s*---\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
@@ -208,23 +239,25 @@ def extract_links_typed(content: str) -> dict[str, bool]:
     return extract_refs_typed(content)[0]
 
 
-def extract_refs_typed(content: str) -> tuple[dict[str, bool], list[str]]:
-    """`extract_links_typed` plus the file bucket, from one shared parse.
+def extract_refs_typed(content: str) -> tuple[dict[str, bool], list[str], list[str]]:
+    """`extract_links_typed` plus the file and mention buckets, one parse.
 
-    The per-note call for the backends' index pass: two separate calls
+    The per-note call for the backends' index pass: separate calls
     (typed + extract_file_refs) would parse every link-bearing note twice
-    for nothing — the parse is the hot loop's measured cost.
+    for nothing — the parse is the hot loop's measured cost. The mention scan
+    widens the fast path only for notes carrying a path-shaped inline cite,
+    so link-free prose still skips the parser.
     """
     content = textwrap.dedent(content)
-    if not _LINK_MARKER_RE.search(content):
-        return {}, []
-    all_targets, files = _extract_refs_ast(content)
+    if not (_LINK_MARKER_RE.search(content) or _CODE_MENTION_RE.search(content)):
+        return {}, [], []
+    all_targets, files, mentions = _extract_refs_ast(content)
     if not all_targets:
-        return {}, files
+        return {}, files, mentions
     m = _FRONTMATTER_BLOCK_RE.match(content)
     body = content[m.end():] if m else content
     prose = set(extract_links(_HEADING_LINE_RE.sub("", body)))
-    return {t: t not in prose for t in all_targets}, files
+    return {t: t not in prose for t in all_targets}, files, mentions
 
 
 def parse_headings(body: str) -> list[dict]:

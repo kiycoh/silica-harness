@@ -54,9 +54,10 @@ def test_extract_refs_typed_matches_links_typed():
         "---\nrelated:\n  - \"[[X]]\"\n---\n\n"
         "## [[Scaffold]]\n\n![[a.png]]\n\nprose [[Y]]\n"
     )
-    typed, files = extract_refs_typed(content)
+    typed, files, mentions = extract_refs_typed(content)
     assert typed == extract_links_typed(content)
     assert files == ["a.png"]
+    assert mentions == []
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +152,56 @@ def test_silica_file_links_both_directions(asset_vault, monkeypatch):
 
     doc = silica_file_links("src/mod.py")
     assert doc["documented_by"] == ["C.md"]
+
+
+def test_tabular_targets_are_file_refs_not_note_links():
+    # A profile note names its data file (convert.py TABULAR_EXTS); as note
+    # targets these were phantom dangling links, invisible to file_backlinks.
+    from silica.kernel.link.ast import extract_file_refs, extract_links
+
+    body = "[[vendite.csv]] [[data/log.tsv]] ![[frame.parquet]]"
+    assert extract_links(body) == []
+    assert extract_file_refs(body) == ["vendite.csv", "data/log.tsv", "frame.parquet"]
+
+
+# ---------------------------------------------------------------------------
+# backtick path mentions: `data/raw/x.csv` in prose is how humans cite files
+# (field test 2026-08-28: 163/175 CSV citations were inline code, 0 wikilinks)
+# ---------------------------------------------------------------------------
+
+def test_backtick_path_mentions_extracted():
+    from silica.kernel.link.ast import extract_refs_typed
+
+    content = (
+        "# N\n\n"
+        "see `data/raw/vendite.csv` and `foo bar.csv` and `mod.py`\n"
+        "and `https://x.com/a.csv` and prose [[B]]\n"
+        "```\nfenced/path.csv\n`inner.csv`\n```\n"
+    )
+    typed, files, mentions = extract_refs_typed(content)
+    assert mentions == ["data/raw/vendite.csv"]   # spaced, non-censused-ext,
+    assert files == []                            # url and fenced all excluded
+    assert "B" in typed
+
+
+def test_backtick_mentions_survive_the_marker_fast_path():
+    # A note with no [[ ]] and no ]( still reaches the parser when it carries
+    # a path-shaped inline cite.
+    from silica.kernel.link.ast import extract_refs_typed
+
+    _, _, mentions = extract_refs_typed("only a `data/m.csv` cite, no links")
+    assert mentions == ["data/m.csv"]
+
+
+def test_backtick_mention_resolves_to_edge_and_misses_are_dropped(asset_vault):
+    (asset_vault / "D.md").write_text(
+        "# D\n\nnumbers live in `img/foto.jpg` and in `ghost.csv`\n",
+        encoding="utf-8",
+    )
+    b = ObsidianFSBackend(str(asset_vault))
+    fr = b.file_refs_of("D.md")
+    assert fr["embeds"] == ["img/foto.jpg"]
+    # A wikilink miss is a defect worth reporting; a casual inline cite that
+    # misses is prose. Mentions never land in the unresolved bucket.
+    assert fr["unresolved"] == []
+    assert "D.md" in b.file_backlinks("img/foto.jpg")["embeds"]
