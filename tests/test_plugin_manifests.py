@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,16 @@ def test_plugin_files_are_not_gitignored():
     ignored = subprocess.run(["git", "check-ignore", *PLUGIN_FILES], cwd=ROOT,
                              capture_output=True, text=True).stdout.split()
     assert not ignored, f"gitignored plugin files: {ignored}"
+
+
+def test_the_shipped_tree_still_has_a_version_without_git():
+    # The marketplace copies this repo into ~/.claude/plugins/cache WITHOUT
+    # .git, and mcp.json launches `uv run --project <that copy>`, which builds
+    # it there. setuptools-scm reads the version from git tags and RAISES when
+    # it finds no repository ("unable to detect version for ..."), so the build
+    # dies, the server never answers `initialize`, and the only thing the user
+    # sees is "Failed to reconnect to plugin:silica:silica"; every cached
+    # version 0.2.0/0.3.0/0.3.1 failed this way, measured 2026-08-29.
+    scm = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    fallback = scm["tool"]["setuptools_scm"].get("fallback_version")
+    assert fallback, "setuptools-scm must not raise where the plugin cache has no .git"

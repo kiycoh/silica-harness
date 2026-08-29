@@ -4,6 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
 version_file = "silica/_version.py"
+# The plugin marketplace copies this tree into ~/.claude/plugins/cache
+# without .git, and mcp.json builds it there, so version inference has
+# no tags to read and raised, taking the whole MCP server down with it.
+fallback_version = "0.0.0"
 
 [project]
 name = "silica-harness"
