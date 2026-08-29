@@ -21,17 +21,27 @@ def _hooks() -> dict:
     return json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
 
 
-def test_both_mcp_files_launch_the_command_setup_writes():
-    # setup_client writes MCP_COMMAND into client configs; the plugin files
-    # have to launch the very same thing or the install paths drift apart.
-    # Two files because the dialects disagree on the wrapper key only:
-    # Claude Code reads `mcpServers`, Codex reads `mcp_servers`.
+def test_both_mcp_files_launch_a_bare_silica_mcp():
+    # Two files because the dialects disagree on the wrapper key only: Claude
+    # Code reads `mcpServers`, Codex reads `mcp_servers`. What they must share
+    # is the launch SHAPE — `silica mcp` over stdio with no vault pinned.
+    # WHICH silica each one launches diverged on purpose 2026-08-29 (see
+    # test_mcp_surface.test_plugin_serves_its_own_tree_not_the_published_wheel):
+    # Claude Code expands ${CLAUDE_PLUGIN_ROOT} and so can run the checkout it
+    # shipped, Codex has no such variable and keeps the published wheel.
     for name, key in (("mcp.json", "mcpServers"), ("mcp.codex.json", "mcp_servers")):
         doc = json.loads((ROOT / name).read_text(encoding="utf-8"))
         assert set(doc) == {key}, name
         srv = doc[key]["silica"]
-        assert [srv["command"], *srv["args"]] == MCP_COMMAND, name
+        args = srv["args"]
+        assert args[args.index("silica"):args.index("silica") + 2] == ["silica", "mcp"], name
         assert "env" not in srv  # vault = the folder the client opened, never a pin
+
+    # Codex is the install path setup_client also writes by hand, so those two
+    # still have to be the same command, prefix-wise: a surface flag may follow.
+    codex = json.loads((ROOT / "mcp.codex.json").read_text(encoding="utf-8"))
+    srv = codex["mcp_servers"]["silica"]
+    assert [srv["command"], *srv["args"]][:len(MCP_COMMAND)] == MCP_COMMAND
 
 
 def test_claude_and_codex_manifests_point_at_the_same_parts():
