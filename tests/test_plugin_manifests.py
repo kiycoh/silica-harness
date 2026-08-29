@@ -48,8 +48,15 @@ def test_claude_and_codex_manifests_point_at_the_same_parts():
     claude, codex = _manifest(".claude-plugin"), _manifest(".codex-plugin")
     assert (ROOT / claude["mcpServers"]).resolve() == ROOT / "mcp.json"
     assert (ROOT / codex["mcpServers"]).resolve() == ROOT / "mcp.codex.json"
+    # Hooks are the one part the two manifests reference differently. Claude
+    # Code loads `hooks/hooks.json` from the plugin root on its own and rejects
+    # a manifest that names it again ("Duplicate hooks file detected"), which
+    # fails the WHOLE file — declaring it there switched every silica hook off.
+    # Codex has no such convention and needs the pointer, so it keeps one.
+    assert "hooks" not in claude, "Claude Code auto-loads hooks/hooks.json; naming it again voids it"
+    assert (ROOT / "hooks" / "hooks.json").is_file()  # what that auto-load reads
+    assert (ROOT / codex["hooks"]).resolve() == ROOT / "hooks" / "hooks.json"
     for m in (claude, codex):
-        assert (ROOT / m["hooks"]).resolve() == ROOT / "hooks" / "hooks.json"
         assert (ROOT / m["skills"] / "silica" / "SKILL.md").resolve() == skill_path().resolve()
     assert (codex["name"], codex["version"]) == (claude["name"], claude["version"])
     # Codex: "Start them with ./" is a documented requirement for manifest paths.

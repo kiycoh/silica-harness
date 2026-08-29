@@ -1,6 +1,6 @@
 {
   "name": "silica",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Obsidian-vault memory for coding agents: deterministic knowledge-graph engine served over MCP (semantic + literal search, gated note writing), a skill teaching the recall/capture loop, and hooks that open the session knowing its vault and capture the transcript at the end.",
   "author": {
     "name": "Alessandro Carosia"
