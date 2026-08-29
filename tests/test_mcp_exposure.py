@@ -112,3 +112,63 @@ def test_doctor_live_probe_is_a_parameter(monkeypatch):
     hot = silica_doctor(live=True)
     assert calls["n"] == 1
     assert any(r["name"] == "live probe" for r in hot["results"])
+
+
+def test_exposure_ladder_is_monotone():
+    # default ⊂ --extended ⊂ --all: a tier that loses a tool on the way up
+    # would make "expose more" serve less.
+    from silica.ui import mcp
+
+    core = set(mcp.exposed_tools())
+    ext = set(mcp.exposed_tools(extended=True))
+    full = set(mcp.exposed_tools(all_tools=True))
+    assert core < ext < full
+
+
+def test_default_surface_serves_the_navigation_tier():
+    import pytest
+
+    from silica.ui import mcp
+
+    exposed = mcp.exposed_tools()
+    for name in ("silica_code_pack", "silica_impact"):
+        assert name in exposed, name
+    pytest.importorskip("duckdb")  # the [bi] pair rides only with the extra
+    for name in ("silica_query_table", "silica_tables"):
+        assert name in exposed, name
+
+
+def test_extended_tier_serves_ingest_and_topology():
+    from silica.ui import mcp
+
+    ext = mcp.exposed_tools(extended=True)
+    for name in ("silica_document", "silica_run_injector", "silica_backlinks",
+                 "silica_delete", "silica_move"):
+        assert name in ext, name
+        assert name not in mcp.exposed_tools(), name  # extended, not default
+
+
+def test_missing_bi_extra_shrinks_the_surface_instead_of_crashing(monkeypatch):
+    from silica.ui import mcp
+
+    mcp.exposed_tools(all_tools=True)  # force full registration first
+    from silica.tools import TOOLS
+
+    for name in mcp.OPTIONAL_TOOLS:
+        monkeypatch.delitem(TOOLS, name, raising=False)
+    served = mcp.exposed_tools()
+    assert "silica_query_table" not in served
+    assert "silica_recall" in served  # the rest of the tier still serves
+
+
+def test_parse_cli_args_ladder_and_vault():
+    from silica.ui.mcp import parse_cli_args
+
+    assert parse_cli_args([]) == {
+        "all_tools": False, "extended": False, "vault": "", "error": ""}
+    assert parse_cli_args(["--extended"])["extended"] is True
+    assert parse_cli_args(["--all"])["all_tools"] is True
+    assert parse_cli_args(["--vault", "/tmp/v"])["vault"] == "/tmp/v"
+    assert parse_cli_args(["--vault=/tmp/v", "--extended"])["vault"] == "/tmp/v"
+    assert parse_cli_args(["--vault"])["error"]  # a flag without its value
+    assert parse_cli_args(["--bogus"])["error"]

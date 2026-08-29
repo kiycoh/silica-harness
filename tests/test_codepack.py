@@ -628,11 +628,14 @@ def test_tool_reports_a_bad_path_instead_of_raising(repo, monkeypatch):
     assert "missing.java" in res["message"]
 
 
-def test_tool_is_outside_the_core_mcp_surface():
+def test_tool_serves_on_the_default_mcp_surface():
+    # Flipped 2026-08-29 (was: outside CORE): the datapolis field probe showed
+    # the default surface is where a coding client needs the pack — kept out,
+    # the tool existed but nothing could reach it (ADR-0033 amendment).
     from silica.ui.mcp import CORE_TOOLS, exposed_tools
 
-    assert "silica_code_pack" not in CORE_TOOLS
-    assert "silica_code_pack" in exposed_tools(all_tools=True)
+    assert "silica_code_pack" in CORE_TOOLS
+    assert "silica_code_pack" in exposed_tools()
 
 
 def test_tool_reports_missing_vault_instead_of_serving_the_cwd(monkeypatch):

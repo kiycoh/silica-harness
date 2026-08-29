@@ -15,8 +15,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_core_tools_resolve_and_are_agent_visible():
+    from silica.tools import TOOLS
+    from silica.ui.mcp import OPTIONAL_TOOLS
+
     core = exposed_tools()
-    assert set(core) == set(CORE_TOOLS)
+    # Only a tool from an uninstalled optional extra may be missing from the
+    # default surface; anything else absent is registry drift.
+    assert set(CORE_TOOLS) - set(core) <= OPTIONAL_TOOLS - set(TOOLS)
     for t in core.values():
         assert not t.internal and not t.sensitive
         # every exposed tool must yield a servable JSON schema
@@ -24,14 +29,15 @@ def test_core_tools_resolve_and_are_agent_visible():
         assert params.get("type") == "object"
 
 
-def test_write_tools_are_the_only_non_readonly_hints():
-    from silica.ui.mcp import WRITE_TOOLS
+def test_declared_writers_are_real_served_tools():
+    from silica.ui.mcp import DESTRUCTIVE_TOOLS, MCP_EXCLUDED, WRITE_TOOLS
 
-    # A new mutating tool served without joining WRITE_TOOLS would be
-    # advertised to MCP clients as read-only — catch the drift here.
-    assert WRITE_TOOLS <= set(CORE_TOOLS)
-    for name in WRITE_TOOLS:
-        assert any(k in name for k in ("write", "patch", "flag", "create", "update"))
+    # A stale name in the hint sets (renamed tool) would silently stop hinting;
+    # every declared writer must still exist on the served-or-excluded surface.
+    surface = set(exposed_tools(all_tools=True)) | set(MCP_EXCLUDED)
+    assert (WRITE_TOOLS | DESTRUCTIVE_TOOLS) <= surface, \
+        (WRITE_TOOLS | DESTRUCTIVE_TOOLS) - surface
+    assert not WRITE_TOOLS & DESTRUCTIVE_TOOLS
 
 
 def test_every_served_tool_sets_all_four_hints():
@@ -39,14 +45,17 @@ def test_every_served_tool_sets_all_four_hints():
     destructiveHint and openWorldHint to TRUE. Setting two of four advertised
     journaled, revertible writes as destructive and a closed-world vault as
     open-world."""
-    from silica.ui.mcp import tool_annotations
+    from silica.ui.mcp import DESTRUCTIVE_TOOLS, tool_annotations
 
-    for name in CORE_TOOLS:
+    for name in exposed_tools(all_tools=True):
         hints = tool_annotations(name)
         assert set(hints) == {"readOnlyHint", "destructiveHint",
                               "idempotentHint", "openWorldHint"}, name
         assert hints["openWorldHint"] is False, name
-        assert hints["destructiveHint"] is False, name
+        # destructiveHint only where /undo cannot give the note back whole.
+        assert hints["destructiveHint"] is (name in DESTRUCTIVE_TOOLS), name
+    # The default surface stays free of destructive tools entirely.
+    assert not set(exposed_tools()) & DESTRUCTIVE_TOOLS
 
 
 def test_write_tools_are_additive_and_reads_are_idempotent():
@@ -98,7 +107,31 @@ def test_skill_references_only_core_tools():
 def test_plugin_manifest_launches_silica_mcp():
     plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     servers = json.loads((ROOT / plugin["mcpServers"]).read_text(encoding="utf-8"))["mcpServers"]
-    assert servers["silica"]["args"][-2:] == ["silica", "mcp"]
+    args = servers["silica"]["args"]
+    assert args[args.index("silica"):args.index("silica") + 2] == ["silica", "mcp"]
+
+
+def test_plugin_serves_its_own_tree_not_the_published_wheel():
+    """ADR-0025 amendment: `uvx --from silica-harness` resolved the PyPI wheel,
+    so a tool added to the checkout was unreachable from every client and
+    `/plugin marketplace update` did not fix it (three live versions, measured
+    2026-08-29). The plugin must run the code it shipped with."""
+    plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    args = json.loads(
+        (ROOT / plugin["mcpServers"]).read_text(encoding="utf-8")
+    )["mcpServers"]["silica"]["args"]
+    assert "${CLAUDE_PLUGIN_ROOT}" in args
+    # --project selects the environment and leaves the working directory alone;
+    # --directory would serve the silica checkout as every project's vault.
+    assert "--project" in args and "--directory" not in args
+    assert not any("silica-harness" in a for a in args), "back on the PyPI wheel"
+
+    # Codex is not a plugin host: it has no ${CLAUDE_PLUGIN_ROOT} to expand, so
+    # its manifest deliberately keeps the published wheel.
+    codex = json.loads((ROOT / "mcp.codex.json").read_text(encoding="utf-8"))
+    codex_args = codex["mcp_servers"]["silica"]["args"]
+    assert "${CLAUDE_PLUGIN_ROOT}" not in codex_args
+    assert any("silica-harness" in a for a in codex_args)
     marketplace = json.loads(
         (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
     )

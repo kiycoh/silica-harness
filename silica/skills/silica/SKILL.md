@@ -78,6 +78,22 @@ index doctor reports missing.
   it, edits nothing, and reverses with `clear=True`. Flagging is not fixing;
   the human decides.
 
+## Code and data: navigate, don't grep
+
+- `silica_tables {folder?, column?}` is the census of the vault's tabular
+  files (csv/tsv/parquet, Excel): schema per file, and `column=` answers
+  "which table holds NEET?" in one call instead of head-reading every file.
+  Then `silica_query_table {path, sql}` runs one read-only SELECT over that
+  file (`SUMMARIZE t` first when columns are unknown; trust the schema its
+  replies carry, never a guess).
+- `silica_code_pack {target}` packs one source file with its real
+  dependencies inside a character budget: use it before rewriting or porting
+  a file, instead of ten greps.
+- `silica_impact {range_spec?}` maps a code change (uncommitted by default)
+  to the notes documenting the changed files and their import neighbors,
+  classified cosmetic/structural: the blast-radius read before and after
+  editing code the vault documents.
+
 ## Capture: write what deserves to outlive the session
 
 What belongs: decisions and their why, non-obvious constraints, distilled

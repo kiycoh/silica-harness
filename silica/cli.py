@@ -3477,7 +3477,9 @@ Usage:
   silica init [--advanced]   first-run wizard
   silica setup <client>      register the MCP server (claude, codex, opencode, dsh)
   silica connect             bridge to the Obsidian desktop app
-  silica mcp [--all]         serve the vault over stdio MCP
+  silica mcp [--extended|--all] [--vault DIR]
+                             serve a vault over stdio MCP (default: the
+                             folder it starts in; --vault pins another one)
   silica hook <event>        harness hook producer (SessionStart); stdin = payload
   silica import <path>       import external material into the vault
   silica update [--check]    self-update
@@ -3608,14 +3610,30 @@ def _dispatch_subcommand(args: list[str]) -> int | None:
         # write, so redirecting it here is enough). The redirect must NOT wrap
         # run_mcp: that is where stdout has to be the real protocol stream.
         import contextlib
+        import silica.ui.mcp as mcp_mod
+        opts = mcp_mod.parse_cli_args(args[1:])
+        if opts["error"]:
+            print(opts["error"], file=sys.stderr)
+            return 2
         with contextlib.redirect_stdout(sys.stderr):
-            _activate_repo_mode()
-            from silica.kernel.vault_manifest import apply_manifest_to_config
-            apply_manifest_to_config()
+            if opts["vault"]:
+                # Explicit per-server pin: one server entry per vault in the
+                # client config is multi-vault reach. switch_vault is the whole
+                # sequence (driver, caches, manifest — not an assignment) and
+                # already applies the manifest, so the cwd branch below is not
+                # repeated here.
+                sw = switch_vault(opts["vault"])
+                if sw.error:
+                    print(f"--vault {opts['vault']}: {sw.error}", file=sys.stderr)
+                    return 2
+                print(f"  Vault: {sw.vault}")
+            else:
+                _activate_repo_mode()
+                from silica.kernel.vault_manifest import apply_manifest_to_config
+                apply_manifest_to_config()
             _ensure_servers()
         logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
-        import silica.ui.mcp as mcp_mod
-        return mcp_mod.run_mcp(all_tools="--all" in args[1:])
+        return mcp_mod.run_mcp(all_tools=opts["all_tools"], extended=opts["extended"])
     return None
 
 

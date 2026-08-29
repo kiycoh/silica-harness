@@ -1,8 +1,17 @@
 {
   "mcpServers": {
     "silica": {
-      "command": "uvx",
-      "args": ["--from", "silica-harness[mcp]", "silica", "mcp"]
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "--extra",
+        "mcp",
+        "silica",
+        "mcp",
+        "--extended"
+      ]
     }
   }
 }

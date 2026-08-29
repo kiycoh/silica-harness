@@ -99,11 +99,13 @@ pdf = [
 # same project. Note it inherits [pdf] and [rerank], so it pulls torch and
 # downloads several GB of weights on first use.
 all = ["silica-harness[gui,connect,mcp,rerank,pdf]"]
-# Opt-in tabular lane (`silica_query_table`) — SQL over a .csv/.parquet the user
-# points at. One wheel, ~20 MB, no server and no ETL, imported only inside the
-# tool body so the base install never pays for it. Kept out of [all] until the
-# lane has an accuracy gate: a wrong number reads as authoritative, so shipping
-# it by default would be worse than not shipping it.
+# Opt-in tabular lane (`silica_tables` census + `silica_query_table` SQL) over
+# the .csv/.parquet files the vault holds. One wheel, ~20 MB, no server and no
+# ETL, imported only inside the tool bodies so the base install never pays for
+# it. Still out of [all] so the dependency stays a choice, but when installed
+# the lane serves on the default MCP surface (2026-08-29): the census plus the
+# schema-on-every-reply contract ground the SQL the old accuracy-gate worry was
+# about, and the residual failure mode is named in the tool docstring.
 bi = [
     "duckdb>=1.5.5",
     # .xlsx/.xlsm sheets for silica_query_table: read in-process (values only)

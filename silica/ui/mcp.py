@@ -6,10 +6,13 @@
 Any MCP client (Claude Code first) gets Silica as vault memory: context
 search through the relatedness facade, note reading, and gated writing.
 
-Default surface is CORE_TOOLS — the subset (search + read + write, plus the
-doctor read) — because every exposed schema is context the client pays for on
-each session. `--all` exposes the full default toolset (same sensitive/internal
-filter as the chat agent's loop).
+Exposure is a three-step ladder, because every exposed schema is context the
+client pays for on each session: the default surface is CORE_TOOLS (what a
+navigating client needs — search, read, write, code/data navigation),
+`--extended` adds EXTENDED_TOOLS (ingest, graph topology, vault management),
+`--all` exposes the full toolset (same sensitive/internal filter as the chat
+agent's loop). `--vault DIR` pins the served vault explicitly, which is how
+one client config reaches several vaults: one server entry per vault.
 
 stdout is the protocol channel: nothing here may print to it. Logging goes
 to stderr (wired by the `silica mcp` dispatch in cli.py).
@@ -61,6 +64,40 @@ CORE_TOOLS = (
     # vault) answers plausibly instead of erroring, so without this the only way
     # to find out is to be told.
     "silica_doctor",
+    # Code + data navigation (field probe 2026-08-29, datapolis vault): the gap
+    # was reachability, not existence — without these a coding client re-derives
+    # orientation by hand (code_pack replaces ~10 file reads, tables answers
+    # "which csv holds column X" in one call instead of head-reading 143 files).
+    "silica_code_pack",
+    "silica_impact",
+    "silica_tables",
+    "silica_query_table",
+)
+
+# The useful second ring (--extended): not every session ingests material or
+# manages the vault, so these stay out of the default schema payload — but a
+# session that does needs them reachable without opening the whole --all
+# surface of batch pipelines and index maintenance.
+EXTENDED_TOOLS = (
+    # Ingest: what turns non-markdown material (code, notebooks, data, PDFs)
+    # into notes from a client session. Without these the lane exists but only
+    # the local REPL can drive it — a notebook stays invisible to recall until
+    # something can call the injector.
+    "silica_document",
+    "silica_run_injector",
+    "silica_inbox_ls",
+    # Graph topology beyond CORE's per-note reads.
+    "silica_backlinks",
+    "silica_graph_path",
+    "silica_orphans",
+    "silica_unresolved",
+    "silica_vault_report",
+    # Vault management that carries its own guards (journaled move, gated
+    # delete): the guards live in the tools, so serving them adds reach, not risk.
+    "silica_move",
+    "silica_delete",
+    # Pairs with silica_review_queue in CORE: the /quiz flow grades through it.
+    "silica_record_quiz",
 )
 
 # Exposure is a declaration, not an import side-effect (ADR-0033). Every
@@ -69,8 +106,11 @@ CORE_TOOLS = (
 # this map, silica_web_answer and silica_query_table were unreachable even
 # under --all because only the chat REPL imported their modules.
 MCP_EXCLUDED = {
-    "silica_query_table": "BI lane has no accuracy gate yet (pyproject [bi] note); "
-                          "reopen when the gate exists",
+    # silica_query_table left this map 2026-08-29 (navigation-exposure goal):
+    # the schema-on-every-reply contract plus the silica_tables census give the
+    # client the grounding the missing accuracy gate was guarding against, and
+    # the remaining failure mode (aggregating a numeric-looking VARCHAR) is
+    # named in the tool's own docstring.
     "silica_web_answer": "live-web egress asks user consent in the chat flow; "
                          "MCP has no consent surface, so the lane stays off it",
 }
@@ -83,9 +123,41 @@ OPTIONAL_TOOL_MODULES = frozenset({
     "silica.sources.web_fetch",     # [web] extra
 })
 
-# MCP behavior hints: everything we serve is read-only except these three.
-WRITE_TOOLS = frozenset({"silica_write_note", "silica_patch_note", "silica_flag_note",
-                         "silica_event_create", "silica_event_update"})
+# Tools whose module is optional: absent from the registry when their extra is
+# not installed. The default/extended surfaces skip them instead of failing —
+# a server without [bi] still serves everything else — while any OTHER name
+# missing from a tier stays loud registry drift.
+OPTIONAL_TOOLS = frozenset({"silica_query_table", "silica_tables"})
+
+# MCP behavior hints. Writers are enumerated by hand — the registry carries no
+# write-capability bit — and test_mcp_surface pins the sets, so a newly served
+# writer missing here fails a test instead of shipping advertised "read-only".
+WRITE_TOOLS = frozenset({
+    # core
+    "silica_write_note", "silica_patch_note", "silica_flag_note",
+    "silica_event_create", "silica_event_update",
+    # extended
+    "silica_document", "silica_run_injector", "silica_move",
+    "silica_record_quiz",
+    # --all: batch curation, index refreshes, exports, orchestration. All of
+    # these served with read-only hints before 2026-08-29, so hosts that gate
+    # writes harder gated nothing.
+    "silica_aliases", "silica_autolink", "silica_backlink", "silica_curate",
+    "silica_enrich_batch", "silica_refine_batch", "silica_anneal",
+    "silica_generate_taxonomy", "silica_run_organizer", "silica_embed_refresh",
+    "silica_lexical_refresh", "silica_cooccurrence_refresh", "silica_mindmap",
+    "silica_graph_export", "silica_deferred_retry", "silica_ledger_update",
+    "silica_delegate",
+})
+
+# Removal is the one shape /undo cannot always give back whole: dedup merges
+# delete one note of each pair, flush discards deferred bundles permanently,
+# delete is delete. These advertise destructiveHint honestly, so hosts that
+# gate destructive tools harder gate exactly these.
+DESTRUCTIVE_TOOLS = frozenset({
+    "silica_delete", "silica_dedup", "silica_dedup_pairs",
+    "silica_deferred_flush",
+})
 
 # All four hints, always. Per the MCP spec an omitted hint defaults to the
 # permissive reading — destructiveHint and openWorldHint both default TRUE — so
@@ -98,19 +170,25 @@ WRITE_TOOLS = frozenset({"silica_write_note", "silica_patch_note", "silica_flag_
 _READ_ONLY = dict(readOnlyHint=True, destructiveHint=False,
                   idempotentHint=True, openWorldHint=False)
 # Additive, not destructive: every write goes through the undo journal
-# (ADR-0002) and `/undo` reverses it, and none of the three is idempotent —
-# re-running appends again.
+# (ADR-0002) and `/undo` reverses it, and none is idempotent — re-running
+# appends again.
 _ADDITIVE = dict(readOnlyHint=False, destructiveHint=False,
                  idempotentHint=False, openWorldHint=False)
+_DESTRUCTIVE = dict(readOnlyHint=False, destructiveHint=True,
+                    idempotentHint=False, openWorldHint=False)
 
 
 def tool_annotations(name: str) -> dict:
     """The four behaviour hints for one served tool."""
+    if name in DESTRUCTIVE_TOOLS:
+        return dict(_DESTRUCTIVE)
     return dict(_ADDITIVE if name in WRITE_TOOLS else _READ_ONLY)
 
 
-def exposed_tools(all_tools: bool = False) -> dict[str, Any]:
-    """The registry slice served over MCP: Tool objects keyed by name."""
+def exposed_tools(all_tools: bool = False, extended: bool = False) -> dict[str, Any]:
+    """The registry slice served over MCP: Tool objects keyed by name.
+
+    The ladder is monotone: default ⊂ --extended ⊂ --all."""
     # Registration side effect — the WHOLE tool tree, deliberately, not the
     # subset cli.py happens to share (ADR-0033): a module nobody imports is a
     # tool no flag can reach.
@@ -131,7 +209,13 @@ def exposed_tools(all_tools: bool = False) -> dict[str, Any]:
                if not t.sensitive and not t.internal and n not in MCP_EXCLUDED}
     if all_tools:
         return allowed
-    return {n: allowed[n] for n in CORE_TOOLS}  # KeyError = registry drift, fail loud
+    out: dict[str, Any] = {}
+    for n in CORE_TOOLS + (EXTENDED_TOOLS if extended else ()):
+        if n in allowed:
+            out[n] = allowed[n]
+        elif n not in OPTIONAL_TOOLS:
+            raise KeyError(f"{n}: named in a served tier but not registered — registry drift")
+    return out
 
 
 # The server's own account of itself, sent in the initialize reply. Claude
@@ -152,14 +236,45 @@ INSTRUCTIONS = (
 )
 
 
-def make_server(all_tools: bool = False):
+def parse_cli_args(args: list[str]) -> dict[str, Any]:
+    """`silica mcp` flags → run options; `error` set means print-and-exit.
+
+    Parsed here, beside the tier declarations the flags select, so the ladder
+    and its parsing share one home and one test file.
+    """
+    opts: dict[str, Any] = {"all_tools": False, "extended": False, "vault": "", "error": ""}
+    it = iter(args)
+    for a in it:
+        if a == "--all":
+            opts["all_tools"] = True
+        elif a == "--extended":
+            opts["extended"] = True
+        elif a == "--vault":
+            opts["vault"] = next(it, "")
+            if not opts["vault"]:
+                opts["error"] = "--vault needs a directory"
+        elif a.startswith("--vault="):
+            opts["vault"] = a.split("=", 1)[1]
+        else:
+            opts["error"] = f"unknown flag for silica mcp: {a}"
+    return opts
+
+
+def make_server(all_tools: bool = False, extended: bool = False):
     """The MCP Server with the registry slice wired in, not yet serving."""
     import anyio
     import mcp.types as types
     from mcp.server.lowlevel import Server
 
-    tools = exposed_tools(all_tools)
-    server = Server("silica", instructions=INSTRUCTIONS)
+    from silica.config import CONFIG
+
+    tools = exposed_tools(all_tools, extended)
+    # The served vault, named in the handshake: with one server entry per
+    # vault in a client config (--vault), this line is how the model tells
+    # two silica servers apart.
+    vault = str(getattr(CONFIG, "vault_path", "") or "").strip()
+    instructions = INSTRUCTIONS + (f" This server's vault: {vault}" if vault else "")
+    server = Server("silica", instructions=instructions)
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -186,7 +301,7 @@ def make_server(all_tools: bool = False):
     return server
 
 
-def run_mcp(all_tools: bool = False) -> int:
+def run_mcp(all_tools: bool = False, extended: bool = False) -> int:
     """Serve the tool registry over MCP stdio. Blocks until the client hangs up."""
     try:
         import anyio
@@ -198,8 +313,8 @@ def run_mcp(all_tools: bool = False) -> int:
         )
         return 1
 
-    server = make_server(all_tools)
-    tools = exposed_tools(all_tools)
+    server = make_server(all_tools, extended)
+    tools = exposed_tools(all_tools, extended)
 
     async def _serve() -> None:
         async with stdio_server() as (read, write):
