@@ -9,6 +9,7 @@ passes, the vis.js graph export, and the structural vault report.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -889,6 +890,24 @@ def silica_lexical_refresh(folder: str = "", force: bool = False) -> dict[str, A
     }
 
 
+def _covering_stem(path: Path) -> str:
+    """Stem of the note that would cover `path`, "" when only its own can.
+
+    A tabular profile is named for its shard FAMILY, so the 12 members of a
+    converted family each read as unconverted under a plain stem match. This
+    is the exact inverse of `convert._family_stem` (strip the trailing
+    counter), not a fuzzy match — and it is restricted to data files because
+    families exist nowhere else, which bounds a wrong answer here to
+    suppressing one hint about one CSV.
+    """
+    from silica.sources.convert import TABULAR_EXTS
+
+    if not path.suffix.lower().endswith(TABULAR_EXTS):
+        return ""
+    stem = re.sub(r"[\s_.\-0-9]+$", "", path.stem)
+    return stem if len(stem) >= 3 and stem != path.stem else ""
+
+
 class VaultReportArgs(BaseModel):
     folder: str = Field(default="", description="Vault-relative folder to scope (empty = whole vault)")
     top_k: int = Field(default=10, description="How many god-nodes / bridges to surface")
@@ -1001,6 +1020,7 @@ def silica_vault_report(
                 p.relative_to(root).as_posix()
                 for p in unindexable_docs(root)
                 if p.stem not in converted_stems
+                and (_covering_stem(p) or p.stem) not in converted_stems
             ]
             if docs:
                 result["unconverted"] = {

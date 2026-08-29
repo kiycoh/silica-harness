@@ -1456,7 +1456,8 @@ def test_csv_profile_carries_stats_not_the_table(tmp_vault):
     assert "silica_query_table" in body           # the note routes reads to SQL
     assert "50 rows" in body
     assert "BIGINT" in body                        # sniffed type, not a guess
-    assert "item3" in body                         # sample: first 5 rows appear
+    assert "| item0 |" in body                     # sample spans the file:
+    assert "| item49 |" in body                    # both ends of the 50 rows
     assert "item40" not in body                    # the table itself stayed on disk
 
 
@@ -1479,6 +1480,249 @@ def test_parquet_profile_without_duckdb_names_the_extra(tmp_vault, monkeypatch):
     p.write_bytes(b"PAR1")
     with pytest.raises(ValueError, match=r"\[bi\]"):
         conv.convert(str(p))
+
+
+def test_csv_profile_sample_spans_the_file(tmp_vault):
+    pytest.importorskip("duckdb")
+    p = Path(CONFIG.vault_path) / "sorted.csv"
+    p.write_text("name,value\n" + "\n".join(f"row{i:03d},{i}" for i in range(100)) + "\n")
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    # A sorted export's head is one stratum; the sample must span the file.
+    assert "row000" in body and "row099" in body
+    assert "row001" not in body                    # not the head slice
+
+
+def test_csv_fallback_sample_is_spread_and_deterministic(tmp_vault, monkeypatch):
+    monkeypatch.setitem(sys.modules, "duckdb", None)
+    p = Path(CONFIG.vault_path) / "big.csv"
+    p.write_text("name,value\n" + "\n".join(f"row{i:03d},{i}" for i in range(200)) + "\n")
+
+    [note_rel] = conv.convert(str(p))
+    picked = re.findall(r"row(\d{3})", _inbox_note(note_rel).read_text(encoding="utf-8"))
+    assert any(int(i) >= 100 for i in picked)      # beyond the head slice
+
+    # Same file, same sample: a nondeterministic sample would churn the note
+    # on every re-convert.
+    [note_rel2] = conv.convert(str(p))
+    picked2 = re.findall(r"row(\d{3})", _inbox_note(note_rel2).read_text(encoding="utf-8"))
+    assert picked == picked2
+
+
+def test_csv_profile_lists_low_cardinality_values(tmp_vault):
+    pytest.importorskip("duckdb")
+    rows = []
+    for i in range(60):
+        # "north" sits in the middle of the domain: SUMMARIZE's min/max already
+        # leak the alphabetic extremes (east/west), so only a value that is
+        # neither an extreme nor in any sampled row proves the enumeration.
+        region = "north" if i in (6, 7) else ("east" if i % 2 == 0 else "west")
+        rows.append(f"id{i:03d},{region},{i}")
+    p = Path(CONFIG.vault_path) / "sales.csv"
+    p.write_text("id,region,value\n" + "\n".join(rows) + "\n")
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    assert "north" in body                         # reachable only via enumeration
+    assert "east" in body and "west" in body
+    assert "id013" not in body                     # high-cardinality: never enumerated
+
+
+def test_categorical_section_skips_columns_min_max_already_shows(tmp_vault):
+    pytest.importorskip("duckdb")
+    p = Path(CONFIG.vault_path) / "flags.csv"
+    p.write_text(
+        "dataflow,gender,value\n"
+        + "\n".join(f"DF_ONLY,{'F' if i % 2 else 'M'},{i}" for i in range(30))
+        + "\n"
+    )
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    # 1 and 2 distinct values are fully carried by the min/max columns above;
+    # enumerating them again is noise (a real SDMX export: 13 sections, 10 of
+    # them redundant).
+    assert "## Categorical values" not in body
+    assert "DF_ONLY" in body                       # still discoverable, via min/max
+
+
+def test_csv_profile_carries_documents_edge_inside_a_repo(tmp_vault, monkeypatch):
+    monkeypatch.setitem(sys.modules, "duckdb", None)  # the edge is not [bi]-gated
+    vault = Path(CONFIG.vault_path)
+    subprocess.run(["git", "init", "-q"], cwd=vault, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=vault, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=vault, check=True)
+    p = vault / "data" / "m.csv"
+    p.parent.mkdir()
+    p.write_text("a,b\n1,2\n")
+    subprocess.run(["git", "add", "-A"], cwd=vault, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=vault, check=True)
+
+    [note_rel] = conv.convert(str(p))
+
+    from silica.kernel.write import frontmatter
+    data, _, _ = frontmatter.split(_inbox_note(note_rel).read_text(encoding="utf-8"))
+    assert data["documents"] == ["data/m.csv"]     # repo-relative, the graph keyspace
+    assert data.get("code_ref")                    # arms /stale for tracked files
+
+
+def test_csv_profile_outside_a_repo_gets_no_documents_edge(tmp_vault, monkeypatch):
+    monkeypatch.setitem(sys.modules, "duckdb", None)
+    p = Path(CONFIG.vault_path) / "sales.csv"
+    p.write_text("a,b\n1,2\n")
+
+    [note_rel] = conv.convert(str(p))
+
+    from silica.kernel.write import frontmatter
+    data, _, _ = frontmatter.split(_inbox_note(note_rel).read_text(encoding="utf-8"))
+    assert "documents" not in (data or {})
+
+
+def test_csv_family_one_profile_for_shards(tmp_vault):
+    pytest.importorskip("duckdb")
+    v = Path(CONFIG.vault_path)
+    (v / "raw").mkdir()
+    (v / "raw" / "vendite_sicilia_01.csv").write_text("region,amount\na,1\nb,2\nc,3\n")
+    (v / "raw" / "vendite_sicilia_02.csv").write_text("region,amount\nd,4\ne,5\nf,6\ng,7\n")
+    (v / "raw" / "altro.csv").write_text("x,y\n1,2\n")
+
+    [note_rel] = conv.convert(str(v / "raw" / "vendite_sicilia_01.csv"))
+
+    assert note_rel.endswith("/vendite_sicilia.md")   # family stem, not the shard
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    assert "7 rows" in body                           # union of both shards
+    assert "vendite_sicilia_01.csv" in body and "vendite_sicilia_02.csv" in body
+    assert "altro.csv" not in body                    # different header: not family
+
+    # Converting another member refreshes the same note; a 12-shard folder
+    # must not become 12 near-identical profiles.
+    [note_rel2] = conv.convert(str(v / "raw" / "vendite_sicilia_02.csv"))
+    assert note_rel2 == note_rel
+
+
+def test_family_members_are_not_reported_unconverted(tmp_vault):
+    pytest.importorskip("duckdb")
+    from silica.tools.graph import _covering_stem
+
+    v = Path(CONFIG.vault_path)
+    (v / "vendite_01.csv").write_text("a,b\n1,2\n")
+    (v / "vendite_02.csv").write_text("a,b\n3,4\n")
+
+    [note_rel] = conv.convert(str(v / "vendite_01.csv"))
+
+    # The profile is named for the family, so a plain stem match sees two
+    # uncovered files where one note already describes both.
+    covering = _covering_stem(v / "vendite_02.csv")
+    assert covering == Path(note_rel).stem == "vendite"
+    # A lone file is covered by its own note only — never by a sibling's.
+    assert _covering_stem(v / "altro.csv") == ""
+
+
+def test_csv_family_requires_a_counter_suffix(tmp_vault):
+    pytest.importorskip("duckdb")
+    v = Path(CONFIG.vault_path)
+    # Byte-identical header but different tables: SDMX exports share one
+    # generic column layout across datasets (field test: censpop_lavoro_15piu
+    # grouped with censpop_demografia under an invented "censpop" name).
+    hdr = "DATAFLOW,REF_AREA,OBS_VALUE\n"
+    (v / "censpop_lavoro_01.csv").write_text(hdr + "L,x,1\n")
+    (v / "censpop_demografia.csv").write_text(hdr + "D,y,2\n")
+
+    [note_rel] = conv.convert(str(v / "censpop_lavoro_01.csv"))
+
+    assert note_rel.endswith("/censpop_lavoro_01.md")  # no family, own stem
+    assert "censpop_demografia" not in _inbox_note(note_rel).read_text(encoding="utf-8")
+
+
+def test_csv_family_needs_a_shared_name(tmp_vault):
+    pytest.importorskip("duckdb")
+    v = Path(CONFIG.vault_path)
+    (v / "a.csv").write_text("x,y\n1,2\n")
+    (v / "b.csv").write_text("x,y\n3,4\n")
+
+    [n1] = conv.convert(str(v / "a.csv"))
+    [n2] = conv.convert(str(v / "b.csv"))
+
+    # Same header but no meaningful common stem: grouping two unrelated files
+    # under an invented name would be worse than two profiles.
+    assert n1 != n2
+    assert "b.csv" not in _inbox_note(n1).read_text(encoding="utf-8")
+
+
+def test_profile_survives_a_timezone_aware_column(tmp_vault):
+    pytest.importorskip("duckdb")
+    # DuckDB infers TIMESTAMP WITH TIME ZONE and converting one to a Python
+    # object needs pytz, which is in no install here: a real download ledger
+    # (ISO timestamps with offsets) crashed the whole convert.
+    p = Path(CONFIG.vault_path) / "ledger.csv"
+    p.write_text(
+        "fetched_at,name\n"
+        + "\n".join(f"2026-08-12T13:35:{i:02d}+00:00,f{i}" for i in range(10))
+        + "\n"
+    )
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    assert "2026-08-12" in body                     # rendered, not crashed
+    assert "TIMESTAMP" in body                      # type still reported
+    # The sample header names the column, not the SQL that read it.
+    assert "| fetched_at | name |" in body
+    assert "CAST(" not in body
+
+
+def test_profile_reads_a_non_utf8_csv(tmp_vault):
+    pytest.importorskip("duckdb")
+    # Public European data ships windows-1252 (4 of 26 CSVs in the field
+    # vault). DuckDB's reader validates encoding and refuses the file, and
+    # its own encoding='latin-1' still rejects the C1 range ISTAT uses for
+    # the ellipsis (0x85).
+    p = Path(CONFIG.vault_path) / "legenda.csv"
+    # Raw bytes: 0xf9 is "ù" in both codecs, 0x85 is the ellipsis in cp1252
+    # and the NEL control in latin-1 — the byte that decides the ladder.
+    p.write_bytes(
+        b"codice;descrizione\nP2;Variazione pi\xf9 che annua\nN;\x85 non disponibile\n"
+    )
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    assert "Variazione pi\xf9 che annua" in body     # accented byte decoded
+    assert "…" in body                          # cp1252 won the ladder
+    assert "2 rows" in body
+
+
+def test_profile_collapses_all_null_columns(tmp_vault):
+    pytest.importorskip("duckdb")
+    p = Path(CONFIG.vault_path) / "notes.csv"
+    p.write_text("a,b,NOTE_X,NOTE_Y\n" + "\n".join(f"{i},{i * 2},," for i in range(10)) + "\n")
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8")
+    # Field test: 15 of an SDMX export's 28 columns were 100% null and each
+    # occupied a Columns row and a Sample column.
+    assert "2 columns entirely null: NOTE_X, NOTE_Y" in body
+    assert "| NOTE_X |" not in body
+
+
+def test_profile_paths_are_repo_relative_inside_a_repo(tmp_vault, monkeypatch):
+    monkeypatch.setitem(sys.modules, "duckdb", None)
+    vault = Path(CONFIG.vault_path)
+    subprocess.run(["git", "init", "-q"], cwd=vault, check=True)
+    p = vault / "data" / "m.csv"
+    p.parent.mkdir()
+    p.write_text("a,b\n1,2\n")
+
+    [note_rel] = conv.convert(str(p))
+
+    body = _inbox_note(note_rel).read_text(encoding="utf-8").split("---", 2)[2]
+    assert "`data/m.csv`" in body                     # prose and the query example
+    assert str(p) not in body                         # absolute stays out of the body
 
 
 # --- references-section flagging (2026-08-15) --------------------------------

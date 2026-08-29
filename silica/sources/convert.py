@@ -507,8 +507,8 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
     # 1653x2339 render of a text page yields ''), and neither docling nor
     # opendataloader is a path verified here for either family.
     if suffix in TABULAR_EXTS:
-        provider = _via_tabular
-    elif suffix in _MINERU_ONLY_EXTS:
+        return _convert_tabular(src)
+    if suffix in _MINERU_ONLY_EXTS:
         provider = _pdf_via_mineru
     elif suffix in MEDIA_EXTS:
         provider = _via_asr
@@ -944,49 +944,288 @@ def _md_table(header: list[str], rows: list[list]) -> str:
     return "\n".join(lines)
 
 
+# Rows shown in the profile's sample table, and the distinct-value window in
+# which a VARCHAR column counts as categorical and gets its domain enumerated.
+# 20 keeps the enumeration a line, not a table dump. The floor is 3 because the
+# Columns table already prints min and max: at 1 distinct they are the value,
+# at 2 they are BOTH values, so only from 3 up does the list add a token the
+# note does not already carry. Measured on an ISTAT SDMX export: 13 candidate
+# columns, 10 of them redundant under this rule.
+_SAMPLE_ROWS = 5
+_CATEGORICAL_MIN_DISTINCT = 3
+_CATEGORICAL_MAX_DISTINCT = 20
+
+
+def _display_path(src: Path) -> str:
+    """`src` repo-relative when the vault's repo contains it, absolute else.
+
+    The absolute path is dead weight in the note body: it breaks on any other
+    machine and silica_query_table resolves vault-relative first. Outside the
+    repo the absolute path is the only true name, so it stays.
+    """
+    from silica.kernel.recall import paths as _rpaths
+
+    root = _rpaths.repo_root_for(CONFIG.vault_path) if CONFIG.vault_path else None
+    if root is not None:
+        try:
+            return src.resolve().relative_to(Path(root).resolve()).as_posix()
+        except (ValueError, OSError):
+            pass
+    return str(src)
+
+
 def _profile_md(
     src: Path,
     n_rows: int,
     columns_table: str,
     sample_cols: list[str],
     sample_rows: list[list],
+    sample_label: str,
+    categorical: list[tuple[str, int, str]] = (),
+    members: list[Path] | None = None,
 ) -> str:
     n_cols = len(sample_cols)
+    disp = _display_path(src)
+    family = bool(members and len(members) > 1)
+    title = f"{_family_stem(members)} family" if family else src.name
+    if family:
+        # A shard family: one table split across files (same header). The
+        # profile describes the union; the member list is what a reader (and
+        # the documents: edge) needs to find the physical files.
+        shards = "\n".join(f"- `{_display_path(m)}`" for m in members)
+        head = (f"One table in {len(members)} files — {n_rows} rows x "
+                f"{n_cols} columns across:\n\n{shards}\n")
+    else:
+        head = f"Data file: `{disp}` — {n_rows} rows x {n_cols} columns.\n"
+    cat_section = ""
+    if categorical:
+        # The retrieval surface for cell values: a note mentioning a category
+        # ("ACME Corp") reaches this table through BM25 on these tokens even
+        # when no sampled row and no min/max extreme carries the value.
+        lines = "\n".join(f"- {c} ({n} values): {vals}" for c, n, vals in categorical)
+        cat_section = f"## Categorical values\n\n{lines}\n\n"
     return (
-        f"# {src.name} data profile\n\n"
-        f"Data file: `{src}` — {n_rows} rows x {n_cols} columns.\n\n"
+        f"# {title} data profile\n\n"
+        + head + "\n"
         "The rows are NOT in the vault; this note is the file's profile. Answer "
         "questions about the data by querying the file in place:\n"
-        f'`silica_query_table(path="{src}", sql="SELECT ... FROM t")` — '
+        f'`silica_query_table(path="{disp}", sql="SELECT ... FROM t")` — '
         "start with `SUMMARIZE t` when unsure.\n\n"
         f"## Columns\n\n{columns_table}\n\n"
-        f"## Sample (first {len(sample_rows)} rows)\n\n"
+        + cat_section
+        + f"## Sample ({sample_label})\n\n"
         + _md_table(sample_cols, sample_rows)
         + "\n"
     )
 
 
-def _duckdb_profile(src: Path) -> str:
-    """Schema + per-column stats + sample, computed by DuckDB without loading."""
-    from silica.tools.tabular import _bind_source, _connect
+_COUNTER_RE = re.compile(r"[\s_.\-0-9]*")
 
-    con = _connect(src.parent)
+
+def _counter_pair(a: str, b: str) -> bool:
+    """True when two stems differ only by a counter (digits, separators, dates)."""
+    p = os.path.commonprefix([a, b])
+    return bool(_COUNTER_RE.fullmatch(a[len(p):]) and _COUNTER_RE.fullmatch(b[len(p):]))
+
+
+def _tabular_family(src: Path) -> list[Path]:
+    """Same-directory siblings holding shards of one table, `src` included.
+
+    Membership needs BOTH gates, name first. Byte-identical header alone is
+    not enough — SDMX exports share one generic column layout across
+    DIFFERENT datasets, so on the field vault it grouped lavoro_15piu with
+    demografia under an invented "censpop". A shard's name differs from its
+    siblings only by the counter (censpop_lavoro_15piu_sicilia_01..12), and
+    the check is pairwise against `src`: a global common prefix over every
+    same-header file collapses to the export tool's shared prefix and proves
+    nothing. Name gate first also spares the header read for most siblings.
+    # ponytail: one header read per name-matching sibling per convert call,
+    # O(n^2) reads when a batch converts one directory of same-named shards —
+    # fine at hundreds; cache headers per directory beyond ~5k shards.
+    """
+    def head(p: Path) -> bytes | None:
+        try:
+            with p.open("rb") as fh:
+                return fh.readline()
+        except OSError:
+            return None
+
+    mine = head(src)
+    if not mine:
+        return [src]
+    fam = [src]
+    for sib in src.parent.glob(f"*{src.suffix}"):
+        if (sib != src and sib.is_file()
+                and _counter_pair(src.stem, sib.stem) and head(sib) == mine):
+            fam.append(sib)
+    return sorted(fam)
+
+
+def _family_stem(members: list[Path] | None) -> str:
+    """Shared stem of a shard family, "" when the names do not prove one.
+
+    Two gates, both required. The names must share a >=3-char prefix (under
+    that it is noise, not a name), and past that prefix every stem may differ
+    only by a counter (digits, separators, dates). The second gate is the
+    field-test correction: SDMX exports share one byte-identical generic
+    header across DIFFERENT datasets, so header equality alone grouped
+    censpop_lavoro_15piu with censpop_demografia under an invented "censpop"
+    — "shards of one table" means the filenames differ only by the shard
+    counter, and anything more is a different table.
+    """
+    if not members:
+        return ""
+    stems = [m.stem for m in members]
+    prefix = os.path.commonprefix(stems)
+    if any(not re.fullmatch(r"[\s_.\-0-9]*", s[len(prefix):]) for s in stems):
+        return ""
+    stem = re.sub(r"[\s_.\-0-9]+$", "", prefix)
+    return stem if len(stem) >= 3 else ""
+
+
+def _bind_members(con, members: list[Path]) -> None:
+    """CREATE VIEW t over a shard family — one list-read, schema shared.
+
+    Same quoting contract as tools/tabular._bind_source. List order is the
+    sorted member order, so the evenly spaced sample walks shard 01 → NN.
+    """
+    quoted = ", ".join("'" + str(m).replace("'", "''") + "'" for m in members)
+    if members[0].suffix.lower() == ".parquet":
+        con.execute(f"CREATE VIEW t AS SELECT * FROM read_parquet([{quoted}])")
+        return
+    con.execute(f"CREATE VIEW t AS SELECT * FROM read_csv([{quoted}], sample_size=-1)")
+
+
+def _categorical_values(con, stats) -> list[tuple[str, int, str]]:
+    """(column, n_distinct, joined domain) for low-cardinality VARCHAR columns.
+
+    The one signal schema + sample structurally miss: a note citing a value
+    that lives only in cells ("ACME Corp") has nothing to match on. Enumerating
+    every column would serialize the table back into the vault, so only small
+    text domains qualify (the published knob: Schema-First Retrieval,
+    arXiv:2606.28387). Numeric domains stay out — min/max already brackets
+    them and years/flags add no retrievable token.
+    """
+    out: list[tuple[str, int, str]] = []
+    for row in stats:
+        col, ctype, approx = row[0], row[1], row[4]
+        if ctype != "VARCHAR":
+            continue
+        try:
+            if int(approx) > _CATEGORICAL_MAX_DISTINCT:
+                continue
+        except (TypeError, ValueError):
+            continue  # approx_unique unparsable: a column we cannot gate, skip
+        q = str(col).replace('"', '""')
+        vals = con.execute(
+            f'SELECT DISTINCT "{q}" FROM t WHERE "{q}" IS NOT NULL '
+            f"ORDER BY 1 LIMIT {_CATEGORICAL_MAX_DISTINCT + 1}"
+        ).fetchall()
+        # approx_unique is a sketch; the exact count decides membership. The
+        # floor is applied here too — approx can read 3 on a 2-value column.
+        if not _CATEGORICAL_MIN_DISTINCT <= len(vals) <= _CATEGORICAL_MAX_DISTINCT:
+            continue
+        joined = ", ".join(str(v[0]) for v in vals)
+        if len(joined) > 300:
+            continue  # a free-text column with few rows is not a category set
+        out.append((str(col), len(vals), joined))
+    return out
+
+
+def _duckdb_profile(src: Path, members: list[Path] | None = None) -> str:
+    """Schema + per-column stats + sample, computed by DuckDB without loading.
+
+    With `members`, one profile over the whole shard family (same header, one
+    schema): stats and sample describe the union, which is the table a reader
+    actually reasons about."""
+    from silica.tools.tabular import _bind_source, _connect, utf8_source
+
+    # Non-utf-8 members are re-encoded into `tmp` and DuckDB is confined there
+    # instead: the reader validates encoding and refuses the original outright.
+    # A pure-utf-8 file copies nothing and binds in place, as before.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmpdir = Path(tmp)
+        files = members or [src]
+        bound = [utf8_source(m, tmpdir) for m in files]
+        moved = [b.parent == tmpdir for b in bound]
+        if any(moved) and not all(moved):
+            # `_connect` allows exactly ONE directory, so a mixed family has to
+            # be read entirely from the temp dir; the utf-8 members ride along.
+            bound = [b if mv else Path(shutil.copy2(m, tmpdir / m.name))
+                     for m, b, mv in zip(files, bound, moved)]
+        return _duckdb_profile_bound(src, members, bound, _connect(bound[0].parent))
+
+
+def _duckdb_profile_bound(src: Path, members: list[Path] | None,
+                          bound: list[Path], con) -> str:
+    """`_duckdb_profile` with the encoding/confinement question already settled."""
+    from silica.tools.tabular import _bind_source
+
     try:
-        _bind_source(con, src)
+        if members and len(members) > 1:
+            _bind_members(con, bound)
+        else:
+            _bind_source(con, bound[0])
         n_rows = con.execute("SELECT count(*) FROM t").fetchone()[0]
         stats = con.execute(
             "SELECT column_name, column_type, min, max, approx_unique, "
             "null_percentage FROM (SUMMARIZE t)"
         ).fetchall()
-        sample = con.execute("SELECT * FROM t LIMIT 5").fetchall()
+        # All-null columns collapse to one line: an SDMX export carries 15/28
+        # pure-NOTE_* padding columns, and each cost a Columns row plus a
+        # Sample column while adding zero retrievable signal.
+        def _all_null(row) -> bool:
+            try:
+                return float(row[5]) >= 100.0
+            except (TypeError, ValueError):
+                return False
+        dropped = [str(r[0]) for r in stats if _all_null(r)]
+        kept = [r for r in stats if not _all_null(r)]
+        if not kept or not dropped:  # nothing to collapse, or nothing left
+            dropped, kept = [], list(stats)
+        # Every sample column CAST to VARCHAR, in SQL. The sample is rendered
+        # as markdown text, so the Python-side value is thrown away anyway —
+        # and materializing it is what breaks: DuckDB needs pytz to hand a
+        # TIMESTAMP WITH TIME ZONE to Python, and no install here has it, so a
+        # download ledger with ISO offsets crashed the whole convert. Casting
+        # in the engine also spares the exotic types (INTERVAL, nested) the
+        # same trip. The declared type stays visible in the Columns table.
+        cols_sql = ", ".join(
+            'CAST("{0}" AS VARCHAR) AS "{0}"'.format(str(r[0]).replace('"', '""'))
+            for r in kept
+        )
+        if n_rows <= _SAMPLE_ROWS:
+            sample_q = f"SELECT {cols_sql} FROM t LIMIT {_SAMPLE_ROWS}"
+            label = "all rows"
+        else:
+            # Evenly spaced, not LIMIT 5: real exports arrive sorted (by date,
+            # region, customer) and the head is then a single stratum. Spread
+            # indices also stay deterministic, which USING SAMPLE is not —
+            # a re-convert must not churn the note. Insertion order is the
+            # row_number here; DuckDB preserves it for file reads by default.
+            step = (n_rows - 1) / (_SAMPLE_ROWS - 1)
+            idx = sorted({round(k * step) + 1 for k in range(_SAMPLE_ROWS)})
+            sample_q = (
+                f"SELECT {cols_sql} FROM "
+                "(SELECT *, row_number() OVER () AS _silica_rn FROM t) "
+                f"WHERE _silica_rn IN ({', '.join(map(str, idx))}) "
+                "ORDER BY _silica_rn"
+            )
+            label = f"{len(idx)} of {n_rows} rows, evenly spaced"
+        sample = con.execute(sample_q).fetchall()
         sample_cols = [d[0] for d in con.description]
+        categorical = _categorical_values(con, kept)
     finally:
         con.close()
     columns_table = _md_table(
         ["column", "type", "min", "max", "distinct", "null %"],
-        [list(row) for row in stats],
+        [list(row) for row in kept],
     )
-    return _profile_md(src, n_rows, columns_table, sample_cols, [list(r) for r in sample])
+    if dropped:
+        columns_table += (f"\n\n{len(dropped)} columns entirely null: "
+                          + ", ".join(dropped))
+    return _profile_md(src, n_rows, columns_table, sample_cols,
+                       [list(r) for r in sample], label, categorical, members)
 
 
 def _csv_basic_profile(src: Path) -> str:
@@ -996,39 +1235,82 @@ def _csv_basic_profile(src: Path) -> str:
     says how to get the rest.
     """
     import csv
+    import random
 
     delimiter = "\t" if src.suffix.lower() == ".tsv" else ","
     with src.open(newline="", encoding="utf-8", errors="replace") as fh:
         reader = csv.reader(fh, delimiter=delimiter)
         header = next(reader, [])
-        sample = [row for _, row in zip(range(5), reader)]
-        n_rows = len(sample) + sum(1 for _ in reader)
+        # Seeded reservoir, one pass: the head of a sorted export is a single
+        # stratum (same defect the DuckDB path fixes with spread indices), and
+        # the stdlib lane cannot stride without knowing n_rows first — that
+        # would mean reading the file twice. The fixed seed keeps re-convert
+        # from churning the note.
+        rng = random.Random(0)
+        kept: list[tuple[int, list]] = []
+        n_rows = 0
+        for i, row in enumerate(reader):
+            n_rows += 1
+            if i < _SAMPLE_ROWS:
+                kept.append((i, row))
+            else:
+                j = rng.randrange(i + 1)
+                if j < _SAMPLE_ROWS:
+                    kept[j] = (i, row)
+        sample = [row for _, row in sorted(kept)]
+    label = ("all rows" if n_rows <= _SAMPLE_ROWS
+             else f"{len(sample)} of {n_rows} rows, random")
     columns_table = (
         _md_table(["column"], [[h] for h in header])
         + "\n\nTypes and per-column stats need DuckDB: "
         "`pip install 'silica-harness[bi]'`, then re-run /convert."
     )
-    return _profile_md(src, n_rows, columns_table, header, sample)
+    return _profile_md(src, n_rows, columns_table, header, sample, label)
 
 
-def _via_tabular(src: Path, workdir: Path) -> tuple[str, Path]:
-    """Data file → profile note. The rows never enter the vault.
+def _convert_tabular(src: Path) -> list[str]:
+    """Data file → profile note in the inbox. The rows never enter the vault.
 
     ADR-0014 turns every source into prose, and for a data file the honest
     prose is a *description* of the table, not a serialization of it: column
     names and types are exactly what the agent needs to write a correct
     `silica_query_table` SELECT on the first try, and they embed — rows don't.
+
+    Own write tail, not `_doc_to_md`'s: a profile has no images and is one
+    small note by construction, and the family case needs a note NAMED after
+    the family — converting shard 02 of 12 must refresh the same note, not
+    mint a twelfth near-duplicate.
     """
     try:
         import duckdb  # noqa: F401
+        has_duckdb = True
     except ImportError:
-        if src.suffix.lower() == ".parquet":
-            # The stdlib reads CSV; nothing in the base install reads parquet.
-            raise ValueError(
-                "profiling parquet needs DuckDB: pip install 'silica-harness[bi]'"
-            ) from None
-        return _csv_basic_profile(src), workdir
-    return _duckdb_profile(src), workdir
+        has_duckdb = False
+
+    # Family detection is duckdb-only: the stdlib fallback profiles one file,
+    # and stamping one shard's stats under the family's name would lie.
+    members = _tabular_family(src) if has_duckdb else [src]
+    if len(members) > 1 and not _family_stem(members):
+        members = [src]
+    if has_duckdb:
+        md = _duckdb_profile(src, members)
+    elif src.suffix.lower() == ".parquet":
+        # The stdlib reads CSV; nothing in the base install reads parquet.
+        raise ValueError(
+            "profiling parquet needs DuckDB: pip install 'silica-harness[bi]'"
+        ) from None
+    else:
+        md = _csv_basic_profile(src)
+
+    from silica.driver import DRIVER
+    from silica.kernel.vault_manifest import active_inbox_dir
+
+    inbox = active_inbox_dir() or "Inbox"
+    stem = _family_stem(members) if len(members) > 1 else src.stem
+    fm = _provenance_fm(src, md, tabular_members=members)
+    note_rel = f"{inbox}/{stem}.md"
+    DRIVER.upsert(note_rel, fm + md.lstrip("\n"))  # re-converting any member refreshes it
+    return [note_rel]
 
 
 # --- legacy office: the LibreOffice hop -------------------------------------
@@ -1521,7 +1803,8 @@ def _doc_citation(src: Path, md_text: str) -> dict[str, str]:
     return cite
 
 
-def _provenance_fm(src: Path, md_text: str = "") -> str:
+def _provenance_fm(src: Path, md_text: str = "",
+                   tabular_members: list[Path] | None = None) -> str:
     """Frontmatter block naming the converted file's real origin (absolute
     path), the document's own creation date when it states one, and the
     citation fields it declares (doi/arxiv/authors/title) — what a researcher
@@ -1534,6 +1817,33 @@ def _provenance_fm(src: Path, md_text: str = "") -> str:
     # A document's form is not knowable at ingress; it gets no stamp.
     if src.suffix.lower() in MEDIA_EXTS:
         lines.append("form: transcript\n")
+    # A tabular profile documents a LIVE file: the rows stay on disk and the
+    # note is the pointer, so the note↔file edge must enter the graph, not
+    # just this provenance ledger (source_file: is deliberately not indexed).
+    # `documents:` is the one keyspace file_backlinks already reads, and it is
+    # repo-relative because an absolute path dies on any other machine;
+    # code_ref arms /stale for git-tracked files. A file outside the repo gets
+    # no edge — the graph's universe is the repo.
+    if src.suffix.lower() in TABULAR_EXTS and CONFIG.vault_path:
+        from silica.kernel.code import gitstate
+        from silica.kernel.recall import paths as _rpaths
+
+        root = _rpaths.repo_root_for(CONFIG.vault_path)
+        if root is not None:
+            rels: list[str] = []
+            for m in (tabular_members or [src]):
+                try:
+                    rels.append(m.resolve().relative_to(Path(root).resolve()).as_posix())
+                except (ValueError, OSError):
+                    pass  # outside the repo: provenance only, no graph edge
+            if rels:
+                quoted_rels = ", ".join(
+                    '"' + r.replace("\\", "\\\\").replace('"', '\\"') + '"' for r in rels
+                )
+                lines.append(f"documents: [{quoted_rels}]\n")
+                head = gitstate.head_ref(root)
+                if head:
+                    lines.append(f"code_ref: {head}\n")
     for key, val in _doc_citation(src, md_text).items():
         v = str(val).replace("\\", "\\\\").replace('"', '\\"')
         lines.append(f'{key}: "{v}"\n')
