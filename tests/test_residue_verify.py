@@ -49,11 +49,16 @@ class TestDecompose:
             assert rs.decompose_facts("source text") is None
 
 
+# Bodies under _WINDOW_ABOVE_CHARS are evidence whole; the window tests pad
+# past it with paragraphs that share no word with any fact.
+_PAD = "".join(f"\n\nfiller paragraph number {i}" for i in range(400))
+
+
 class TestEvidenceWindowing:
     def test_best_paragraphs_picks_by_word_overlap(self):
         body = ("Intro paragraph about nothing much.\n\n"
                 "Azazel taught men to make swords and knives of metal.\n\n"
-                "A closing paragraph on the moon calendar.")
+                "A closing paragraph on the moon calendar." + _PAD)
         top = rs._best_paragraphs(body, "Azazel teaches metallurgy and swords", n=1)
         assert "swords" in top[0]
 
@@ -267,3 +272,93 @@ class TestDropApparatus:
     def test_headerless_source_is_untouched(self):
         kept, n = rs.drop_apparatus(["any fact"], "   ")
         assert (kept, n) == (["any fact"], 0)
+
+
+class TestDecomposeLanguage:
+    def test_prompt_names_the_language(self):
+        with patch("silica.agent.llm.call_llm", return_value=_reply("- un fatto")) as llm:
+            rs.decompose_facts("testo", language="Italian")
+        prompt = llm.call_args.args[1][0]["content"]
+        assert "Italian" in prompt
+
+    def test_no_language_keeps_the_prompt_silent(self):
+        with patch("silica.agent.llm.call_llm", return_value=_reply("- a fact")) as llm:
+            rs.decompose_facts("text")
+        prompt = llm.call_args.args[1][0]["content"]
+        assert "language" not in prompt.lower()
+
+
+class TestEvidenceWindowKeepsTheFormula:
+    """Measured 2026-09-02 (run 184fdb6c): 38 facts declared missing on a
+    lecture whose notes state them. The window scored paragraphs on shared
+    letter-words, so a display-math block (LaTeX macros, no Italian words)
+    scored 0 and the judge read "è limitato da" with the bound cut off."""
+
+    BODY = (
+        "---\nparent note: \"[[Lezione 11]]\"\nsection: Errore\n---\n\n"
+        "# Errore del percettrone online\n\n"
+        "Allora, il numero di errori fatti dal percettrone è limitato da\n\n"
+        "$$\n\\left(\\frac{2R}{\\gamma}\\right)^2\n$$\n\n"
+        "Questa relazione pone un limite agli errori del percettrone.\n\n"
+        "Dimostrazione: si definisce un vettore esteso.\n\n"
+        "Un paragrafo senza nulla in comune con la domanda." + _PAD
+    )
+
+    def test_display_math_rides_with_its_lead_in(self):
+        top = rs._best_paragraphs(self.BODY, "Il numero di errori è limitato da (2R/γ)^2.", n=1)
+        assert len(top) == 1 and "2R" in top[0] and "limitato da" in top[0]
+
+    def test_frontmatter_is_never_evidence(self):
+        # One paragraph matches; the other two slots fill by document order,
+        # which used to hand the judge the frontmatter and the heading.
+        top = rs._best_paragraphs(self.BODY, "Dimostrazione con un vettore esteso.", n=3)
+        assert not any("parent note" in p for p in top)
+
+
+class TestJudgeRunawayIsAFailure:
+    """deepseek-v4-flash at temperature 0 answered a 6-fact batch with
+    "2: no" ... "1024: no" until the budget ran out (2026-09-02); read as
+    verdicts, a runaway declares the whole batch missing. Indices outside
+    the batch or a budget-cut reply mean the judge did not answer."""
+
+    def _judge(self, text, finish="stop"):
+        reply = SimpleNamespace(text=text, finish_reason=finish, usage={}, reasoning=None)
+        with patch("silica.agent.llm.call_llm", return_value=reply) as llm:
+            out = rs.judge_covered(["f1", "f2", "f3"], ["e1", "e2", "e3"])
+        return out, llm
+
+    def test_indices_beyond_the_batch_void_the_reply(self):
+        out, llm = self._judge("\n".join(f"{i}: no" for i in range(2, 41)))
+        assert out == [None, None, None]
+        assert llm.call_count == 2  # one retry, then fail-open
+
+    def test_budget_cut_reply_is_not_a_verdict(self):
+        out, _ = self._judge("1: no\n2: no\n3: no", finish="length")
+        assert out == [None, None, None]
+
+    def test_clean_reply_still_parses(self):
+        out, llm = self._judge("1: yes\n2: no\n3: yes")
+        assert out == [True, False, True] and llm.call_count == 1
+
+    def test_budget_is_sized_for_verdict_lines_not_reasoning(self):
+        _, llm = self._judge("1: yes\n2: no\n3: yes")
+        assert llm.call_args.kwargs["max_tokens"] <= 1024
+
+
+class TestShortNotesAreEvidenceWhole:
+    """The window exists for 30KB aggregate notes. An outline-lane note is one
+    source section (the largest of lecture 11 is under 6KB) and three
+    paragraphs of it lost the Novikoff proof: six facts stated in the note
+    were judged against paragraphs that never mention x̄ (2026-09-02)."""
+
+    def test_body_under_budget_is_returned_whole(self):
+        paras = [f"Paragrafo {i} senza parole della domanda." for i in range(12)]
+        body = "\n\n".join(paras)
+        assert len(body) < rs._WINDOW_ABOVE_CHARS
+        assert rs._best_paragraphs(body, "Il vettore esteso della dimostrazione.", n=3) == paras
+
+    def test_body_over_budget_is_still_windowed(self):
+        paras = [f"Paragrafo {i} " + "riempimento " * 80 for i in range(12)]
+        body = "\n\n".join(paras)
+        assert len(body) > rs._WINDOW_ABOVE_CHARS
+        assert len(rs._best_paragraphs(body, "qualsiasi domanda", n=3)) == 3

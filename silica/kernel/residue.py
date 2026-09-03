@@ -41,7 +41,8 @@ _DECOMPOSE_PROMPT = (
     "- One fact per line, each line starting with \"- \".\n"
     "- Each fact is a single self-contained statement; resolve pronouns to names.\n"
     "- Cover every claim in the text; do not add facts that are not in the text.\n"
-    "- Output only the fact lines, nothing else.\n\n"
+    "- Output only the fact lines, nothing else.\n"
+    "{language_rule}\n"
     "Text:\n{text}"
 )
 
@@ -118,9 +119,16 @@ def drop_apparatus(facts: list[str], source: str) -> tuple[list[str], int]:
     return kept, len(facts) - len(kept)
 
 
-def decompose_facts(source: str) -> list[str] | None:
+def decompose_facts(source: str, language: str | None = None) -> list[str] | None:
     """SOURCE -> atomic fact lines. None when decomposition failed (skip
-    verification), distinct from [] (a legitimately fact-free source)."""
+    verification), distinct from [] (a legitimately fact-free source).
+
+    ``language`` pins the facts to the source's language: left to the model,
+    an Italian lecture came out as English facts, _best_paragraphs then
+    shared no words with the Italian notes and fell back to the first
+    paragraphs in document order, and the judge answered "no" to facts the
+    vault states (34 and 58 declared on two lectures, 2026-09-02)."""
+    language_rule = f"- Write every fact in {language}.\n" if language else ""
     # Output scales with input; ceiling keeps a book chapter's list bounded.
     # //4, not //8: a fact list restates its context on every line, so measured
     # complete answers land right at source_chars/8 tokens with zero headroom
@@ -129,7 +137,8 @@ def decompose_facts(source: str) -> list[str] | None:
     # One retry on an empty parse: same nondeterministic reasoning/format
     # flake as the judge (2/10 files failed decompose in run 4dabf989).
     for attempt in (1, 2):
-        out, finish = _llm(_DECOMPOSE_PROMPT.format(text=source), budget)
+        out, finish = _llm(_DECOMPOSE_PROMPT.format(
+            text=source, language_rule=language_rule), budget)
         facts = [f for f in (m.group(1).strip() for m in _FACT_RE.finditer(out)) if f]
         if facts:
             # A budget-truncated reply cuts its last fact mid-sentence, and a
@@ -178,11 +187,36 @@ def filter_on_theme(
     return kept, kept_vecs, len(facts) - len(kept)
 
 
+# Below this a note is evidence whole. The window exists for 30KB aggregate
+# notes; an outline-lane note is one source section (lecture 11's largest is
+# 5.3KB) and three paragraphs of it lost the Novikoff proof, so six facts the
+# note states were judged against paragraphs that never mention x̄
+# (2026-09-02). Reopen if a section note passes 6KB in the wild.
+_WINDOW_ABOVE_CHARS = 6000
+
+
 def _best_paragraphs(body: str, fact: str, n: int = 3) -> list[str]:
     """The n paragraphs of ``body`` sharing the most content words with
     ``fact`` — lexical windowing so a 30KB aggregate note contributes a
     focused excerpt instead of blowing up the judge prompt."""
-    paras = [p.strip() for p in body.split("\n\n") if p.strip()]
+    from silica.kernel.write import frontmatter
+    body = frontmatter.split(body)[2]
+    if len(body) < _WINDOW_ABOVE_CHARS:
+        n = len(body)
+    paras: list[str] = []
+    for p in body.split("\n\n"):
+        p = p.strip()
+        if not p:
+            continue
+        # A display-math block is the object of the sentence before it ("è
+        # limitato da", "detta Lagrangiana:"), never a unit of its own: scored
+        # alone it shares no letter-words with any fact, so the judge read the
+        # lead-in with the bound cut off and answered "no" to 38 facts the
+        # note states (run 184fdb6c, 2026-09-02).
+        if paras and p.startswith(("$$", "\\[")):
+            paras[-1] += "\n\n" + p
+        else:
+            paras.append(p)
     if len(paras) <= n:
         return paras or ([body] if body else [])
     words = {w for w in re.findall(r"[a-zà-ú]{4,}", fact.lower())}
@@ -272,18 +306,27 @@ def judge_covered(facts: list[str], evidence: list[str]) -> list[bool | None]:
         # lands; more than one re-pays the call for a systemic problem.
         for attempt in (1, 2):
             try:
-                # 4096 out: verdict lines are tiny but a reasoning model's
-                # thinking shares the budget.
-                out, _ = _llm(_JUDGE_PROMPT.format(items=items), 4096)
+                # 1024 out: 25 verdict lines need ~150 tokens; the rest is
+                # the cost cap on a runaway reply (below).
+                out, finish = _llm(_JUDGE_PROMPT.format(items=items), 1024)
             except Exception as _e:
                 logger.warning("residue: judge call failed (%s)", _e)
                 break
             by_idx = {int(m.group(1)): m.group(2).lower() == "yes"
                       for m in _VERDICT_RE.finditer(out)}
-            if by_idx:
+            # A reply numbered past the batch or cut by the budget is a
+            # runaway, not an answer: deepseek-v4-flash at temperature 0
+            # answered 6 facts with "2: no" ... "1024: no" until the budget
+            # (2026-09-02), and read as verdicts that declared every fact
+            # missing. Voided, it falls under the fail-open rule instead.
+            runaway = finish == "length" or any(i > len(batch) for i in by_idx)
+            if by_idx and not runaway:
                 break
-            logger.warning("residue: judge reply parsed 0/%d verdicts%s",
-                           len(batch), " — retrying once" if attempt == 1 else "")
+            logger.warning("residue: judge reply %s%s",
+                           f"ran away ({len(by_idx)} numbered lines, finish={finish})"
+                           if runaway else f"parsed 0/{len(batch)} verdicts",
+                           " — retrying once" if attempt == 1 else "")
+            by_idx = {}
         verdicts.extend(by_idx.get(i + 1) for i in range(len(batch)))
     return verdicts
 
