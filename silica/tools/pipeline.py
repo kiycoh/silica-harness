@@ -97,7 +97,7 @@ def _link_recovered_writes(
 
 
 def _recon_embedder():
-    """Pool ranker for recon; None (=> YAKE-rank fallback) when unavailable.
+    """Pool ranker for recon; None (=> mined-rank fallback) when unavailable.
 
     Module-level seam so tests can disable the network embedder (see conftest)
     and keep recon deterministic; production uses the real embedder.

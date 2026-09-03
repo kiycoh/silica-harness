@@ -5,19 +5,20 @@
 
 The old `recon.extract_concepts` keyed concepts on markdown markup, so prose
 papers — concepts living in unmarked sentences — extracted to nearly nothing.
-This module instead generates candidates from the *content* via YAKE and ranks
-them. Design split (validated on a real corpus, see the eval and the spec):
+This module instead generates candidates from the *content* and ranks them.
+Design split (validated on a real corpus, see the eval and the spec):
 
-  - **YAKE = candidate generator.** Its own ranking is junk-prone (it floats
-    rare contiguous n-grams like "promise to enhance"), so its rank is discarded
-    once an embedder is available — YAKE only supplies the candidate *pool*.
+  - **miner = candidate generator** (`candidates.mine_candidates`, in-house
+    since 2026-08-31; YAKE before, retired for its AGPL licence, see that
+    module). Its rank is a rough salience order, discarded once an embedder is
+    available — the miner only supplies the candidate *pool*.
   - **embedder + MMR = the ranker.** Candidates are ordered by cosine to the
     document theme, with MMR for diversity (plain cosine collapses onto
     near-synonym clusters). This is the primary signal.
   - **structural (markup) = boost.** Concepts that appear in a heading/bold/
     acronym get a relevance bonus — lifts lecture-genre concepts; on prose with
     no markup the boost set is empty (no effect).
-  - **embedder down => fall back to YAKE rank** (degraded, deterministic).
+  - **embedder down => fall back to the mined rank** (degraded, deterministic).
 
 Return shape is `list[ConceptCandidate]`, ranked best-first.
 See docs/superpowers/specs/2026-06-19-concept-recon-design.md.
@@ -32,6 +33,7 @@ import numpy as np
 
 from silica.kernel.text import language
 from silica.kernel.recall.embed import _cosine, document_theme_vector
+from silica.kernel.text.candidates import is_fragment, mine_candidates
 from silica.kernel.text.overlay import DomainOverlay, overlay_for_lang
 from silica.kernel.text.recon import is_concept, normalize
 from silica.kernel.text.text import clean_body
@@ -48,7 +50,10 @@ from silica.kernel.text.text import clean_body
 TOKENS_PER_CONCEPT = 20
 MIN_CONCEPTS = 1          # a note may map to a single concept — no forced padding
 MAX_CONCEPTS = 40
-YAKE_POOL = int(os.getenv("SILICA_YAKE_POOL", "100"))  # candidates YAKE proposes (also the rerank pool); operator knob
+# Candidates the miner proposes (also the rerank pool); operator knob. The
+# legacy name SILICA_YAKE_POOL stays recognized: a pin in someone's ~/.silica/.env
+# must not silently revert to the default because the extractor changed.
+POOL_SIZE = int(os.getenv("SILICA_KEYPHRASE_POOL") or os.getenv("SILICA_YAKE_POOL") or "100")
 
 # Rerank knobs (Phase 2 — tune via the eval).
 MMR_LAMBDA = 0.6          # relevance vs diversity in MMR; lower = more diverse
@@ -58,49 +63,34 @@ STRUCT_BOOST = 0.3        # relevance bonus for a concept present in markup
 @dataclass
 class ConceptCandidate:
     phrase: str
-    score: float                       # ordering only (YAKE cost; lower = better). NOT calibrated.
-    evidence: list[str] = field(default_factory=list)  # provenance/debug, e.g. ["yake:0.12"]
+    score: float                       # ordering only (a cost; lower = better). NOT calibrated.
+    evidence: list[str] = field(default_factory=list)  # provenance/debug, e.g. ["mine:3.40"]
     # Corroboration tier (vocabulary mirrors links, see analyst_plan.py):
     #   EXTRACTED — structurally corroborated (author markup; second, embedder-free axis)
-    #   INFERRED  — single signal only (embedding cosine or YAKE rank), uncorroborated
+    #   INFERRED  — single signal only (embedding cosine or mined rank), uncorroborated
     confidence: str = "INFERRED"
 
 
-def _yake_leg(text: str, overlay: DomainOverlay, lang: str) -> list[ConceptCandidate] | None:
-    """YAKE-ranked candidates (best-first), filtered through the overlay.
+def _pool_leg(text: str, overlay: DomainOverlay, lang: str) -> list[ConceptCandidate] | None:
+    """Mined candidates (best-first), filtered through the overlay.
 
-    Abstains (None) if YAKE's constructor rejects `lang` (e.g. a future yake
-    release raising on an unsupported/unknown language — the pin is unbounded
-    above), or extraction yields nothing. YAKE returns (phrase, cost)
-    ascending (lower cost = more relevant), already deduplicated.
+    Abstains (None) when the text holds no content word, so the caller's
+    "[] only when both legs abstain" contract holds. The miner unions the
+    language stopwords with the overlay's: passing the overlay list ALONE would
+    drop the ~300 function words of the language (the replace-vs-union bug of
+    the YAKE era, kept as a test). Its strength is inverted into the cost the
+    `score` field carries (lower = better), so callers ordering by score keep
+    working unchanged.
     """
-    import yake
-
-    iso = language.SNOWBALL_TO_ISO.get(lang.lower(), lang.lower()[:2] or "en")
-    try:
-        kw = yake.KeywordExtractor(lan=iso, n=3, top=YAKE_POOL, dedupLim=0.9)
-    except Exception:
-        return None
-    if overlay.stopwords:
-        # Augment YAKE's built-in language stopwords (don't replace them): passing
-        # stopwords= to the constructor overrides the built-in list entirely, which
-        # would drop ~300 common function words. kw.stopword_set is the set YAKE
-        # consults at extract time. ponytail: YAKE-internal attr, revisit on bump.
-        # NB: this is intentionally stricter than is_concept() for structural terms
-        # — feeding them to YAKE also suppresses compounds (e.g. en "type system",
-        # it "ogni cfu"). Desired for it metadata (cfu/lezione); on the secondary en
-        # path it can drop pure-structural compounds. Accepted: it-primary vault.
-        kw.stopword_set = kw.stopword_set | set(overlay.stopwords)
-    raw = kw.extract_keywords(text)  # already sorted ascending (best-first)
-    if not raw:
-        return None
-
+    mined = mine_candidates(
+        text, lang=lang, stopwords=frozenset(overlay.stopwords), top=POOL_SIZE,
+    )
     out: list[ConceptCandidate] = []
-    for phrase, cost in raw:
-        norm = normalize(phrase)
+    for c in mined:
+        norm = normalize(c.phrase)
         if is_concept(norm, overlay=overlay):
-            out.append(ConceptCandidate(phrase=norm, score=float(cost),
-                                        evidence=[f"yake:{cost:.3f}"]))
+            out.append(ConceptCandidate(phrase=norm, score=1.0 / c.strength,
+                                        evidence=[f"mine:{c.strength:.2f}"]))
     return out or None
 
 
@@ -120,17 +110,30 @@ def from_acronyms(content: str) -> set:
     return set(re.findall(r'\b[A-Z]{2,6}\b', content))
 
 
-def _structural_concepts(body: str, overlay: DomainOverlay) -> set[str]:
-    """Lowercased concepts present in markup (heading/bold/acronym), overlay-filtered.
+def _structural_concepts(body: str, overlay: DomainOverlay) -> dict[str, str]:
+    """Markup concepts (heading/bold/acronym), keyed lowercase, valued as written.
 
     Empty on prose with no markup — that is the leg "abstaining" for the boost.
+
+    The key is what the boost and the confidence stamp test membership against,
+    and stays lowercase. The VALUE is new: this function used to return the
+    lowercased string, and `_seed_structural` reused it AS the candidate
+    phrase, so an acronym the author put in a heading reached the vault as a
+    note named `pid` or `rdf` (audit of 2026-08-23). Sorting before the
+    setdefault makes the collision deterministic and picks the upper-case form,
+    since "PID" sorts before "pid".
+
+    `is_fragment` screens here too: `from_acronyms` matches any run of 2-6
+    capitals, so a numbered section seeded `III` as a concept. One home for the
+    name-hygiene rules, so headings and bold get the same treatment as the
+    mined pool.
     """
     raw = from_headings(body) | from_bold(body) | from_acronyms(body)
-    out: set[str] = set()
-    for r in raw:
+    out: dict[str, str] = {}
+    for r in sorted(raw):
         n = normalize(r)
-        if is_concept(n, overlay=overlay):
-            out.add(n.lower())
+        if is_concept(n, overlay=overlay) and not is_fragment(n):
+            out.setdefault(n.lower(), n)
     return out
 
 
@@ -147,7 +150,7 @@ def _mmr(vecs, theme, k, lam: float = MMR_LAMBDA, rel=None) -> list[int]:
 
     Candidate-candidate similarity is taken once as a matrix and each candidate
     carries a running max against the already-picked set. The per-pair form
-    re-derived every cosine on every iteration: on a real pool (YAKE_POOL=100
+    re-derived every cosine on every iteration: on a real pool (POOL_SIZE=100
     vectors of the embedder's width) that was ~166k `_cosine` calls, ~1.1M
     `np.asarray` conversions and 26-46s per note, which is 94% of RECON.
     Vectors must be uniform width — `_rerank` abstains before calling here.
@@ -185,9 +188,9 @@ def _rerank(
     overlay: DomainOverlay,
     embedder,
 ) -> list[ConceptCandidate] | None:
-    """Rerank the YAKE pool by embedder cosine-to-theme + MMR + structural boost.
+    """Rerank the mined pool by embedder cosine-to-theme + MMR + structural boost.
 
-    Returns None (abstain -> caller falls back to YAKE rank) when no embedder, an
+    Returns None (abstain -> caller falls back to the mined rank) when no embedder, an
     empty document theme, or an embedding failure.
     """
     if embedder is None:
@@ -227,17 +230,18 @@ def _rerank(
 def _seed_structural(
     body: str, overlay: DomainOverlay, pool: list[ConceptCandidate],
 ) -> list[ConceptCandidate]:
-    """Prepend markup concepts (heading/bold/acronym) absent from the YAKE pool.
+    """Prepend markup concepts (heading/bold/acronym) absent from the mined pool.
 
-    Author markup is frequency-independent: it recovers concepts YAKE can't reach
-    — single-occurrence terms, and phrases longer than its max n-gram (n=3). With
-    an embedder these are reranked by cosine like any candidate; in the fallback
-    they lead, since author markup is the strongest deterministic signal we have.
+    Author markup is frequency-independent: it recovers concepts the miner can't
+    reach — terms past its span (MAX_CONTENT_WORDS=3) and low-count mentions
+    that fell under the pool cap. With an embedder these are reranked by cosine
+    like any candidate; in the fallback they lead, since author markup is the
+    strongest deterministic signal we have.
     """
-    structural = _structural_concepts(body, overlay)  # lowercased, overlay-filtered
+    structural = _structural_concepts(body, overlay)  # lower key -> author casing
     have = {c.phrase.lower() for c in pool}
-    seeded = [ConceptCandidate(phrase=s, score=0.0, evidence=["struct"])
-              for s in sorted(structural) if s not in have]
+    seeded = [ConceptCandidate(phrase=cased, score=0.0, evidence=["struct"])
+              for key, cased in sorted(structural.items()) if key not in have]
     return seeded + pool
 
 
@@ -253,10 +257,11 @@ def _complete_phrases(
 ) -> list[ConceptCandidate]:
     """Snap truncated candidates to their phrase boundary, mechanically.
 
-    YAKE's n=3 window cuts 4+-word terms mid-phrase and the fragment becomes
-    a note title verbatim ("stimatore a massima" [verosimiglianza] — 29 of
-    181 notes in the 2026-08-21 run carried one). Two deterministic repairs,
-    no LLM:
+    YAKE's n=3 window cut 4+-word terms mid-phrase and the fragment became a
+    note title verbatim ("stimatore a massima" [verosimiglianza] — 29 of 181
+    notes in the 2026-08-21 run carried one). The miner now spans four content
+    words, so this mostly serves structural seeds and terms longer than that.
+    Two deterministic repairs, no LLM:
 
     - completion: while EVERY occurrence of the phrase in the body is
       followed by the same next word (same line, nothing but spaces between)
@@ -264,8 +269,8 @@ def _complete_phrases(
       a punctuation boundary stop the walk, so a singleton only absorbs the
       rest of its own noun phrase.
     - edge trim: drop leading/trailing stopwords ("ha bias" -> "bias") —
-      YAKE screens candidate edges against its own list, but the structural
-      seed leg does not share it.
+      the miner never emits a stopword edge, but the structural seed leg has
+      no such screen.
 
     Candidates that complete onto an already-present phrase collapse onto
     the best-ranked survivor; a candidate the repairs empty out is dropped.
@@ -337,9 +342,9 @@ def _complete_phrases(
 
 
 def _cutoff(content: str, ranked: list[ConceptCandidate]) -> list[ConceptCandidate]:
-    # Operator knobs, same idiom as YAKE_POOL. Read at call time (not import) so a
+    # Operator knobs, same idiom as POOL_SIZE. Read at call time (not import) so a
     # harness A/B arm can coarsen extraction in-process without an import-timing
-    # race: lowering the cap keeps YAKE's top-ranked (most salient) concepts and
+    # race: lowering the cap keeps the top-ranked (most salient) concepts and
     # drops the trivial tail (peripheral single-mention atoms), so fewer notes are
     # nucleated. Defaults bit-identical to the module constants.
     max_c = int(os.getenv("SILICA_MAX_CONCEPTS", str(MAX_CONCEPTS)))
@@ -358,24 +363,24 @@ def extract_keyphrases(
 ) -> list[ConceptCandidate]:
     """Ranked concept candidates from *content*.
 
-    YAKE generates the candidate pool, seeded with markup concepts it can't reach
-    (see `_seed_structural`); if an `embedder` is given it ranks the pool (cosine-
-    to-theme + MMR + structural boost), otherwise the structural-first / YAKE rank
-    is used (degraded fallback). Returns [] only when both legs abstain, which
-    `silica_recon` already handles as an empty report.
+    The miner generates the candidate pool, seeded with markup concepts it can't
+    reach (see `_seed_structural`); if an `embedder` is given it ranks the pool
+    (cosine-to-theme + MMR + structural boost), otherwise the structural-first /
+    mined rank is used (degraded fallback). Returns [] only when both legs
+    abstain, which `silica_recon` already handles as an empty report.
     """
     # Transient: the note keeps its LaTeX/images/fences on disk. fences=True is
-    # the C1 fork ⚑ — YAKE must never rank code identifiers as concepts.
+    # the C1 fork ⚑ — the miner must never rank code identifiers as concepts.
     body = clean_body(content, fences=True)
     lang = language.resolve(lang, body)  # "auto" -> concrete Snowball lang via language.detect
     if overlay is None:
         overlay = overlay_for_lang(lang)  # lang already resolved by language.resolve above
-    pool = _seed_structural(body, overlay, _yake_leg(body, overlay, lang) or [])
+    pool = _seed_structural(body, overlay, _pool_leg(body, overlay, lang) or [])
     if not pool:
         return []
     ranked = _rerank(pool, body, overlay, embedder)
     if ranked is None:
-        ranked = pool  # fallback: structural-first, then YAKE rank
+        ranked = pool  # fallback: structural-first, then mined rank
     # Boundary snap + edge trim before the confidence stamp, so a completed
     # phrase that now equals a heading earns its EXTRACTED tier.
     ranked = _complete_phrases(
@@ -404,7 +409,7 @@ if __name__ == "__main__":  # self-check, no framework
     assert len(cands) <= MAX_CONCEPTS  # lower bound not guaranteed: cutoff caps at available
     print(f"OK: {len(cands)} concepts; top={cands[0].phrase!r}")
 
-    # _cutoff env knobs: deterministic, YAKE-independent (stub the ranked list).
+    # _cutoff env knobs: deterministic, miner-independent (stub the ranked list).
     stub = [ConceptCandidate(phrase=f"c{i}", score=0.0, evidence=[]) for i in range(30)]
     long_txt = "w " * 600  # 600 tokens -> default k = min(40, 600//20) = 30
     assert len(_cutoff(long_txt, stub)) == 30, "default cutoff regressed"

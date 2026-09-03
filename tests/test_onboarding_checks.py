@@ -283,6 +283,9 @@ class TestCheckRerank:
         r = checks.check_rerank(self._rr_cfg())
         assert r.status == "warn"
         assert "silica-harness[rerank]" in r.hint
+        # The scoreboard's ordering is the one feature that is silently OFF
+        # without a reranker (ranked: false on every reply): the doctor says so.
+        assert "silica_vaults" in r.detail
 
     def test_configured_endpoint_reachable_is_ok(self, monkeypatch):
         import silica.onboarding.checks as checks
@@ -880,18 +883,26 @@ class TestReplyLanguage:
 
 
 class TestConvertersReportsThePdfLane:
-    """A library of scanned books lives or dies on the PDF provider: pymupdf has
-    no OCR at all, so a scan yields nothing and the failure only surfaces
-    mid-conversion. The converters row named ffmpeg and the office suite and
-    said nothing about the lane that matters most."""
+    """A library of scanned books lives or dies on the PDF provider: the default
+    text-layer reader has no OCR at all, so a scan yields nothing and the
+    failure only surfaces mid-conversion. The converters row named ffmpeg and
+    the office suite and said nothing about the lane that matters most."""
 
     def test_row_names_the_pdf_provider(self, monkeypatch):
         from silica.config import CONFIG
         from silica.onboarding.checks import check_converters
 
+        monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+        detail = check_converters(CONFIG).detail
+        assert "pdfium" in detail and "no OCR" in detail
+
+    def test_legacy_pymupdf_name_is_the_default_not_an_unknown_provider(self, monkeypatch):
+        from silica.config import CONFIG
+        from silica.onboarding.checks import check_converters
+
         monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
         detail = check_converters(CONFIG).detail
-        assert "pymupdf" in detail and "no OCR" in detail
+        assert "unknown" not in detail and "no OCR" in detail
 
     def test_an_ocr_capable_provider_says_so(self, monkeypatch):
         from silica.config import CONFIG
@@ -900,6 +911,54 @@ class TestConvertersReportsThePdfLane:
         monkeypatch.setattr(CONFIG, "pdf_provider", "mineru")
         detail = check_converters(CONFIG).detail
         assert "mineru" in detail and "OCR" in detail
+
+
+class TestConvertersReportsMineru:
+    """mineru stopped being a dependency on 2026-09-02, so installing Silica is
+    no evidence it is there. It is a row of its own and not a footnote to the
+    pdf one because images and .pptx/.xlsx reach it whatever the PDF provider
+    says: under the default provider those formats have no backend at all, and
+    the pdf row, which only reports the PDF lane, never said so."""
+
+    @staticmethod
+    def _without_mineru(monkeypatch):
+        import shutil
+
+        real = shutil.which
+        monkeypatch.setattr(
+            shutil, "which", lambda name, *a, **k: None if name == "mineru" else real(name, *a, **k)
+        )
+
+    def test_row_names_mineru_and_what_needs_it(self, monkeypatch):
+        from silica.config import CONFIG
+        from silica.onboarding.checks import check_converters
+
+        monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+        row = check_converters(CONFIG)
+        assert "mineru" in row.detail
+        assert ".pptx" in row.detail
+
+    def test_absent_mineru_is_optional_with_an_install_hint(self, monkeypatch):
+        from silica.config import CONFIG
+        from silica.onboarding.checks import check_converters
+
+        monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+        self._without_mineru(monkeypatch)
+        row = check_converters(CONFIG)
+        assert row.status != "fail"
+        assert "mineru" in (row.hint or "")
+
+    def test_a_provider_pin_to_an_absent_binary_does_not_claim_ocr(self, monkeypatch):
+        """The defect this row exists for: SILICA_PDF_PROVIDER=mineru with no
+        mineru on PATH read as "OCR available" until a conversion failed."""
+        from silica.config import CONFIG
+        from silica.onboarding.checks import check_converters
+
+        monkeypatch.setattr(CONFIG, "pdf_provider", "mineru")
+        self._without_mineru(monkeypatch)
+        detail = check_converters(CONFIG).detail
+        assert "not on PATH" in detail
+        assert "mineru — OCR available" not in detail
 
 
 class TestIgnoredEnv:

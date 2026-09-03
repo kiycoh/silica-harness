@@ -1,7 +1,8 @@
 """Tests for silica.kernel.text.keyphrase — content-based concept extraction (Fase 1).
 
 The thesis: markup-only extraction (recon.extract_concepts) returns ~0 real
-concepts on prose with no headings/bold/acronyms; YAKE recovers them.
+concepts on prose with no headings/bold/acronyms; the candidate miner
+(kernel/text/candidates.py, in-house since 2026-08-31, YAKE before) recovers them.
 """
 from __future__ import annotations
 
@@ -84,7 +85,7 @@ def test_empty_content_abstains(it_overlay):
 
 
 # ---------------------------------------------------------------------------
-# Fase 2: YAKE = pool generator, embedder + MMR = ranker, structural = boost
+# Fase 2: miner = pool generator, embedder + MMR = ranker, structural = boost
 # ---------------------------------------------------------------------------
 
 _AXES = ("graph", "memory", "planning", "noise")
@@ -107,6 +108,38 @@ def test_structural_concepts_from_markup():
     assert "reti neurali" in concs   # heading
     assert "gradient descent" in concs  # bold
     assert "pid" in concs            # acronym
+
+
+def test_markup_acronym_is_seeded_in_the_author_case():
+    """`_structural_concepts` lowercased every markup term and `_seed_structural`
+    reused those strings AS the candidate phrase, so an acronym the author wrote
+    in a heading arrived in the pool as `pid` / `rdf` and became a note titled
+    that way (audit of 2026-08-23). The map keys stay lowercase (that is what
+    the boost and the confidence stamp test against); the VALUE keeps the case."""
+    from silica.kernel.text.keyphrase import _structural_concepts, extract_keyphrases
+    from silica.kernel.text.overlay import DEFAULT_OVERLAY
+
+    body = ("# Reti Neurali\n\nUso di **Gradient Descent** e il PID controller "
+            "nel loop di controllo del PID controller. " * 3)
+    concs = _structural_concepts(body, DEFAULT_OVERLAY)
+    assert concs["pid"] == "PID"
+
+    pool = [c.phrase for c in extract_keyphrases(body, overlay=DEFAULT_OVERLAY,
+                                                 lang="italian", embedder=None)]
+    assert "PID" in pool and "pid" not in pool
+
+
+def test_roman_numeral_markup_is_not_a_concept():
+    """`from_acronyms` matches any run of 2-6 capitals, so a numbered section
+    seeded `III` (lowercased to `iii`) as a concept. Screened where every other
+    name-hygiene rule lives, so headings and bold get the same treatment."""
+    from silica.kernel.text.keyphrase import _structural_concepts
+    from silica.kernel.text.overlay import DEFAULT_OVERLAY
+
+    body = "La sezione III introduce la **PCA** e la sua varianza."
+    concs = _structural_concepts(body, DEFAULT_OVERLAY)
+    assert "iii" not in concs
+    assert concs.get("pca") == "PCA"
 
 
 def test_mmr_demotes_near_duplicate():
@@ -154,11 +187,11 @@ def test_structural_boost_promotes_markup_concept():
 # Fase A: structural markup is also a *candidate source*, not only a boost
 # ---------------------------------------------------------------------------
 
-def test_structural_phrase_beyond_yake_ngram_enters_pool():
-    """A markup-marked phrase longer than YAKE's max n-gram (n=3) can never be a
-    YAKE candidate, yet the author bolded it. The structural leg must seed it into
-    the pool so it survives even in the embedder-down fallback."""
-    from silica.kernel.text.keyphrase import _yake_leg, extract_keyphrases
+def test_structural_phrase_beyond_the_miner_span_enters_pool():
+    """A markup-marked phrase longer than the miner's span (MAX_CONTENT_WORDS=4)
+    can never be a mined candidate, yet the author bolded it. The structural leg
+    must seed it into the pool so it survives even in the embedder-down fallback."""
+    from silica.kernel.text.keyphrase import _pool_leg, extract_keyphrases
     from silica.kernel.text.overlay import DomainOverlay
 
     overlay = DomainOverlay(stopwords=frozenset(), noise_patterns=())
@@ -166,9 +199,9 @@ def test_structural_phrase_beyond_yake_ngram_enters_pool():
             "The setting is a **partially observable markov decision process** "
             "and we evaluate planning under it across many tasks and domains.")
 
-    # precondition: YAKE (n=3) cannot produce the 4+ word phrase
-    pool = _yake_leg(body, overlay, "english") or []
-    assert all("partially observable markov decision" not in c.phrase.lower() for c in pool)
+    # precondition: five content words exceed the miner's span
+    pool = _pool_leg(body, overlay, "english") or []
+    assert all("partially observable markov decision process" not in c.phrase.lower() for c in pool)
 
     # behaviour: the embedder-down fallback still surfaces the bolded concept
     out = [c.phrase.lower()
@@ -177,39 +210,39 @@ def test_structural_phrase_beyond_yake_ngram_enters_pool():
 
 
 # ---------------------------------------------------------------------------
-# YAKE constructor abstention: a language yake.KeywordExtractor rejects must
-# abstain (None), not crash extract_keyphrases. The pinned yake==0.7.3 never
-# actually raises for a bad/unknown language string (it degrades to its
-# no-lang stopword list instead — verified by direct experiment), so there is
-# no real string today that reaches this branch; the pin (yake>=0.7.3, no
-# upper bound) leaves that free to change. This simulates the failure at the
-# yake.KeywordExtractor boundary itself (a real, unmocked third-party call
-# site for _yake_leg) rather than mocking any silica code.
+# Pool-leg abstention: no content => None (never [] and never a raise), so
+# extract_keyphrases keeps its "[] only when both legs abstain" contract.
 # ---------------------------------------------------------------------------
 
-def test_yake_leg_abstains_when_yake_constructor_raises(monkeypatch):
-    import yake
-    from silica.kernel.text.keyphrase import _yake_leg
+def test_pool_leg_abstains_on_text_without_content():
+    from silica.kernel.text.keyphrase import _pool_leg
     from silica.kernel.text.overlay import DEFAULT_OVERLAY
 
-    def _boom(*_args, **_kwargs):
-        raise ValueError("unsupported language")
-
-    monkeypatch.setattr(yake, "KeywordExtractor", _boom)
-    assert _yake_leg("some ordinary english text about graphs", DEFAULT_OVERLAY, "english") is None
+    assert _pool_leg("   \n  ", DEFAULT_OVERLAY, "english") is None
+    assert _pool_leg("il la di e che", DEFAULT_OVERLAY, "italian") is None
 
 
-def test_yake_leg_norwegian_does_not_raise():
-    """Side effect of the norwegian -> nb root-fix (language.py): a real,
-    unmocked _yake_leg("norwegian") call must not raise."""
-    from silica.kernel.text.keyphrase import _yake_leg
+def test_pool_leg_norwegian_does_not_raise():
+    """A language with a stopword list but no dedicated overlay: a real,
+    unmocked _pool_leg("norwegian") call must not raise."""
+    from silica.kernel.text.keyphrase import _pool_leg
     from silica.kernel.text.overlay import DEFAULT_OVERLAY
 
-    result = _yake_leg(
+    result = _pool_leg(
         "dette er en test av norsk tekst med flere ord i teksten for gradientnedstigning",
         DEFAULT_OVERLAY, "norwegian",
     )
     assert result is None or isinstance(result, list)
+
+
+def test_pool_leg_never_needs_yake():
+    """The AGPL yake package is gone from the dependency set; the pool must
+    come from the in-house miner even if a stale environment still has yake."""
+    import importlib.util
+    import silica.kernel.text.keyphrase as kp
+
+    src = importlib.util.find_spec(kp.__name__).origin
+    assert "import yake" not in open(src, encoding="utf-8").read()
 
 
 # ---------------------------------------------------------------------------
@@ -217,12 +250,12 @@ def test_yake_leg_norwegian_does_not_raise():
 # EXTRACTED <=> structurally corroborated (embedder-free); else INFERRED.
 # ---------------------------------------------------------------------------
 
-def test_embedder_down_structural_is_extracted_yake_only_is_inferred(it_overlay):
+def test_embedder_down_structural_is_extracted_mined_only_is_inferred(it_overlay):
     """Embedder-down — the only corroboration available is author markup.
 
     A heading concept has a second independent signal → EXTRACTED. A prose-only
-    YAKE concept has a single (junk-prone) signal → INFERRED. This is the gate
-    the salience path cannot supply when the embedder is down.
+    mined concept has a single signal → INFERRED. This is the gate the salience
+    path cannot supply when the embedder is down.
     """
     from silica.kernel.text.keyphrase import extract_keyphrases
 
@@ -263,7 +296,7 @@ def test_embedder_up_tier_independent_of_ranking_axis():
 
 
 def test_extract_keyphrases_rerank_end_to_end():
-    """With an embedder, extract_keyphrases reranks; without, it falls back to YAKE order."""
+    """With an embedder, extract_keyphrases reranks; without, it falls back to the mined order."""
     from silica.kernel.text.keyphrase import extract_keyphrases
     from silica.kernel.text.overlay import DEFAULT_OVERLAY
 
@@ -277,7 +310,7 @@ def test_extract_keyphrases_rerank_end_to_end():
 
 
 def test_code_fences_never_surface_as_concepts():
-    """C1 fork ⚑: keyphrase strips code fences — YAKE must not rank identifiers."""
+    """C1 fork ⚑: keyphrase strips code fences — the miner must not rank identifiers."""
     from silica.kernel.text.keyphrase import extract_keyphrases
     from silica.kernel.text.overlay import DEFAULT_OVERLAY
 
@@ -292,7 +325,7 @@ def test_code_fences_never_surface_as_concepts():
 
 
 def test_latex_body_yields_no_math_token_concepts():
-    """LaTeX commands in the body never surface as concepts (stripped pre-YAKE)."""
+    """LaTeX commands in the body never surface as concepts (stripped before mining)."""
     from silica.kernel.text.keyphrase import extract_keyphrases
     body = (
         "# Gradient descent\n\n"
@@ -307,16 +340,16 @@ def test_latex_body_yields_no_math_token_concepts():
     assert cands, "prose should still yield concepts"
 
 
-def test_auto_lang_resolves_so_yake_drops_italian_function_words():
-    """lang='auto' is resolved to a real Snowball language before YAKE, so YAKE
-    drops Italian function words at candidate generation (no bogus 'au' ISO)."""
+def test_auto_lang_resolves_so_the_miner_drops_italian_function_words():
+    """lang='auto' is resolved to a real Snowball language before mining, so the
+    miner treats Italian function words as boundaries (no bogus 'auto' list)."""
     from silica.kernel.text.keyphrase import extract_keyphrases
     from silica.kernel.text.overlay import DomainOverlay
-    # Empty overlay isolates the YAKE-language effect: is_concept filters nothing,
+    # Empty overlay isolates the language effect: is_concept filters nothing,
     # so a leaked function word would survive to the output if lang were wrong.
     empty = DomainOverlay(stopwords=frozenset(), noise_patterns=())
     # Longer body ensures "della" survives _cutoff and makes it to the final output
-    # if YAKE doesn't filter it (which happens with bogus "au" code).
+    # if the miner does not treat it as a function word.
     body = (
         "La discesa del gradiente della rete neurale aggiorna i pesi della rete. "
         "La funzione di perdita della rete dipende dai pesi della rete neurale. "
@@ -325,33 +358,29 @@ def test_auto_lang_resolves_so_yake_drops_italian_function_words():
     )
     cands = extract_keyphrases(body, overlay=empty, lang="auto")
     phrases = {c.phrase.lower() for c in cands}
-    assert "della" not in phrases  # IT function word dropped by YAKE(it), not 'au'
+    assert "della" not in phrases  # IT function word treated as a boundary
 
 
-def test_yake_leg_augments_not_replaces_builtin_stopwords():
-    """YAKE's built-in Italian stopword 'ancora' is filtered even though it is
-    absent from the Italian overlay — proving union semantics, not replace.
+def test_pool_leg_unions_language_and_overlay_stopwords():
+    """The language's own stopword 'ancora' is filtered even though it is absent
+    from the Italian overlay: the miner sees the UNION of the two lists, the
+    overlay never replaces the language list (that replacement was a real bug
+    in the YAKE era, which dropped ~300 function words).
 
     Word verified:
-      'ancora' in yake.KeywordExtractor(lan='it').stopword_set  → True
-      'ancora' in overlay_for_lang('italian').stopwords          → False
-
-    With replace semantics (the bug): 'ancora' is NOT in the stopword set
-    → YAKE produces it as a candidate → it leaks to output.
-    With union semantics (the fix): 'ancora' IS in the unioned stopword set
-    → YAKE never proposes it → it cannot appear in output.
+      'ancora' in language.stopwords_for('italian')      → True
+      'ancora' in overlay_for_lang('italian').stopwords  → False
     """
+    from silica.kernel.text import language
     from silica.kernel.text.keyphrase import extract_keyphrases
     from silica.kernel.text.overlay import overlay_for_lang
 
     overlay = overlay_for_lang("italian")
-    # Precondition: 'ancora' is in YAKE's built-in Italian set but not the overlay
-    import yake as _yake
-    assert "ancora" in _yake.KeywordExtractor(lan="it", n=3, top=100, dedupLim=0.9).stopword_set
+    assert "ancora" in language.stopwords_for("italian")
     assert "ancora" not in overlay.stopwords
 
     # Body: 'ancora' repeated many times alongside a real content word so that
-    # if YAKE doesn't filter it, it would rank highly and survive _cutoff.
+    # if the miner does not filter it, it would rank highly and survive _cutoff.
     body = (
         "Il percettrone e ancora un modello ancora usato ancora nella rete neurale. "
         "Ancora oggi il percettrone e ancora studiato e ancora applicato ancora. "
@@ -409,7 +438,7 @@ def _naive_mmr(vecs, theme, k, lam, rel):
 
 
 def test_mmr_ranks_full_pool_in_seconds_not_minutes():
-    """RECON ranks YAKE_POOL=100 vectors of the embedder's real width on every
+    """RECON ranks POOL_SIZE=100 vectors of the embedder's real width on every
     note. Recomputing each pair through _cosine (4 np.asarray per call) made
     this 26-46s per note; it must cost a fraction of a second."""
     import random
@@ -417,7 +446,7 @@ def test_mmr_ranks_full_pool_in_seconds_not_minutes():
     from silica.kernel.text.keyphrase import _mmr
 
     random.seed(7)
-    dim, n = 2560, 100  # Qwen3-Embedding-4B width, YAKE_POOL
+    dim, n = 2560, 100  # Qwen3-Embedding-4B width, POOL_SIZE
     vecs = [[random.random() for _ in range(dim)] for _ in range(n)]
     theme = [random.random() for _ in range(dim)]
     rel = [random.random() for _ in range(n)]
@@ -447,7 +476,7 @@ def test_mmr_selection_matches_the_per_pair_reference():
 
 def test_rerank_abstains_on_ragged_embeddings():
     """A short embed reply (the A6 ragged case the other legs already guard)
-    must abstain so the caller keeps the YAKE rank — never rank on a pool whose
+    must abstain so the caller keeps the mined rank — never rank on a pool whose
     vectors are not the same width."""
     from unittest.mock import MagicMock
     from silica.kernel.text.keyphrase import _rerank, ConceptCandidate

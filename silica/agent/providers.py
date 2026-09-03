@@ -492,7 +492,7 @@ def _load_cross_encoder(model: str) -> Any:
 
     Cached because get_reranker() is called per query: a fresh CrossEncoder per
     recall would reload ~2GB of weights every time. First call downloads to the
-    HF cache (like the [pdf] extra's models).
+    HF cache.
     """
     from sentence_transformers import CrossEncoder
     return CrossEncoder(model)

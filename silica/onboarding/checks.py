@@ -335,7 +335,7 @@ def check_rerank(config: SilicaConfig) -> CheckResult:
         return CheckResult("rerank", "ok", f"in-process ({LOCAL_RERANK_MODEL})")
     return CheckResult(
         "rerank", "warn",
-        "disabled (no cross-encoder available)",
+        "disabled (no cross-encoder available): recall keeps the fused order and silica_vaults cannot rank vaults",
         "`pip install silica-harness[rerank]` sharpens recall; LM Studio and Ollama cannot serve one",
     )
 
@@ -675,18 +675,40 @@ def _pdf_lane(config: SilicaConfig) -> str:
     """The PDF provider and whether it can read a scan.
 
     A library of photographed books is entirely unreadable under the default
-    provider, and nothing said so until a conversion returned no text. pymupdf
-    is the only bundled provider without OCR; the rest install via the [pdf]
-    extra, so naming an unknown one is a configuration error worth seeing here.
-    """
-    from silica.sources.convert import PDF_PROVIDERS
+    provider, and nothing said so until a conversion returned no text. pdfium is
+    the only provider that ships with Silica; the other three are binaries the
+    user installs, so naming an unknown one is a configuration error worth
+    seeing here. A legacy "pymupdf" pin resolves to the default before the check.
 
-    name = (getattr(config, "pdf_provider", "") or "pymupdf").strip()
+    A configured mineru that is not on PATH is its own line rather than "OCR
+    available": since the [pdf] extra went away (2026-09-02) installing Silica
+    proves nothing about mineru, and a pin to an absent binary reads as working
+    right up to the conversion that fails.
+    """
+    from silica.sources.convert import PDF_PROVIDERS, resolve_pdf_provider
+
+    name = resolve_pdf_provider(getattr(config, "pdf_provider", "") or "pdfium")
     if name not in PDF_PROVIDERS:
         return f"{name} — unknown provider (known: {', '.join(PDF_PROVIDERS)})"
-    if name == "pymupdf":
+    if name == "pdfium":
         return f"{name} — no OCR, a scan with no text layer yields nothing"
+    if name == "mineru" and not shutil.which("mineru"):
+        return f"{name} — OCR provider set but not on PATH"
     return f"{name} — OCR available"
+
+
+def _mineru_lane() -> str:
+    """Whether the mineru CLI is reachable, and what cannot convert without it.
+
+    Its own row and not a footnote to the PDF one: images and .pptx/.xlsx reach
+    mineru whatever SILICA_PDF_PROVIDER says, because no other backend opens
+    them at all (`_MINERU_ONLY_EXTS` in sources/convert.py). So a vault of
+    screenshots is unconvertible under the default provider too, and the pdf
+    row — which only ever reports the PDF lane — never said so.
+    """
+    if shutil.which("mineru"):
+        return "ok (OCR, figures, images/.pptx/.xlsx)"
+    return "missing (no OCR; images/.pptx/.xlsx cannot convert)"
 
 
 def check_converters(config: SilicaConfig) -> CheckResult:
@@ -706,6 +728,7 @@ def check_converters(config: SilicaConfig) -> CheckResult:
     status, detail = probe_soffice()
     parts = [
         f"pdf {_pdf_lane(config)}",
+        f"mineru {_mineru_lane()}",
         f"ffmpeg {'ok' if ffmpeg else 'missing'} (audio/video)",
         f"office {status} (.doc/.ppt only)",
     ]
@@ -716,20 +739,39 @@ def check_converters(config: SilicaConfig) -> CheckResult:
         ". Only .doc/.ppt need it; .odt/.odp/.ods/.rtf/.xls are read in process "
         "and .pptx/.docx/.xlsx were never affected"
     )
+    # The hint names only what is actually absent. Listing all three every time
+    # is the same defect the `scope` sentence exists to fix: an install
+    # instruction for a tool the user already has reads as a fault report.
+    absent = []
+    if not shutil.which("mineru"):
+        absent.append("mineru for OCR and images/.pptx/.xlsx (`pip install 'mineru[pipeline]'`)")
+    if not ffmpeg:
+        absent.append("ffmpeg for audio/video")
+    if status == "missing":
+        absent.append("libreoffice for .doc/.ppt (or just re-save those as .docx/.pptx)")
+
+    def with_absent(hint: str) -> str:
+        """The office verdict and the install list in one hint, never either or.
+
+        An unsupported suite returns `warn` and used to return it alone, so a
+        machine with Apache OpenOffice AND no mineru heard about .doc and never
+        about OCR — the louder row silenced the one covering more formats.
+        """
+        tail = ("optional: install " + ", ".join(absent)) if absent else ""
+        return f"{hint}. {tail}" if hint and tail else (hint or tail)
+
     if status == "unsupported":
         return CheckResult(
             "converters", "warn", "; ".join(parts),
-            f"{detail}{scope}. Those two are refused with that message rather "
-            "than attempted; re-save them as .docx/.pptx to skip the suite",
+            with_absent(
+                f"{detail}{scope}. Those two are refused with that message rather "
+                "than attempted; re-save them as .docx/.pptx to skip the suite"
+            ),
         )
     if status in ("hung", "broken"):
-        return CheckResult("converters", "warn", "; ".join(parts), detail + scope)
-    if not ffmpeg or status == "missing":
-        return CheckResult(
-            "converters", "unknown", "; ".join(parts),
-            "optional: install ffmpeg for audio/video, libreoffice for .doc/.ppt "
-            "(or just re-save those as .docx/.pptx)",
-        )
+        return CheckResult("converters", "warn", "; ".join(parts), with_absent(detail + scope))
+    if absent:
+        return CheckResult("converters", "unknown", "; ".join(parts), with_absent(""))
     return CheckResult("converters", "ok", "; ".join(parts))
 
 

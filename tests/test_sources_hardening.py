@@ -325,7 +325,7 @@ def test_an_uppercase_legacy_suffix_reaches_the_legacy_branch(
     tmp_vault, monkeypatch
 ):
     """The case-insensitive message is only worth anything if dispatch routes
-    `Report.DOC` here at all rather than at pymupdf, which does not open it."""
+    `Report.DOC` here at all rather than at a document reader that does not open it."""
     _no_office_suite(monkeypatch)
     (Path(CONFIG.vault_path) / "Report.DOC").write_bytes(b"\xd0\xcf\x11\xe0")
 

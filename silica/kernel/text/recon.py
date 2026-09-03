@@ -19,9 +19,9 @@ TOP_K_HITS = 3
 
 LEADING_GARBAGE = re.compile(r'^[\W_]+')
 
-# Leading IT/EN articles (and articulated prepositions) that YAKE/markup
-# candidates drag along («della matrice Hessiana») — name hygiene only, the
-# rest of the string is untouched (C3.4).
+# Leading IT/EN articles (and articulated prepositions) that markup candidates
+# drag along («della matrice Hessiana»; the YAKE-era pool did too) — name
+# hygiene only, the rest of the string is untouched (C3.4).
 _LEADING_ARTICLE = re.compile(
     r"^(?:il|lo|la|i|gli|le|un|uno|una|del|dello|della|dei|degli|delle|"
     r"al|alla|nel|nella|the|an?)\s+|^(?:l|dell|un)'",
@@ -72,10 +72,10 @@ def is_concept(s: str, overlay: DomainOverlay | None = None) -> bool:
 def _stutters(s: str) -> bool:
     """True when a word repeats inside the phrase — a sliding n-gram artefact.
 
-    YAKE's window walks the text, so prose that repeats a word within three
-    tokens ("the holy angels, the holy ones") yields "holy angels holy" beside
-    the real "holy angels", and both compete for the same candidate budget. No
-    concept names the same thing twice.
+    A sliding window walks the text (YAKE's did, the in-house miner's does), so
+    prose that repeats a word within a few tokens ("the holy angels, the holy
+    ones") yields "holy angels holy" beside the real "holy angels", and both
+    compete for the same candidate budget. No concept names the same thing twice.
 
     ponytail: exact lowercase tokens, no stemming — "angels/angel" is a
     different candidate, not a stutter, and collapsing those is dedup's job.
@@ -90,11 +90,11 @@ def _stutters(s: str) -> bool:
 def _dangles(s: str) -> bool:
     """True when the phrase ENDS on a function word — a clause, not a name.
 
-    `normalize` already strips a LEADING article, because YAKE and markup both
-    drag them in. The tail needed the same rule and never had it, so a lecture
-    slide headed `## Da notare che` became a note called `Da notare che`, and
-    YAKE n-grams cut mid-sentence (`intera presentazione del`, `Hidden Layer
-    Nel`) survived beside real concepts. A concept name never ends on a
+    `normalize` already strips a LEADING article, because markup candidates (and
+    the YAKE-era pool) drag them in. The tail needed the same rule and never had
+    it, so a lecture slide headed `## Da notare che` became a note called `Da
+    notare che`, and n-grams cut mid-sentence (`intera presentazione del`,
+    `Hidden Layer Nel`) survived beside real concepts. A concept name never ends on a
     conjunction, preposition or article — `Chain rules per le derivate`,
     `Algoritmi di apprendimento` and `Kernel trick` all end on content words.
 

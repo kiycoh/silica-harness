@@ -411,12 +411,19 @@ Extras install alone or combined, for example `'silica-harness[gui,mcp]'`:
 uv tool install 'silica-harness[gui]'      # web GUI: silica --gui
 uv tool install 'silica-harness[mcp]'      # MCP server: silica mcp
 uv tool install 'silica-harness[connect]'  # Obsidian plugin bridge: silica connect
-uv tool install 'silica-harness[pdf]'      # OCR, for documents with no text layer
 uv tool install 'silica-harness[rerank]'   # in-process cross-encoder rerank
-uv tool install 'silica-harness[all]'      # gui, mcp, connect, pdf, rerank
+uv tool install 'silica-harness[all]'      # gui, mcp, connect, rerank
 ```
 
-PDF, DOCX, EPUB and the legacy office formats need no extra: the base install converts them. `[pdf]` buys OCR for the scanned ones, and it is opt-in because it pulls torch, 3.8 GB against the default's 60 MB. `[all]` inherits it and `[rerank]`, so it downloads several GB of model weights the first time those run. The tabular lane (`silica_tables`, `silica_query_table`, and the /convert profile) needs no extra either: DuckDB is a base dependency, one 20 MB wheel.
+PDF, DOCX, EPUB and the legacy office formats need no extra: the base install converts them. `[all]` inherits `[rerank]`, so it downloads about 2 GB of model weights the first time a rerank runs. The tabular lane (`silica_tables`, `silica_query_table`, and the /convert profile) needs no extra either: DuckDB is a base dependency, one 20 MB wheel.
+
+Scanned documents need OCR, and no extra provides it. The default PDF reader takes the text layer only, so a scan yields nothing. OCR, figure extraction and the `.pptx`/`.xlsx`/image lanes all run through MinerU, which you install yourself and Silica calls as a command, the same way it calls ffmpeg and LibreOffice:
+
+```bash
+pip install 'mineru[pipeline]'    # then set SILICA_PDF_PROVIDER=mineru
+```
+
+It is not a dependency because nothing in Silica imports it, and owning it would put 3.8 GB of torch behind an install that otherwise costs 60 MB. `silica doctor` reports whether it is on your PATH. If a conversion stops on a missing `six` module, that is a packaging bug in MinerU 3.4.4, and installing `six` clears it.
 
 Check your environment at any time with `silica doctor`. Add `--live` to send one tiny request that confirms the model really replies, or `--json` for the same report as a machine-readable payload (credentials in endpoint URLs are redacted). The exit code is 0 when every check passed, 1 when one failed, and 2 when nothing failed but a row needs reading (a warning, or a check that could not answer): a script should treat 2 as neither.
 
@@ -553,7 +560,7 @@ Two months later Google Cloud published the [Open Knowledge Format](https://clou
 * **[Fast unfolding of communities in large networks](https://doi.org/10.1088/1742-5468/2008/10/P10008)** (Blondel, Guillaume, Lambiotte and Lefebvre, *J. Stat. Mech.* 2008), Louvain, run twice over two partitions that never mix: the wikilink graph and the embedding k-NN (ADR-0023)
 * **[BERTopic: neural topic modeling with a class-based TF-IDF procedure](https://arxiv.org/abs/2203.05794)** (Grootendorst, 2022), the c-TF-IDF that names a community and derives the taxonomy `/organize` classifies against
 * **[Friends and neighbors on the Web](https://doi.org/10.1016/S0378-8733(03)00009-1)** (Adamic and Adar, *Social Networks* 2003), the link-prediction score the typed-edge decision was measured with, and one of the seven inter-note variables (ADR-0027)
-* **[YAKE! Keyword extraction from single documents using multiple local features](https://doi.org/10.1016/j.ins.2019.09.013)** (Campos et al., *Information Sciences* 2020), the unsupervised keyphrase pass that feeds the concept graph without a model call
+* **[YAKE! Keyword extraction from single documents using multiple local features](https://doi.org/10.1016/j.ins.2019.09.013)** (Campos et al., *Information Sciences* 2020), the single-document statistics (frequency, position, casing, relatedness, spread) behind the in-house keyphrase miner that feeds the concept graph without a model call; the `yake` package itself was retired on 2026-08-31 for its AGPL licence
 * **[A Trainable Spaced Repetition Model for Language Learning](https://doi.org/10.18653/v1/P16-1174)** (Settles and Meeder, ACL 2016), the exponential-decay retention estimate behind `/quiz` and `/learn`
 * **[Passage Re-ranking with BERT](https://arxiv.org/abs/1901.04085)** (Nogueira and Cho, 2019), the cross-encoder precision pass over the fused pool
 * **[Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401)** (Lewis et al., NeurIPS 2020), the shape of the read path the write gate was built to make safe

@@ -414,22 +414,26 @@ class SilicaConfig:
     )
 
     # PDF→Markdown converter (ADR-0011 provider seam):
-    # "pymupdf" (default, AGPL, in the base install — 60 MB, no torch and no JVM,
-    # reads the PDF outline for headings, but NO OCR), "mineru" (best fidelity and
-    # the only OCR path; 3.8 GB of torch+CUDA plus model downloads, via the
-    # `silica-harness[pdf]` extra), "docling" (MIT but its PDF pipeline hard-imports
-    # docling-ibm-models, so torch is unavoidable), or "opendataloader"
-    # (Apache-2.0, strong on complex tables and multi-column reading order, needs
-    # a JVM). Non-PDF formats (DOCX/EPUB/…) always use pymupdf — the others only
-    # take PDFs. An unmet provider errors clearly.
+    # "pdfium" (default, BSD/Apache, in the base install — one ~3 MB wheel, no
+    # torch and no JVM, reads the PDF outline for headings, but NO OCR), "mineru"
+    # (best fidelity and the only OCR path; `pip install 'mineru[pipeline]'`,
+    # 3.8 GB of torch+CUDA plus model downloads), "docling" (MIT but its PDF
+    # pipeline hard-imports docling-ibm-models, so torch is unavoidable), or
+    # "opendataloader" (Apache-2.0, strong on complex tables and multi-column
+    # reading order, needs a JVM). Non-PDF formats (DOCX/EPUB/FB2) have their own
+    # in-process readers — the providers only take PDFs. All three non-default
+    # providers are binaries the user installs; none is a dependency of Silica,
+    # and the doctor's converters row reports whether mineru is on PATH. The
+    # pre-2026-08-31 value "pymupdf" is accepted as an alias of the default
+    # (convert.resolve_pdf_provider). An unmet provider errors clearly.
     pdf_provider: str = field(
-        default_factory=lambda: os.getenv("SILICA_PDF_PROVIDER", "pymupdf")
+        default_factory=lambda: os.getenv("SILICA_PDF_PROVIDER", "pdfium")
     )
 
     # OCR languages for PDF conversion, comma-separated (split at point of use).
     # Only docling consumes it: mineru 3.x has no latin-script language option
     # (its default `ch` models cover latin), opendataloader only OCRs in its
-    # generative `hybrid` mode, which we never enable, and pymupdf has no OCR at
+    # generative `hybrid` mode, which we never enable, and pdfium has no OCR at
     # all. Default keeps docling's European coverage and adds Italian; all
     # latin-script languages share one EasyOCR model, so the list is cheap.
     # Language detection can't replace this: for a scanned PDF there is no text

@@ -61,8 +61,9 @@ _ENGLISH_STRUCTURAL_TERMS: frozenset[str] = frozenset({
 })
 
 # Early Modern English function words. Snowball's list is modern, so in any
-# corpus of scripture, law or history written before ~1900 these read to YAKE as
-# content words and the recurring liturgical formula outranks the subject:
+# corpus of scripture, law or history written before ~1900 these read to the
+# keyphrase miner as content words and the recurring liturgical formula
+# outranks the subject:
 # a Book of Enoch run produced `Saith the Lord of Spirits` and `Spirits hath
 # revealed` as concepts. Grammar only — no nouns, so `lord` and `spirit` stay
 # extractable.

@@ -38,7 +38,8 @@ jobs:
       # dependency edited without a relock dies here and not at a user's
       # install. Extras: exactly the ones the suite reaches for with
       # importorskip (fastapi/uvicorn, websockets, mcp).
-      # [pdf] and [rerank] stay out: 3.8 GB of torch to run tests that skip.
+      # [rerank] stays out: 2 GB of torch to run tests that skip. There is no
+      # [pdf] extra any more — the mineru subprocess is patched in the suite.
       - run: uv sync --locked --extra dev --extra gui --extra connect --extra mcp
 
       - run: uv run pytest -q

@@ -44,71 +44,197 @@ def test_surrounding_whitespace_does_not_hide_the_extension(tmp_vault):
         conv.convert("  ghost.pdf ")
 
 
-# --- pymupdf provider (default; real library, no fakes) ---------------------
+# --- pdfium provider (default; real library, no fakes) ----------------------
 
-def _pdf_bytes(pages: list[str], toc: list | None = None) -> bytes:
-    """A real one-column PDF, one page per string, optionally with an outline."""
-    pymupdf = pytest.importorskip("pymupdf")
-    doc = pymupdf.open()
-    for text in pages:
-        doc.new_page().insert_text((72, 72), text, fontsize=11)
-    if toc:
-        doc.set_toc(toc)
-    return doc.tobytes()
+from tests.doc_factory import docx_bytes, epub_bytes, fb2_bytes, pdf_bytes  # noqa: E402
 
 
-def test_pymupdf_is_the_default_provider(monkeypatch):
+def _pdf_bytes(pages: list[str], toc: list | None = None, **kw) -> bytes:
+    """A real one-column PDF, one page per string, optionally with an outline
+    given as [level, title, page] rows (the shape the old pymupdf fixture took)."""
+    return pdf_bytes(pages, toc=[tuple(row) for row in toc] if toc else None, **kw)
+
+
+def test_pdfium_is_the_default_provider(monkeypatch):
     # config.py loads ~/.silica/.env into os.environ at import, so the field's
     # default_factory reads the developer's own pin unless it is cleared here.
     monkeypatch.delenv("SILICA_PDF_PROVIDER", raising=False)
-    assert SilicaConfig().pdf_provider == "pymupdf"
+    assert SilicaConfig().pdf_provider == "pdfium"
 
 
-def test_pymupdf_converts_a_real_pdf(tmp_vault, monkeypatch):
+def test_legacy_pymupdf_setting_still_selects_the_default(tmp_vault, monkeypatch):
+    """`SILICA_PDF_PROVIDER=pymupdf` sits in ~/.silica/.env files written before
+    2026-08-31; the name resolves to the default rather than erroring as unknown."""
+    assert conv.resolve_pdf_provider("pymupdf") == "pdfium"
+    assert "pymupdf" not in conv.PDF_PROVIDERS  # the settings enum lists real names only
     monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+    (Path(CONFIG.vault_path) / "old.pdf").write_bytes(_pdf_bytes(["Legacy pin body"]))
+
+    body = _inbox_note(conv.convert("old.pdf")[0]).read_text(encoding="utf-8")
+    assert "Legacy pin body" in body
+
+
+def test_pdfium_converts_a_real_pdf(tmp_vault, monkeypatch):
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     (Path(CONFIG.vault_path) / "paper.pdf").write_bytes(_pdf_bytes(["Hello vault"]))
 
     body = _inbox_note(conv.convert("paper.pdf")[0]).read_text(encoding="utf-8")
     assert "Hello vault" in body
 
 
-def test_pymupdf_uses_the_embedded_outline_for_headings(tmp_vault, monkeypatch):
-    """The PDF's own outline beats font-size guessing (23 headings vs 12 on a
-    probe paper). Without it TocHeaders would collapse everything to one."""
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+def test_pdfium_uses_the_embedded_outline_for_headings(tmp_vault, monkeypatch):
+    """The PDF's own outline beats any guessing (23 headings vs 12 on a probe
+    paper, measured in the pymupdf4llm era): an outline entry becomes a heading
+    on the line that carries its title."""
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     pdf = _pdf_bytes(
-        ["Chapter One body", "Chapter Two body"],
+        ["Chapter One\nbody one", "Chapter Two\nbody two"],
         toc=[[1, "Chapter One", 1], [1, "Chapter Two", 2]],
     )
     (Path(CONFIG.vault_path) / "book.pdf").write_bytes(pdf)
 
     body = _inbox_note(conv.convert("book.pdf")[0]).read_text(encoding="utf-8")
-    assert "# Chapter One" in body and "# Chapter Two" in body
+    assert "# Chapter One\n" in body and "# Chapter Two\n" in body
+    assert "body one" in body and "body two" in body
 
 
-def test_pymupdf_without_outline_still_produces_text(tmp_vault, monkeypatch):
-    """No outline → no TocHeaders; the font heuristic must stay in charge."""
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+def test_pdfium_without_outline_still_produces_text(tmp_vault, monkeypatch):
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     (Path(CONFIG.vault_path) / "plain.pdf").write_bytes(_pdf_bytes(["Body with no outline"]))
 
     body = _inbox_note(conv.convert("plain.pdf")[0]).read_text(encoding="utf-8")
     assert "Body with no outline" in body
 
 
+def test_pdfium_numbered_sections_and_apparatus_names_become_headings(tmp_vault, monkeypatch):
+    """Without an outline, a paper's section lines are still headings: numbered
+    ones ("2 Method", "3.1 Data") and the apparatus names the splitter keys on
+    (References, Appendix). On 12 real papers pymupdf4llm flagged 0 References
+    sections; the plain "References" line was present in 11 of them."""
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+    pdf = _pdf_bytes([
+        "1 Introduction\nWe study the thing at length here.\n2 Method\nWe do the thing.\n"
+        "2.1 Data\nRows and columns.",
+        "References\n[1] Author. Title. Venue, 2020.",
+    ])
+    (Path(CONFIG.vault_path) / "paper.pdf").write_bytes(pdf)
+
+    # The References heading is what lets the splitter cut the bibliography
+    # into its own flagged segment, so the assertions read every note back.
+    paths = conv.convert("paper.pdf")
+    body = "\n".join(_inbox_note(p).read_text(encoding="utf-8") for p in paths)
+    assert "\n# 1 Introduction\n" in "\n" + body
+    assert "\n# 2 Method\n" in body
+    assert "\n## 2.1 Data\n" in body
+    assert "\n# References\n" in body
+    assert "We study the thing" in body and "# We study" not in body
+    assert any(conv.is_skippable_chunk(p) for p in paths)  # the bibliography is flagged
+
+
+def test_pdfium_font_size_jump_marks_a_title_line(tmp_vault, monkeypatch):
+    """A short line set well above the body size is a title even with no number
+    and no known name; body-sized lines never are, however short."""
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+    pdf = pdf_bytes(
+        ["Recursive Language Models\nWe propose a thing.\nShort line\nMore prose follows here."],
+        font_sizes=[[17.0, 10.0, 10.0, 10.0]],
+    )
+    (Path(CONFIG.vault_path) / "titled.pdf").write_bytes(pdf)
+
+    body = _inbox_note(conv.convert("titled.pdf")[0]).read_text(encoding="utf-8")
+    assert "# Recursive Language Models\n" in body
+    assert "# Short line" not in body
+
+
 def test_docx_bypasses_the_pdf_provider_seam(tmp_vault, monkeypatch):
-    """mineru/docling/opendataloader only take PDFs, so a non-PDF must reach
-    pymupdf whatever SILICA_PDF_PROVIDER says — here mineru, whose subprocess
-    would explode if it were called."""
+    """mineru/docling/opendataloader only take PDFs, so a non-PDF must reach its
+    own converter whatever SILICA_PDF_PROVIDER says — here mineru, whose
+    subprocess would explode if it were called."""
     monkeypatch.setattr(CONFIG, "pdf_provider", "mineru")
     monkeypatch.setattr(conv.subprocess, "run", _never_called)
     calls: list[Path] = []
     monkeypatch.setattr(
-        conv, "_via_pymupdf", lambda src, wd: (calls.append(src) or ("# Doc\n\nbody", wd))
+        conv, "_via_docx", lambda src, wd: (calls.append(src) or ("# Doc\n\nbody", wd))
     )
     tmp_vault.note("memo.docx", "x")
 
     conv.convert("memo.docx")
     assert [p.name for p in calls] == ["memo.docx"]
+
+
+def test_docx_headings_lists_and_paragraphs_come_out_as_markdown(tmp_vault):
+    """mammoth reads the real package; its HTML goes through the same
+    HTML-to-markdown pass the EPUB chapters take, so a period in prose stays a
+    period (mammoth's own markdown writer escapes it to `\\.`)."""
+    doc = docx_bytes([("h1", "Chapter One"), ("p", "Body text with é accents. Second sentence."),
+                      ("h2", "Sub point"), ("li", "first item"), ("li", "second item")])
+    (Path(CONFIG.vault_path) / "memo.docx").write_bytes(doc)
+
+    body = _inbox_note(conv.convert("memo.docx")[0]).read_text(encoding="utf-8")
+    assert "# Chapter One\n" in body and "## Sub point\n" in body
+    assert "Body text with é accents. Second sentence." in body
+    assert "- first item\n- second item" in body
+    assert "\\." not in body
+
+
+def test_epub_chapters_follow_the_spine_with_headings(tmp_vault):
+    """Reading order is the OPF spine, not the zip's file order: the chapter
+    listed first in the spine comes out first even when its file name sorts last."""
+    book = epub_bytes(
+        [("z-last", "Prologue", ["It begins.", "Then it continues."]),
+         ("a-first", "Epilogue", ["It ends."])],
+        spine_order=[0, 1],
+    )
+    (Path(CONFIG.vault_path) / "novel.epub").write_bytes(book)
+
+    body = _inbox_note(conv.convert("novel.epub")[0]).read_text(encoding="utf-8")
+    assert body.index("# Prologue") < body.index("# Epilogue")
+    assert "It begins.\n\nThen it continues." in body
+    assert "<p>" not in body and "margin:0" not in body  # no markup, no stylesheet text
+
+
+def test_fb2_sections_become_headings_and_paragraphs(tmp_vault):
+    book = fb2_bytes([("Capitolo uno", ["Prima riga.", "Seconda riga."]),
+                      ("Capitolo due", ["Terza riga."])], title="Il libro")
+    (Path(CONFIG.vault_path) / "book.fb2").write_bytes(book)
+
+    body = _inbox_note(conv.convert("book.fb2")[0]).read_text(encoding="utf-8")
+    assert "# Capitolo uno\n" in body and "# Capitolo due\n" in body
+    assert "Prima riga.\n\nSeconda riga." in body
+
+
+@pytest.mark.parametrize("ext", [".xps", ".mobi"])
+def test_xps_and_mobi_are_no_longer_convertible(ext, tmp_vault):
+    """MuPDF opened them; nothing in the base install does now, and a format
+    nobody has asked for is declared unsupported rather than half-read."""
+    assert ext not in conv.DOC_EXTS and ext not in conv.CONVERTIBLE_DOC_EXTS
+    with pytest.raises(ValueError, match="no converter"):
+        conv.convert(f"legacy{ext}")
+
+
+def test_docx_core_properties_feed_date_and_citation(tmp_vault):
+    p = Path(CONFIG.vault_path) / "memo.docx"
+    p.write_bytes(docx_bytes([("p", "x")], created="2023-11-20T09:00:00Z",
+                             title="Quarterly memo", creator="A. Author"))
+    assert conv._source_date(p) == "2023-11-20"
+    cite = conv._doc_citation(p, "")
+    assert cite["source_title"] == "Quarterly memo" and cite["authors"] == "A. Author"
+
+
+def test_epub_opf_metadata_feeds_date_and_citation(tmp_vault):
+    p = Path(CONFIG.vault_path) / "novel.epub"
+    p.write_bytes(epub_bytes([("c1", "One", ["x"])], title="The Novel",
+                             creator="N. Ovelist", date="2019-05-06T00:00:00Z"))
+    assert conv._source_date(p) == "2019-05-06"
+    cite = conv._doc_citation(p, "")
+    assert cite["source_title"] == "The Novel" and cite["authors"] == "N. Ovelist"
+
+
+def test_pdf_info_dictionary_feeds_citation(tmp_vault):
+    p = Path(CONFIG.vault_path) / "paper.pdf"
+    p.write_bytes(_pdf_bytes(["body"], title="A Paper", author="P. Author"))
+    cite = conv._doc_citation(p, "")
+    assert cite["source_title"] == "A Paper" and cite["authors"] == "P. Author"
 
 
 def _never_called(*a, **k):
@@ -118,7 +244,7 @@ def _never_called(*a, **k):
 def test_converted_note_carries_source_file_provenance(tmp_vault, monkeypatch):
     """The provenance ledger only ever records the inbox note's basename, so the
     converted note's own frontmatter is the one pointer back to the real file."""
-    monkeypatch.setattr(conv, "_via_pymupdf", lambda src, wd: ("# Doc\n\nbody", wd))
+    monkeypatch.setattr(conv, "_via_docx", lambda src, wd: ("# Doc\n\nbody", wd))
     tmp_vault.note("memo.docx", "x")
 
     note = _inbox_note(conv.convert("memo.docx")[0]).read_text(encoding="utf-8")
@@ -131,7 +257,7 @@ def test_converted_note_carries_source_file_provenance(tmp_vault, monkeypatch):
 def test_every_segment_carries_source_file_provenance(tmp_vault, monkeypatch):
     chapter = " ".join(f"w{i}" for i in range(6000))  # ~30k chars, no degenerate runs
     big = f"# One\n\n{chapter}\n\n# Two\n\n{chapter}\n"
-    monkeypatch.setattr(conv, "_via_pymupdf", lambda src, wd: (big, wd))
+    monkeypatch.setattr(conv, "_via_docx", lambda src, wd: (big, wd))
     tmp_vault.note("book.docx", "x")
 
     paths = conv.convert("book.docx")
@@ -145,12 +271,9 @@ def test_every_segment_carries_source_file_provenance(tmp_vault, monkeypatch):
 def test_pdf_creation_date_lands_in_frontmatter(tmp_vault, monkeypatch):
     """Rung 2 of the event clock: a dated PDF dates its claims by the document,
     not the run (`source_event_date` reads the converted note's `date:`)."""
-    pymupdf = pytest.importorskip("pymupdf")
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
-    doc = pymupdf.open()
-    doc.new_page().insert_text((72, 72), "Dated body", fontsize=11)
-    doc.set_metadata({"creationDate": "D:20240402093000+02'00'"})
-    (Path(CONFIG.vault_path) / "dated.pdf").write_bytes(doc.tobytes())
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+    (Path(CONFIG.vault_path) / "dated.pdf").write_bytes(
+        _pdf_bytes(["Dated body"], creation_date="D:20240402093000+02'00'"))
 
     note = _inbox_note(conv.convert("dated.pdf")[0]).read_text(encoding="utf-8")
     assert note.startswith("---\ndate: 2024-04-02\n")
@@ -159,7 +282,7 @@ def test_pdf_creation_date_lands_in_frontmatter(tmp_vault, monkeypatch):
 def test_undated_pdf_gets_no_date_line(tmp_vault, monkeypatch):
     """No metadata → no `date:` — a missing event clock must stay missing (the
     FSM would stamp it on every claim as valid_from)."""
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     (Path(CONFIG.vault_path) / "plain.pdf").write_bytes(_pdf_bytes(["Undated body"]))
 
     note = _inbox_note(conv.convert("plain.pdf")[0]).read_text(encoding="utf-8")
@@ -181,12 +304,8 @@ def test_ooxml_dcterms_created_is_read_from_the_zip(tmp_vault):
 
 
 def test_source_date_rejects_garbage_and_absence(tmp_vault):
-    pymupdf = pytest.importorskip("pymupdf")
-    doc = pymupdf.open()
-    doc.new_page()
-    doc.set_metadata({"creationDate": "D:00001332"})  # month 13, day 32
     garbage = Path(CONFIG.vault_path) / "garbage.pdf"
-    garbage.write_bytes(doc.tobytes())
+    garbage.write_bytes(_pdf_bytes(["x"], creation_date="D:00001332"))  # month 13, day 32
     assert conv._source_date(garbage) is None
 
     missing = Path(CONFIG.vault_path) / "ghost.pdf"
@@ -196,10 +315,10 @@ def test_source_date_rejects_garbage_and_absence(tmp_vault):
 def test_empty_extraction_raises_pointing_at_ocr(tmp_vault, monkeypatch):
     """A scan with no text layer yields nothing; writing an empty inbox note and
     calling it success is the failure mode this guard exists to prevent."""
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     # setitem, not setattr: the PDF path resolves the provider through the
     # registry dict, which holds its own reference to the function.
-    monkeypatch.setitem(conv.PDF_PROVIDERS, "pymupdf", lambda src, wd: ("   \n\n", wd))
+    monkeypatch.setitem(conv.PDF_PROVIDERS, "pdfium", lambda src, wd: ("   \n\n", wd))
     tmp_vault.note("scan.pdf", "x")
 
     with pytest.raises(ValueError, match="no text extracted.*mineru"):
@@ -449,12 +568,13 @@ def test_pdf_mineru_provider_success(tmp_vault, monkeypatch):
 def test_image_and_office_route_to_mineru_whatever_the_provider_says(
     ext, tmp_vault, monkeypatch
 ):
-    """pymupdf opens an image and reads no text out of it (measured: a 1653x2339
-    render of a text page yields ''), and it does not open pptx/xlsx at all. So
-    unlike DOCX these must NOT fall back to pymupdf when the provider is unset
-    or set to something else -- they must reach mineru or fail loudly."""
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
-    monkeypatch.setattr(conv, "_via_pymupdf", _never_called_pymupdf)
+    """A text-layer reader opens an image and reads no text out of it (measured
+    on pymupdf: a 1653x2339 render of a text page yields ''), and none opens
+    pptx/xlsx at all. So unlike DOCX these must NOT fall back to the default PDF
+    provider when the provider is unset or set to something else -- they must
+    reach mineru or fail loudly."""
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
+    monkeypatch.setattr(conv, "_via_pdfium", _never_called_default)
     seen: list[str] = []
 
     def run(cmd, **kw):
@@ -469,8 +589,8 @@ def test_image_and_office_route_to_mineru_whatever_the_provider_says(
     assert "# M" in body
 
 
-def _never_called_pymupdf(*a, **k):
-    raise AssertionError("pymupdf called for an input it cannot read text from")
+def _never_called_default(*a, **k):
+    raise AssertionError("default PDF provider called for an input it cannot read text from")
 
 
 def test_office_output_lands_under_its_own_parse_dir(tmp_vault, monkeypatch):
@@ -498,7 +618,7 @@ def test_office_output_lands_under_its_own_parse_dir(tmp_vault, monkeypatch):
 
 
 def test_unreadable_image_error_does_not_advise_installing_ocr(tmp_vault, monkeypatch):
-    """mineru IS the backend here, so the PDF branch's "install [pdf] and set
+    """mineru IS the backend here, so the PDF branch's "install mineru and set
     SILICA_PDF_PROVIDER=mineru" would be advice the user has already taken."""
     monkeypatch.setattr(conv, "_pdf_via_mineru", lambda src, wd: ("  \n\n", wd))
     tmp_vault.note("cat.png", "x")
@@ -524,16 +644,13 @@ _REAL_MINERU = pytest.mark.skipif(
 @_REAL_MINERU
 def test_real_mineru_ocrs_an_image_with_no_text_layer(tmp_vault):
     """A screenshot or a scan: pixels only, no text layer anywhere in the file."""
-    pymupdf = pytest.importorskip("pymupdf")
-    doc = pymupdf.open()
-    page = doc.new_page()
-    page.insert_text((72, 100), "Silica ingestion probe", fontsize=24)
-    page.insert_text((72, 140), "Second line of scanned text.", fontsize=18)
-    rendered = pymupdf.open("pdf", doc.tobytes())[0].get_pixmap(dpi=200)
+    pdfium = pytest.importorskip("pypdfium2")
+    pytest.importorskip("PIL")  # mineru brings Pillow in with it
+    pdf = pdfium.PdfDocument(pdf_bytes(["Silica ingestion probe\nSecond line of scanned text."],
+                                       font_sizes=[[24.0, 18.0]]))
     png = Path(CONFIG.vault_path) / "scan.png"
-    png.write_bytes(rendered.tobytes("png"))
-    # the premise: no text layer at all, so a non-OCR provider would find nothing
-    assert pymupdf.open(png)[0].get_text().strip() == ""
+    pdf[0].render(scale=200 / 72).to_pil().save(png)
+    # the premise: pixels only, so a text-layer provider would find nothing
 
     body = _inbox_note(conv.convert(str(png))[0]).read_text(encoding="utf-8")
     assert "Silica ingestion probe" in body
@@ -616,7 +733,7 @@ def _fake_soffice(monkeypatch, *, writes_pdf=True, returncode=0, stderr="", hang
 def test_legacy_office_goes_through_libreoffice_then_the_pdf_seam(
     ext, tmp_vault, monkeypatch
 ):
-    monkeypatch.setattr(CONFIG, "pdf_provider", "pymupdf")
+    monkeypatch.setattr(CONFIG, "pdf_provider", "pdfium")
     _fake_soffice(monkeypatch)
     tmp_vault.note(f"deck{ext}", "x")
 
@@ -626,7 +743,7 @@ def test_legacy_office_goes_through_libreoffice_then_the_pdf_seam(
 
 def test_legacy_office_honours_the_configured_pdf_provider(tmp_vault, monkeypatch):
     """The intermediate is a real PDF, so someone who installed mineru for OCR
-    must get mineru here too, not a silent downgrade to pymupdf."""
+    must get mineru here too, not a silent downgrade to the default."""
     monkeypatch.setattr(CONFIG, "pdf_provider", "mineru")
     _fake_soffice(monkeypatch)
     seen: list[str] = []
@@ -664,8 +781,8 @@ def test_libreoffice_silent_failure_is_an_error_not_an_empty_note(tmp_vault, mon
 
 
 def test_missing_libreoffice_leads_with_the_free_workaround(tmp_vault, monkeypatch):
-    """Re-saving as `.docx` costs nothing and pymupdf reads it in the base
-    install, so the 240 MB install must not be the first thing offered."""
+    """Re-saving as `.docx` costs nothing and the base install reads it, so the
+    240 MB install must not be the first thing offered."""
     monkeypatch.setattr(conv.shutil, "which", lambda n: None)
     tmp_vault.note("old.doc", "x")
 
@@ -1070,9 +1187,9 @@ def test_unknown_asr_provider_names_the_known_ones(tmp_vault, monkeypatch):
 
 
 def test_media_never_reaches_a_document_provider(tmp_vault, monkeypatch):
-    """A .mp4 handed to pymupdf or mineru is a parse of garbage, not an error."""
+    """A .mp4 handed to a document provider or mineru is a parse of garbage, not an error."""
     monkeypatch.setattr(CONFIG, "pdf_provider", "mineru")
-    monkeypatch.setattr(conv, "_via_pymupdf", _never_called_pymupdf)
+    monkeypatch.setattr(conv, "_via_pdfium", _never_called_default)
     monkeypatch.setattr(conv.subprocess, "run", _never_called)
     _fake_wav(monkeypatch)
     _fake_asr(monkeypatch)
@@ -1709,7 +1826,7 @@ def test_split_markdown_unchanged_without_references():
 def test_doc_citation_finds_doi_and_arxiv_in_head(tmp_path):
     md = ("# Paper Title\n\nAuthors here\n\n"
           "doi: 10.20944/preprints202603.0359.v1\n\narXiv:2603.01234v2\n\nAbstract…")
-    fake = tmp_path / "x.bin"  # unopenable by pymupdf → metadata skipped, regexes still run
+    fake = tmp_path / "x.bin"  # not a document → metadata skipped, regexes still run
     fake.write_bytes(b"")
     cite = conv._doc_citation(fake, md)
     assert cite["doi"] == "10.20944/preprints202603.0359.v1"
@@ -1770,7 +1887,7 @@ def test_boilerplate_segment_carries_its_own_frontmatter_key(tmp_vault, monkeypa
     big = (f"# Paper\n\n{chapter}\n\n"
            "## Contents\n\n1 Intro 1\n2 Method 2\n\n"
            "## References\n\n[1] Author. Title.\n")
-    monkeypatch.setattr(conv, "_via_pymupdf", lambda src, wd: (big, wd))
+    monkeypatch.setattr(conv, "_via_docx", lambda src, wd: (big, wd))
     tmp_vault.note("paper.docx", "x")
 
     heads = [_inbox_note(p).read_text(encoding="utf-8").split("\n---\n")[0]
@@ -1822,7 +1939,7 @@ def test_a_document_that_is_all_apparatus_is_flagged_even_as_one_segment(tmp_vau
     venue/journal/ethics notes the flag exists to prevent."""
     refs = "## References\n\n" + "\n".join(
         f"[{i}] Author {i}. A Title {i}. Journal, 2020." for i in range(40))
-    monkeypatch.setattr(conv, "_via_pymupdf", lambda src, wd: (refs, wd))
+    monkeypatch.setattr(conv, "_via_docx", lambda src, wd: (refs, wd))
     tmp_vault.note("biblio.docx", "x")
 
     paths = conv.convert("biblio.docx")
@@ -1834,7 +1951,7 @@ def test_a_document_that_is_all_apparatus_is_flagged_even_as_one_segment(tmp_vau
 
 def test_a_single_segment_of_real_content_stays_unflagged(tmp_vault, monkeypatch):
     body = "# Paper\n\n" + "Real prose about memory evolution. " * 200
-    monkeypatch.setattr(conv, "_via_pymupdf", lambda src, wd: (body, wd))
+    monkeypatch.setattr(conv, "_via_docx", lambda src, wd: (body, wd))
     tmp_vault.note("paper.docx", "x")
 
     paths = conv.convert("paper.docx")

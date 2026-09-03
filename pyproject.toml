@@ -45,14 +45,19 @@ dependencies = [
   # newer ones hand back upstream py-tree-sitter objects, which is what codeast
   # speaks. Unpinned, the mismatch parsed nothing and every code note came out empty.
   "tree-sitter-language-pack>=1.13",
-  "yake>=0.7.3",
-  # Default document→Markdown converter (PDF/DOCX/EPUB/XPS/MOBI/FB2). 3 packages,
-  # ~60 MB, no torch and no JVM, so it can live in the base install where mineru
-  # (3.8 GB of torch+CUDA) cannot. Capped below 1.0: from 1.27.2 it hard-depends
-  # on pymupdf-layout, which is Polyform Noncommercial and would put a
-  # non-commercial restriction on an AGPL package. The cap costs borderless-table
-  # detection; lift it only if silica ever stops being distributed.
-  "pymupdf4llm>=0.3.4,<1",
+  # Default PDF text-layer reader (Google's PDFium, BSD-3/Apache-2.0, one ~3 MB
+  # wheel, no torch and no JVM). Replaced pymupdf4llm on 2026-08-31: PyMuPDF is
+  # AGPL or a paid Artifex licence, and yake (the keyphrase pool, now in-house in
+  # kernel/text/candidates.py) shipped an AGPL LICENSE too; both blocked any
+  # proprietary redistribution of the engine. Measured on 12 real papers: 1.05x
+  # the words of pymupdf4llm in 1/75 of the time; headings come from the
+  # outline or a line heuristic (sources/convert.py), images are not extracted
+  # (mineru, installed separately, does layout and figures).
+  "pypdfium2>=5",
+  # DOCX -> HTML, BSD-2, pure python. Its HTML goes through the same
+  # HTML-to-markdown pass as EPUB chapters; its own markdown writer escapes
+  # every period. EPUB and FB2 need nothing: a ZIP of XHTML and an XML file.
+  "mammoth>=1.9",
   # Legacy office without an office suite. Both are pure python, tiny and
   # permissive (BSD): striprtf 15 KB reads .rtf, xlrd 192 KB reads pre-2007
   # .xls (2.x dropped .xlsx and kept exactly the format nothing else opens).
@@ -94,26 +99,21 @@ mcp = ["mcp>=1.0,<2"]
 # Opt-in in-process cross-encoder rerank (the precision pass over fused recall).
 # Neither LM Studio nor Ollama can serve a cross-encoder, so the alternative is a
 # llama-server the user runs by hand; this extra removes that. Pulls torch, and
-# downloads ~2GB of weights on first rerank, so it stays opt-in like [pdf].
+# downloads ~2GB of weights on first rerank, so it stays opt-in.
 # SILICA_RERANK_BASE_URL still overrides it with a served endpoint.
 rerank = ["sentence-transformers>=3.0"]
-# mineru is the OCR provider: the default (pymupdf4llm, a base dependency) reads
-# text layers only, so a scanned document needs this extra. It pulls
-# torch/transformers and downloads models on first run — 3.8 GB against the
-# default's 60 MB — which is why it is opt-in (`pip install silica-harness[pdf]`).
-# The [pipeline] extra matches the CLI's `-b pipeline` backend. docling /
-# opendataloader are installed manually if chosen. See SILICA_PDF_PROVIDER.
-pdf = [
-    "mineru[pipeline]>=3.4.4",
-    # mineru 3.4.4 packaging bug: its vendored pytorchocr imports `six`
-    # (pytorchocr/data/imaug/operators.py) without declaring it, so every
-    # pipeline convert dies with ModuleNotFoundError. Drop when upstream fixes.
-    "six",
-]
+# There is no [pdf] extra. It was removed on 2026-09-02: it installed the mineru
+# CLI, which nothing here imports — sources/convert.py shells out to it, exactly
+# as it shells out to soffice, ffmpeg and whisper-cli, none of which we install
+# either. Owning it as a dependency bought a version pin we could not honour
+# (mineru 3.x drifts its default backend) and a `six` line patching a packaging
+# bug that is not ours, in exchange for 3.8 GB of torch on an opt-in path. Who
+# wants OCR runs `pip install 'mineru[pipeline]'`; the doctor's converters row
+# says whether it is on PATH. See SILICA_PDF_PROVIDER and ADR-0011.
 # Everything except [dev]. Self-referential extra: pip resolves it back to this
-# same project. Note it inherits [pdf] and [rerank], so it pulls torch and
-# downloads several GB of weights on first use.
-all = ["silica-harness[gui,connect,mcp,rerank,pdf]"]
+# same project. Note it inherits [rerank], so it pulls torch and downloads
+# ~2 GB of weights on first rerank.
+all = ["silica-harness[gui,connect,mcp,rerank]"]
 
 [project.scripts]
 silica = "silica.cli:main"
@@ -288,17 +288,18 @@ ignore_missing_imports = false
 [[tool.mypy.overrides]]
 module = [
     "yaml", "yaml.*", "networkx", "networkx.*",
-    # PDF providers (mineru via the [pdf] extra; docling/opendataloader manual):
-    "docling.*", "docling_core.*", "opendataloader_pdf", "pymupdf4llm",
+    # PDF providers, all three installed by the user, none a dependency here:
+    "docling.*", "docling_core.*", "opendataloader_pdf", "mammoth", "mammoth.*",
+    "pypdfium2", "pypdfium2.*",
     # Legacy office readers: both ship no stubs (xlrd has been feature-frozen
     # since 2.0 dropped .xlsx, which is exactly why it is safe to depend on).
     "xlrd", "striprtf.*",
-    # No stubs and no py.typed: the NLP trio (stop-words, snowballstemmer, yake)
+    # No stubs and no py.typed: the NLP pair (stop-words, snowballstemmer)
     # plus three that DO have stub packages on PyPI — types-python-dateutil,
     # types-Pygments, types-openpyxl. Listed here rather than installed because
     # each is reached from one narrow call site; add the stub package instead if
     # any of these three ever grows a real surface.
-    "stop_words", "snowballstemmer", "yake",
+    "stop_words", "snowballstemmer",
     "dateutil.*", "pygments", "pygments.*", "openpyxl", "openpyxl.*",
     # The [rerank] extra's cross-encoder. Listed for the same reason the PDF
     # providers are: ci.yml deliberately syncs without it (3.8 GB of torch to

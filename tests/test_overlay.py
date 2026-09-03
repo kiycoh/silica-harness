@@ -340,7 +340,7 @@ class TestArchaicEnglish:
     """A library of 1560-1900 scripture and masonic history distilled into notes
     titled `Saith the Lord of Spirits`, `Spirits hath revealed`, `Surround the
     Lord`. Snowball's English stoplist is modern: every archaic function word
-    reads to YAKE as a content word, and the recurring liturgical formula wins
+    reads to the keyphrase miner as a content word, and the recurring liturgical formula wins
     on frequency."""
 
     def test_archaic_function_words_are_stopwords(self):

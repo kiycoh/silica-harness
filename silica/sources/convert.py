@@ -8,7 +8,10 @@ calls it as the fallback when no source adapter claims a file. Dispatch is by
 extension over `DOC_EXTS`, three families with three different backends:
 
   * PDF — the selectable provider seam below.
-  * Everything else MuPDF opens (DOCX, EPUB, XPS, MOBI, FB2) — pymupdf, always.
+  * DOCX (mammoth → HTML), EPUB (a ZIP of XHTML) and FB2 (XML)
+    (`_BASE_TEXT_EXTS`) — read in process through one HTML/XML-to-markdown
+    pass, no office suite and no torch. XPS and MOBI, which only MuPDF opened,
+    are no longer accepted: declared unsupported rather than half-read.
   * Images (`IMG_EXTS`) and OOXML decks/sheets (`OFFICE_EXTS`) — mineru, always,
     because it is the only backend that opens them at all. Images take mineru's
     OCR pipeline (it wraps them into a one-page PDF); pptx/xlsx take its native
@@ -26,17 +29,25 @@ extension over `DOC_EXTS`, three families with three different backends:
     gets the same sanitizing, segmentation and provenance a book gets.
 
 For PDF the converter is selectable via `CONFIG.pdf_provider` (ADR-0011):
-`pymupdf` default (pymupdf4llm, ~60 MB installed, no torch and no JVM, but no
-OCR), `mineru` (heavyweight CLI, best fidelity and the only OCR path, downloads
-models on first run), `docling` (MIT but pulls torch + CUDA), `opendataloader`
-(Apache-2.0, strong on complex tables and multi-column reading order, needs a
-JVM). Only `pymupdf` opens the non-PDF formats, so those bypass the seam.
-`pymupdf4llm` is a base dependency; the alternatives install via the
-`silica-harness[pdf]` extra or by hand.
+`pdfium` default (pypdfium2, Google's PDFium, one ~3 MB wheel, no torch and no
+JVM, text layer only so no OCR), `mineru` (heavyweight CLI, best fidelity and
+the only OCR path, downloads models on first run), `docling` (MIT but pulls
+torch + CUDA), `opendataloader` (Apache-2.0, strong on complex tables and
+multi-column reading order, needs a JVM). The non-PDF formats bypass the seam:
+docling/opendataloader/mineru take a PDF and nothing else. `pypdfium2` is a
+base dependency; the other three are binaries the user installs, and Silica
+shells out to them exactly as it shells out to soffice, ffmpeg and whisper-cli.
+None of them was ever imported here, which is why the `[pdf]` extra that used to
+install mineru was dropped on 2026-09-02 (`silica doctor` reports its presence).
 
-`pymupdf4llm` is pinned `<1` on purpose: from 1.27.2 it hard-depends on
-`pymupdf-layout`, which is Polyform Noncommercial and cannot ship as a
-dependency of an AGPL package.
+`pdfium` replaced `pymupdf4llm` as the default on 2026-08-31 (ADR-0034). PyMuPDF is AGPL
+or a paid Artifex licence, and the AGPL is what blocked any proprietary
+redistribution of the engine; pymupdf4llm had also started to hard-depend on a
+Polyform Noncommercial layout package. Measured on 12 real papers: pdfium reads
+1.05x the words in 1/75 of the time (0.4 s against 30 s), and the line-based
+heading heuristic below flags the References section on 11 of them where the
+font-size guessing of pymupdf4llm flagged 0. What it does not do: extract
+figures (mineru does), or read a scan (nothing without OCR does).
 
 Every provider returns `(markdown, images_dir)`; the rest of the pipeline
 (sanitize → copy images flat into the vault → rewrite image links to Obsidian
@@ -57,6 +68,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from glob import escape as glob_escape, glob
+from html.parser import HTMLParser
 from pathlib import Path
 
 from silica.config import CONFIG
@@ -126,6 +138,11 @@ _MINERU_TIMEOUT_S = 3600
 # -m auto (parse method), -f true (formula parsing), -t true (table parsing).
 # No -l: mineru 3.4.4 has no latin-script choice (ch|ch_server|korean|...) and
 # the default `ch` OCR models cover latin script.
+#
+# These flags are written against 3.4.4 and nothing pins that any more: mineru
+# stopped being a dependency on 2026-09-02, so the version on PATH is whatever
+# the user installed. `_mineru_error` is the place that reads the damage — an
+# unknown flag comes back as the error line, not as a silent empty convert.
 _MINERU_ARGS = ["-m", "auto", "-f", "true", "-t", "true"]
 
 # stderr triage (see _mineru_error): noise = loguru INFO/DEBUG, uvicorn banner
@@ -134,12 +151,20 @@ _MINERU_NOISE_RE = re.compile(
     r"\|\s*(?:INFO|DEBUG)\s*\||^(?:INFO|DEBUG|WARNING):|it/s|\d+%\|", re.IGNORECASE
 )
 _MINERU_ERR_RE = re.compile(r"error|exception|traceback", re.IGNORECASE)
+# The one failure whose fix is not in mineru's own message. Its vendored
+# pytorchocr imports `six` without declaring it (3.4.4,
+# pytorchocr/data/imaug/operators.py), so a pipeline convert dies with a
+# ModuleNotFoundError naming a dependency of a dependency. The [pdf] extra used
+# to carry the workaround as a `six` line and it was gone by install time; since
+# 2026-09-02 there is no extra, so the user meets this after an hour of OCR
+# instead. Drop the branch when upstream declares the import.
+_MINERU_SIX_RE = re.compile(r"No module named ['\"]six['\"]")
 
 
-# Formats MuPDF opens beyond PDF. `.txt`/`.md` are absent on purpose: ProseAdapter
-# already claims them, and round-tripping plain text through a page renderer would
-# hard-wrap it at the page width.
-_PYMUPDF_ONLY_EXTS = (".docx", ".epub", ".xps", ".mobi", ".fb2")
+# Text documents read in process with no PDF renderer in the path: DOCX through
+# mammoth, EPUB (a ZIP of XHTML) and FB2 (XML) through the standard library.
+# `.txt`/`.md` are absent on purpose: ProseAdapter already claims them.
+_BASE_TEXT_EXTS = (".docx", ".epub", ".fb2")
 
 # Image formats mineru opens (its own `image_suffixes`). It wraps the image into
 # a one-page PDF internally, so a screenshot or a scan takes the same OCR
@@ -154,8 +179,8 @@ IMG_EXTS = (".png", ".jpg", ".jpeg", ".jp2", ".webp", ".gif", ".bmp", ".tif", ".
 # `auto/`, which the provider's recursive glob already finds; slide titles come
 # out as `##` headings, which is what `_split_on_headings` wants.
 #
-# `.docx` is deliberately NOT here: pymupdf reads it in the base install, so
-# routing it through mineru would demand the [pdf] extra for a format that
+# `.docx` is deliberately NOT here: mammoth reads it in the base install, so
+# routing it through mineru would demand an OCR install for a format that
 # already works. The pre-2007 binaries are not here either -- neither mineru nor
 # MuPDF opens them (see `_PURE_PY_OFFICE_EXTS` and `LEGACY_OFFICE_EXTS`).
 OFFICE_EXTS = (".pptx", ".xlsx")
@@ -170,7 +195,7 @@ _MINERU_ONLY_EXTS = (*IMG_EXTS, *OFFICE_EXTS)
 # LibreOffice install costs on Debian (measured: libreoffice-core 155 MB +
 # -common 47 MB + one app), for five of the seven formats that used to demand it.
 #
-# ponytail: text only. The old `soffice → pdf → pymupdf` path carried embedded
+# ponytail: text only. The old `soffice → pdf → MuPDF` path carried embedded
 # figures through; these do not. Re-save as PDF when the images are the point.
 ODF_EXTS = (".odt", ".odp", ".ods")
 _PURE_PY_OFFICE_EXTS = (*ODF_EXTS, ".rtf", ".xls")
@@ -230,7 +255,7 @@ MEDIA_EXTS = (*AUDIO_EXTS, *VIDEO_EXTS)
 TABULAR_EXTS = (".csv", ".tsv", ".parquet")
 
 DOC_EXTS = (
-    ".pdf", *_PYMUPDF_ONLY_EXTS, *IMG_EXTS, *OFFICE_EXTS, *MEDIA_EXTS,
+    ".pdf", *_BASE_TEXT_EXTS, *IMG_EXTS, *OFFICE_EXTS, *MEDIA_EXTS,
     *_PURE_PY_OFFICE_EXTS, *LEGACY_OFFICE_EXTS, *TABULAR_EXTS,
 )
 
@@ -241,7 +266,7 @@ DOC_EXTS = (
 # `_copy_images` puts Silica's OWN extracted figures in `<inbox>/Images`. Offering
 # to convert those would mean offering to re-ingest our own output.
 CONVERTIBLE_DOC_EXTS = (
-    ".pdf", *_PYMUPDF_ONLY_EXTS, *OFFICE_EXTS, *_PURE_PY_OFFICE_EXTS,
+    ".pdf", *_BASE_TEXT_EXTS, *OFFICE_EXTS, *_PURE_PY_OFFICE_EXTS,
     *LEGACY_OFFICE_EXTS, *TABULAR_EXTS,
 )
 
@@ -503,9 +528,9 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
     src = _resolve_input(target)
     suffix = src.suffix.lower()
     # Images and OOXML have exactly one backend, so the provider seam does not
-    # apply: pymupdf opens an image but reads no text out of it (measured: a
-    # 1653x2339 render of a text page yields ''), and neither docling nor
-    # opendataloader is a path verified here for either family.
+    # apply: a text-layer reader opens an image but reads no text out of it
+    # (measured on MuPDF: a 1653x2339 render of a text page yields ''), and
+    # neither docling nor opendataloader is a path verified here for either family.
     if suffix in TABULAR_EXTS:
         return _convert_tabular(src)
     if suffix in _MINERU_ONLY_EXTS:
@@ -520,17 +545,22 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
         provider = _via_xls
     elif suffix in LEGACY_OFFICE_EXTS:
         provider = _via_legacy_office
-    # The rest of the seam is PDF-only — docling/opendataloader take a PDF and
-    # nothing else, so DOCX/EPUB/… go straight to pymupdf.
-    elif suffix != ".pdf":
-        provider = _via_pymupdf
-    elif CONFIG.pdf_provider in PDF_PROVIDERS:
-        provider = PDF_PROVIDERS[CONFIG.pdf_provider]
+    # The seam is PDF-only — docling/opendataloader/mineru take a PDF and
+    # nothing else, so DOCX/EPUB/FB2 each have their own in-process reader.
+    elif suffix == ".docx":
+        provider = _via_docx
+    elif suffix == ".epub":
+        provider = _via_epub
+    elif suffix == ".fb2":
+        provider = _via_fb2
     else:
-        raise ValueError(
-            f"unknown pdf_provider {CONFIG.pdf_provider!r} "
-            f"(known: {', '.join(PDF_PROVIDERS)})"
-        )
+        name = resolve_pdf_provider(CONFIG.pdf_provider)
+        if name not in PDF_PROVIDERS:
+            raise ValueError(
+                f"unknown pdf_provider {CONFIG.pdf_provider!r} "
+                f"(known: {', '.join(PDF_PROVIDERS)})"
+            )
+        provider = PDF_PROVIDERS[name]
     with tempfile.TemporaryDirectory() as tmp:
         md_text, images_src = provider(src, Path(tmp))
         if not md_text.strip():
@@ -548,7 +578,7 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
                     f"no readable text in {src.name} — the OCR pass found none "
                     "(a photo with no writing in it, or an empty document)"
                 )
-            if suffix in _PURE_PY_OFFICE_EXTS:
+            if suffix in (*_PURE_PY_OFFICE_EXTS, *_BASE_TEXT_EXTS):
                 # No OCR anywhere in this path, so advice about OCR would be a
                 # red herring: the file really does carry no text.
                 raise ValueError(
@@ -556,11 +586,11 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
                     "content is entirely images (which this path does not read; "
                     "re-save it as PDF to run those through OCR)"
                 )
-            # The usual cause is a scan with no text layer, and pymupdf — the
-            # default — has no OCR at all, so name the provider that does.
+            # The usual cause is a scan with no text layer, and the default
+            # provider reads text layers only, so name the provider that does.
             raise ValueError(
                 f"no text extracted from {src.name} — a scanned document needs OCR: "
-                "`pip install 'silica-harness[pdf]'` and set SILICA_PDF_PROVIDER=mineru"
+                "`pip install 'mineru[pipeline]'` and set SILICA_PDF_PROVIDER=mineru"
             )
         # Copy only images the markdown references: mineru dumps every crop it
         # detects (477 files for a 200-page book, 19 referenced) — the rest
@@ -617,41 +647,430 @@ def _doc_to_md(target: str, dest_dir: str) -> list[str]:
 # hand-faked modules in tests/test_convert.py — a library rename would drift the
 # fakes and pass silently. Add a real-install smoke test to catch API drift.
 
-def _via_pymupdf(src: Path, workdir: Path) -> tuple[str, Path]:
-    """Default provider — pymupdf4llm: no torch, no JVM, ~60 MB installed.
+def _via_pdfium(src: Path, workdir: Path) -> tuple[str, Path]:
+    """Default provider — PDFium's text layer, headings from the outline or a
+    line heuristic. No torch, no JVM, one ~3 MB wheel.
 
-    The only provider that opens the non-PDF `DOC_EXTS`, and the only one in the
-    base install. It has no OCR: a scan with no text layer yields nothing, which
-    `_doc_to_md`'s empty guard turns into an error naming mineru.
+    It has no OCR: a scan with no text layer yields nothing, which `_doc_to_md`'s
+    empty guard turns into an error naming mineru. Figures are not extracted
+    either (the images dir comes back empty): PDFium exposes image objects, but
+    turning them into files needs Pillow, which the base install does not carry;
+    mineru (installed separately) is the path for a document whose figures are
+    the point.
     """
     try:
-        import contextlib
-        import io
-
-        import pymupdf
-        # pymupdf4llm prints a "consider pymupdf_layout" advert to stdout at
-        # import; that package is Polyform Noncommercial, so the advice is one
-        # we cannot take and the line is pure noise in the TUI.
-        with contextlib.redirect_stdout(io.StringIO()):
-            import pymupdf4llm
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
     except ImportError:
         raise ValueError(
-            "pymupdf4llm not installed — `pip install 'pymupdf4llm>=0.3.4,<1'`, "
+            "pypdfium2 not installed — `pip install 'pypdfium2>=5'`, "
             "or set SILICA_PDF_PROVIDER to mineru/docling/opendataloader"
         ) from None
 
-    doc = pymupdf.open(src)
+    pdf = pdfium.PdfDocument(str(src))
+    try:
+        toc: list[tuple[int, str, int]] = []
+        for bookmark in pdf.get_toc():
+            title = " ".join((bookmark.get_title() or "").split())
+            dest = bookmark.get_dest()
+            index = dest.get_index() if dest is not None else None
+            if title and index is not None and index >= 0:
+                toc.append((bookmark.level, title, index))
+        pages: list[list[tuple[str, float]]] = []
+        for i in range(len(pdf)):
+            page = pdf[i]
+            textpage = page.get_textpage()
+            try:
+                pages.append(_pdf_page_lines(textpage, pdfium_c))
+            finally:
+                textpage.close()
+                page.close()
+    finally:
+        pdf.close()
     images = workdir / "images"
     images.mkdir(parents=True, exist_ok=True)
-    # The embedded outline beats font-size guessing wherever it exists: 23
-    # headings vs 12 on an 19-entry probe paper, matching mineru exactly. But
-    # TocHeaders REPLACES the font heuristic rather than backing it up, so on a
-    # document with no outline it collapsed 10 headings to 1 — hence the guard.
-    hdr = pymupdf4llm.TocHeaders(doc) if doc.get_toc() else None
-    md = pymupdf4llm.to_markdown(
-        doc, hdr_info=hdr, write_images=True, image_path=str(images), image_format="png"
-    )
-    return md, images
+    return _pdf_markdown(pages, toc), images
+
+
+def _pdf_page_lines(textpage, pdfium_c) -> list[tuple[str, float]]:
+    """(text, font size) per non-blank line of a page.
+
+    One font-size call per line, at the line's first glyph, rather than one per
+    character: PDFium's text index is one unit per character, so the offset of
+    a line in the page string IS its character index (a surrogate pair shifts it
+    by one glyph, which lands on a neighbouring character of the same line).
+    """
+    text = textpage.get_text_range()
+    n = textpage.count_chars()
+    lines: list[tuple[str, float]] = []
+    pos = 0
+    for raw in text.split("\n"):
+        line = raw.rstrip("\r")
+        stripped = line.strip()
+        if stripped:
+            first = pos + (len(line) - len(line.lstrip()))
+            size = float(pdfium_c.FPDFText_GetFontSize(textpage, first)) if first < n else 0.0
+            lines.append((stripped, size))
+        pos += len(raw) + 1
+    return lines
+
+
+# Section headings a paper carries whether or not it has an outline. The first
+# two groups are English and Italian apparatus names; the numbered form
+# ("2 Method", "3.1 Data") is handled by `_NUMBERED_HEADING_RE`.
+_APPARATUS_HEADING_RE = re.compile(
+    r"(?:\d+(?:\.\d+)*\.?\s+)?(?:abstract|introduction|background|related work|"
+    r"methods?|methodology|experiments?|results|evaluation|discussion|conclusions?|"
+    r"limitations|acknowledg(?:e)?ments|references|bibliography|appendix(?:\s+[a-z])?|"
+    r"introduzione|metodo|metodi|risultati|discussione|conclusioni|ringraziamenti|"
+    r"bibliografia|riferimenti bibliografici|appendice|indice|sommario)",
+    re.IGNORECASE,
+)
+_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+){0,3})\.?\s+(?=[^\W\d_])")
+_HEADING_MAX_WORDS = 12
+
+
+def _body_font_size(lines: list[tuple[str, float]]) -> float:
+    """The page's running-text size: the commonest size over long lines (a
+    heading is short, a caption or footnote is small), else over every line."""
+    import statistics
+
+    long = [round(size, 1) for text, size in lines if len(text) >= 40 and size > 0]
+    pool = long or [round(size, 1) for _, size in lines if size > 0]
+    return statistics.mode(pool) if pool else 0.0
+
+
+def _heading_level(text: str, size: float, body: float, big_lines: int) -> int:
+    """0 for body text, else the markdown heading depth of a PDF line.
+
+    Three signals, in order of trust: a numbered section line ("2.1 Data", depth
+    from the numbering; the first component is capped at 99 so a year never
+    reads as a section), an apparatus name (References, Appendix), and a short
+    line set at least 15% above the body size (a title). The size rule is
+    switched off on a page with more than eight such lines: that is a figure's
+    axis labels and legend, not eight titles (measured: 40 on one page of an
+    entity-linking paper). Nothing below the body size is ever a heading: page
+    headers, footnotes and captions are the small text.
+
+    ponytail: no font clustering, no bold detection. mineru does layout; this
+    exists so `_split_on_headings` and the References flag keep working on a
+    plain paper without it.
+    """
+    words = text.split()
+    if not words or len(words) > _HEADING_MAX_WORDS or not re.search(r"[^\W\d_]", text):
+        return 0
+    if body and size < body * 0.95:
+        return 0
+    m = _NUMBERED_HEADING_RE.match(text)
+    if m and int(m.group(1).split(".")[0]) <= 99:
+        return min(m.group(1).count(".") + 1, 6)
+    if _APPARATUS_HEADING_RE.fullmatch(text):
+        return 1
+    if body and size >= body * 1.15 and big_lines <= 8:
+        return 1 if size >= body * 1.4 else 2
+    return 0
+
+
+def _normalise_line(text: str) -> str:
+    return re.sub(r"\W+", " ", text).strip().lower()
+
+
+def _pdf_markdown(pages: list[list[tuple[str, float]]], toc: list[tuple[int, str, int]]) -> str:
+    """Page lines → markdown with headings.
+
+    The embedded outline beats any guessing wherever it exists (23 headings vs
+    12 on a 19-entry probe paper in the pymupdf4llm era), so with an outline
+    each entry marks the line carrying its title on its page, or opens the page
+    when the title is not found there (a bookmark pointing mid-column). With no
+    outline, `_heading_level` decides per line.
+    """
+    by_page: dict[int, list[tuple[int, str]]] = {}
+    for level, title, index in toc:
+        by_page.setdefault(index, []).append((level, title))
+    blocks: list[str] = []
+    for i, lines in enumerate(pages):
+        texts = [t for t, _ in lines]
+        marks: dict[int, int] = {}
+        lead: list[str] = []
+        if toc:
+            norm = [_normalise_line(t) for t in texts]
+            for level, title in by_page.get(i, []):
+                want = _normalise_line(title)
+                hit = next((j for j, n in enumerate(norm)
+                            if n == want or (want and (n.startswith(want) or want.startswith(n)))
+                            and j not in marks), None)
+                depth = min(level + 1, 6)
+                if hit is None:
+                    lead.append(f"{'#' * depth} {title}")
+                else:
+                    marks[hit] = depth
+        else:
+            body = _body_font_size(lines)
+            big = sum(1 for t, size in lines
+                      if body and size >= body * 1.15 and len(t.split()) <= _HEADING_MAX_WORDS)
+            for j, (t, size) in enumerate(lines):
+                depth = _heading_level(t, size, body, big)
+                if depth:
+                    marks[j] = depth
+        out: list[str] = list(lead)
+        for j, t in enumerate(texts):
+            out.append(f"\n{'#' * marks[j]} {t}\n" if j in marks else t)
+        blocks.append("\n".join(out))
+    md = "\n\n".join(b for b in blocks if b.strip())
+    return re.sub(r"\n{3,}", "\n\n", md).strip("\n") + ("\n" if md.strip() else "")
+
+
+def _via_docx(src: Path, workdir: Path) -> tuple[str, Path]:
+    """DOCX through mammoth's HTML, then the shared HTML-to-markdown pass.
+
+    mammoth has a markdown writer of its own; it is not used because it escapes
+    every period and bracket in prose (`Body text\\.`), and a note is quoted
+    later by people. Its HTML inlines images as data URIs, which the shared
+    pass writes out as files so the figures reach the vault like a PDF's do.
+    """
+    try:
+        import mammoth
+    except ImportError:
+        raise ValueError("mammoth not installed — `pip install 'mammoth>=1.9'`") from None
+
+    images = workdir / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    with open(src, "rb") as fh:
+        html = mammoth.convert_to_html(fh).value
+    return _html_to_md(html, images=images, prefix=src.stem), images
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _epub_opf(z: zipfile.ZipFile) -> tuple[ET.Element, str]:
+    """The package document and its directory inside the container."""
+    import posixpath
+
+    container = _parse_office_xml(_zip_member(z, "META-INF/container.xml"))
+    rootfile = next((el for el in container.iter() if _local_name(el.tag) == "rootfile"), None)
+    opf_path = rootfile.get("full-path") if rootfile is not None else None
+    if not opf_path:
+        raise ValueError("EPUB container names no package document")
+    return _parse_office_xml(_zip_member(z, opf_path)), posixpath.dirname(opf_path)
+
+
+def _via_epub(src: Path, workdir: Path) -> tuple[str, Path]:
+    """EPUB: the XHTML chapters in spine order, through the shared HTML pass.
+
+    Reading order is the OPF spine, not the zip's member order or the file
+    names, which is what the pymupdf reader also honoured. Members are opened
+    through the same size guard as every other zip-backed format here.
+
+    ponytail: chapter images are not carried over (an `<img>` pointing into the
+    zip is dropped with its alt text kept). Extract them when a real EPUB
+    library with figures shows up; the seam is `_html_to_md`'s image hook.
+    """
+    import posixpath
+    from urllib.parse import unquote
+
+    with zipfile.ZipFile(src) as z:
+        opf, base = _epub_opf(z)
+        manifest = {el.get("id"): el.get("href")
+                    for el in opf.iter() if _local_name(el.tag) == "item" and el.get("href")}
+        spine = [el.get("idref") for el in opf.iter() if _local_name(el.tag) == "itemref"]
+        parts: list[str] = []
+        for idref in spine:
+            href = manifest.get(idref or "")
+            if not href:
+                continue
+            member = posixpath.normpath(posixpath.join(base, unquote(href))) if base else unquote(href)
+            try:
+                data = _zip_member(z, member)
+            except KeyError:
+                continue
+            parts.append(_html_to_md(data.decode("utf-8", "replace")))
+    images = workdir / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    return "\n\n".join(part for part in parts if part.strip()), images
+
+
+def _epub_metadata(src: Path) -> dict[str, str]:
+    """Dublin Core title/creator/date from the package document; absent keys
+    for absent fields. Never worth failing over, hence the blanket except."""
+    out: dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(src) as z:
+            opf, _ = _epub_opf(z)
+        for el in opf.iter():
+            name = _local_name(el.tag)
+            if name in ("title", "creator", "date") and name not in out:
+                value = " ".join((el.text or "").split())
+                if value:
+                    out[name] = value
+    except Exception:
+        pass
+    return out
+
+
+def _via_fb2(src: Path, workdir: Path) -> tuple[str, Path]:
+    """FictionBook 2: `<section>` titles become headings at their nesting depth,
+    `<p>` become paragraphs. The standard library reads it; nothing else is
+    involved."""
+    root = _parse_office_xml(src.read_bytes())
+    blocks: list[str] = []
+
+    def text_of(el: ET.Element) -> str:
+        return " ".join(" ".join(el.itertext()).split())
+
+    def walk(el: ET.Element, depth: int) -> None:
+        for child in el:
+            name = _local_name(child.tag)
+            if name == "section":
+                walk(child, depth + 1)
+            elif name == "title":
+                t = text_of(child)
+                if t:
+                    blocks.append(f"{'#' * min(depth, 6)} {t}")
+            elif name in ("p", "subtitle", "text-author", "v"):
+                t = text_of(child)
+                if t:
+                    blocks.append(t)
+            elif name in ("epigraph", "cite", "poem", "stanza", "annotation"):
+                walk(child, depth)
+
+    for body in root.iter():
+        if _local_name(body.tag) == "body":
+            walk(body, 1)
+    images = workdir / "images"
+    images.mkdir(parents=True, exist_ok=True)
+    return "\n\n".join(blocks), images
+
+
+# --- HTML → markdown, shared by DOCX and EPUB --------------------------------
+
+_HTML_SKIP = frozenset({"script", "style", "head", "title", "noscript", "svg", "template"})
+_HTML_HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+_HTML_BLOCKS = frozenset({"p", "div", "section", "article", "blockquote", "figure",
+                          "figcaption", "aside", "header", "footer", "main", "nav"})
+
+
+class _HtmlToMarkdown(HTMLParser):
+    """The subset of HTML a document converter emits, to the markdown the rest
+    of the pipeline splits on: headings, paragraphs, list items, table rows,
+    code blocks, images. Inline emphasis is dropped as markup and kept as text.
+
+    ponytail: stdlib html.parser, as in web_fetch. It treats an unclosed
+    `<style>` as CDATA to the end of the file; mammoth and EPUB producers close
+    their tags, and a truncated chapter is the least of that file's problems.
+    """
+
+    def __init__(self, images: Path | None, prefix: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocks: list[tuple[str, str]] = []   # (kind, text)
+        self._cur: list[str] = []
+        self._kind = "p"
+        self._skip = 0
+        self._pre = 0
+        self._images = images
+        self._prefix = prefix
+        self._n_images = 0
+
+    def _flush(self) -> None:
+        text = "".join(self._cur)
+        text = text if self._pre else " ".join(text.split())
+        if text.strip():
+            self.blocks.append((self._kind, text.strip("\n") if self._pre else text))
+        self._cur = []
+        self._kind = "p"
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in _HTML_SKIP:
+            self._skip += 1
+        elif self._skip:
+            return
+        elif tag in _HTML_HEADINGS:
+            self._flush()
+            self._kind = f"h{_HTML_HEADINGS[tag]}"
+        elif tag == "li":
+            self._flush()
+            self._kind = "li"
+        elif tag == "pre":
+            self._flush()
+            self._pre += 1
+            self._kind = "pre"
+        elif tag == "br":
+            self._cur.append("\n" if self._pre else " ")
+        elif tag in ("td", "th"):
+            if self._cur and not "".join(self._cur).endswith("| "):
+                self._cur.append(" | ")
+        elif tag == "tr":
+            self._flush()
+            self._kind = "tr"
+        elif tag == "img":
+            self._image(dict(attrs))
+        elif tag in _HTML_BLOCKS:
+            self._flush()
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _HTML_SKIP:
+            self._skip = max(0, self._skip - 1)
+        elif self._skip:
+            return
+        elif tag in _HTML_HEADINGS or tag in ("li", "tr") or tag in _HTML_BLOCKS:
+            self._flush()
+        elif tag == "pre":
+            self._flush()
+            self._pre = max(0, self._pre - 1)
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip:
+            self._cur.append(data)
+
+    def _image(self, attrs: dict) -> None:
+        """A data-URI image (mammoth inlines every DOCX figure that way) is
+        written to the images dir and referenced like a PDF figure, so the
+        shared tail copies it into the vault. Any other src keeps its alt text
+        as a bracketed caption, the same convention web_fetch uses."""
+        import base64
+
+        alt = " ".join((attrs.get("alt") or "").split())
+        src = attrs.get("src") or ""
+        m = re.match(r"data:image/(png|jpe?g|gif|webp|bmp|tiff?);base64,(.+)", src, re.S)
+        if m and self._images is not None:
+            ext = {"jpeg": "jpg", "tif": "tiff"}.get(m.group(1), m.group(1))
+            self._n_images += 1
+            name = f"{self._prefix}-{self._n_images}.{ext}"
+            try:
+                (self._images / name).write_bytes(base64.b64decode(m.group(2)))
+            except (ValueError, OSError):
+                # A corrupt data URI is a lost figure, not a lost document.
+                return
+            self._flush()
+            self.blocks.append(("p", f"![{alt}]({self._images / name})"))
+        elif alt and any(c.isalpha() for c in alt):
+            self._flush()
+            self.blocks.append(("p", f"[image: {alt}]"))
+
+
+def _html_to_md(html: str, images: Path | None = None, prefix: str = "img") -> str:
+    parser = _HtmlToMarkdown(images, prefix)
+    parser.feed(html)
+    parser.close()
+    parser._flush()
+    out: list[str] = []
+    prev = ""
+    for kind, text in parser.blocks:
+        if kind.startswith("h"):
+            line = f"{'#' * int(kind[1])} {text}"
+        elif kind == "li":
+            line = f"- {text}"
+        elif kind == "pre":
+            line = f"```\n{text}\n```"
+        else:
+            line = text
+        # Consecutive list items and table rows stay one block apart by a single
+        # newline: markdown reads a blank line between items as separate lists.
+        sep = "\n" if kind in ("li", "tr") and prev == kind else "\n\n"
+        out.append((sep if out else "") + line)
+        prev = kind
+    return "".join(out)
 
 
 def _pdf_via_docling(src: Path, workdir: Path) -> tuple[str, Path]:
@@ -1373,7 +1792,7 @@ def _legacy_office_to_pdf(src: Path, workdir: Path) -> Path:
     """
     # Both remaining formats have a free way out, so the errors below lead with
     # it rather than with the 240 MB install: `.doc`/`.ppt` re-saved as
-    # `.docx`/`.pptx` are read by pymupdf and mineru with nothing extra.
+    # `.docx`/`.pptx` are read by mammoth and mineru with nothing extra.
     # Lowercased because dispatch is: `Report.DOC` reaches here and was being
     # told to re-save a Word document as `.pptx`.
     ooxml = ".docx" if src.suffix.lower() == ".doc" else ".pptx"
@@ -1424,12 +1843,12 @@ def _legacy_office_to_pdf(src: Path, workdir: Path) -> Path:
 def _via_legacy_office(src: Path, workdir: Path) -> tuple[str, Path]:
     """Legacy/ODF → PDF → whichever PDF provider is configured.
 
-    Deliberately routed back through the seam rather than pinned to pymupdf: the
-    intermediate is a real PDF, so a user who installed mineru for OCR gets it
-    here too.
+    Deliberately routed back through the seam rather than pinned to the default:
+    the intermediate is a real PDF, so a user who installed mineru for OCR gets
+    it here too.
     """
     pdf = _legacy_office_to_pdf(src, workdir)
-    provider = PDF_PROVIDERS.get(CONFIG.pdf_provider)
+    provider = PDF_PROVIDERS.get(resolve_pdf_provider(CONFIG.pdf_provider))
     if provider is None:
         raise ValueError(
             f"unknown pdf_provider {CONFIG.pdf_provider!r} "
@@ -1611,8 +2030,12 @@ def _mineru_error(stderr: str) -> str:
     head-truncating just surfaces "Started local mineru-api ...". Drop
     INFO/progress noise, then return the last error-ish line (else the last
     meaningful line) — a Python traceback puts "XError: msg" last too.
+
+    One cause is named outright rather than relayed: see `_MINERU_SIX_RE`.
     """
     err = stderr.strip()
+    if _MINERU_SIX_RE.search(err):
+        return "mineru needs `six`, which it does not declare — `pip install six`, then retry"
     try:
         parsed = json.loads(err)
         return str(parsed.get("error") or err[:300])
@@ -1650,8 +2073,8 @@ def _pdf_via_mineru(src: Path, workdir: Path) -> tuple[str, Path]:
         )
     except FileNotFoundError:
         raise ValueError(
-            "mineru not installed — `pip install 'silica-harness[pdf]'` (or `pip install "
-            "'mineru[pipeline]'`), or set SILICA_PDF_PROVIDER to docling/opendataloader"
+            "mineru not installed — `pip install 'mineru[pipeline]'`, "
+            "or set SILICA_PDF_PROVIDER to docling/opendataloader"
         ) from None
     if proc.returncode != 0:
         raise ValueError(f"mineru failed: {_mineru_error(proc.stderr)}")
@@ -1667,11 +2090,25 @@ def _pdf_via_mineru(src: Path, workdir: Path) -> tuple[str, Path]:
 
 
 PDF_PROVIDERS = {
-    "pymupdf": _via_pymupdf,
+    "pdfium": _via_pdfium,
     "docling": _pdf_via_docling,
     "mineru": _pdf_via_mineru,
     "opendataloader": _pdf_via_opendataloader,
 }
+
+# Names the setting used to take, recognized forever: `SILICA_PDF_PROVIDER=pymupdf`
+# sits in ~/.silica/.env files written before 2026-08-31, and a pin must not turn
+# into an "unknown provider" error because the default changed under it. Kept out
+# of PDF_PROVIDERS so the settings enum and the doctor row list real names only.
+PDF_PROVIDER_ALIASES = {"pymupdf": "pdfium"}
+
+
+def resolve_pdf_provider(name: str) -> str:
+    """The canonical provider name for a configured value (aliases mapped,
+    whitespace trimmed); an unknown name comes back unchanged for the caller
+    to report."""
+    name = (name or "").strip()
+    return PDF_PROVIDER_ALIASES.get(name, name)
 
 
 # --- shared helpers ---------------------------------------------------------
@@ -1689,20 +2126,27 @@ def _source_date(src: Path) -> str | None:
     """
     import datetime
     try:
-        if src.suffix.lower() in OFFICE_EXTS:
+        suffix = src.suffix.lower()
+        if suffix in (*OFFICE_EXTS, ".docx"):
             # OOXML core properties: <dcterms:created>2024-04-02T09:00:00Z</…>
             with zipfile.ZipFile(src) as z:
                 xml = _zip_member(z, "docProps/core.xml").decode("utf-8", "replace")
             m = re.search(r"<dcterms:created[^>]*>(\d{4})-(\d{2})-(\d{2})", xml)
-        else:
-            # PDF and the other formats MuPDF opens (docx, epub, …):
-            # metadata date format "D:20240402093000+02'00'"
-            import pymupdf
+        elif suffix == ".pdf":
+            # Info dictionary date, "D:20240402093000+02'00'"
+            import pypdfium2 as pdfium
 
-            with pymupdf.open(src) as doc:
-                m = re.search(
-                    r"(\d{4})(\d{2})(\d{2})", doc.metadata.get("creationDate") or ""
-                )
+            pdf = pdfium.PdfDocument(str(src))
+            try:
+                stamp = pdf.get_metadata_value("CreationDate") or ""
+            finally:
+                pdf.close()
+            m = re.search(r"(\d{4})(\d{2})(\d{2})", stamp)
+        elif suffix == ".epub":
+            # Dublin Core <dc:date>2019-05-06T00:00:00Z</dc:date>
+            m = re.search(r"(\d{4})-(\d{2})-(\d{2})", _epub_metadata(src).get("date", ""))
+        else:
+            return None
         if not m:
             return None
         # fromisoformat validates ranges: a "D:00000000"-style stamp dies here.
@@ -1724,17 +2168,34 @@ def _doc_citation(src: Path, md_text: str) -> dict[str, str]:
     are absent keys — never guessed, never worth failing a conversion over."""
     cite: dict[str, str] = {}
     try:
-        if src.suffix.lower() in (".pdf", *_PYMUPDF_ONLY_EXTS):
-            import pymupdf
+        suffix = src.suffix.lower()
+        title = authors = ""
+        if suffix == ".pdf":
+            import pypdfium2 as pdfium
 
-            with pymupdf.open(src) as doc:
-                meta = doc.metadata or {}
-            title = (meta.get("title") or "").strip()
-            authors = (meta.get("author") or "").strip()
-            if title:
-                cite["source_title"] = title
-            if authors:
-                cite["authors"] = authors
+            pdf = pdfium.PdfDocument(str(src))
+            try:
+                title = pdf.get_metadata_value("Title") or ""
+                authors = pdf.get_metadata_value("Author") or ""
+            finally:
+                pdf.close()
+        elif suffix == ".docx":
+            # OOXML core properties: <dc:title>, <dc:creator>
+            import html as _html
+
+            with zipfile.ZipFile(src) as z:
+                xml = _zip_member(z, "docProps/core.xml").decode("utf-8", "replace")
+            mt = re.search(r"<dc:title[^>]*>(.*?)</dc:title>", xml, re.S)
+            mc = re.search(r"<dc:creator[^>]*>(.*?)</dc:creator>", xml, re.S)
+            title = _html.unescape(mt.group(1)) if mt else ""
+            authors = _html.unescape(mc.group(1)) if mc else ""
+        elif suffix == ".epub":
+            meta = _epub_metadata(src)
+            title, authors = meta.get("title", ""), meta.get("creator", "")
+        if title.strip():
+            cite["source_title"] = " ".join(title.split())
+        if authors.strip():
+            cite["authors"] = " ".join(authors.split())
     except Exception:
         pass
     head = md_text[:8000]

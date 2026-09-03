@@ -51,7 +51,7 @@ _BLOCK_ID_RE = re.compile(r"\^[A-Za-z0-9]{4,}")
 # extracted from the raw form. Token-level callers (co-occurrence, classify)
 # therefore keep a byte-identical token set and no index needs rebuilding —
 # only phrase-level callers change, and they are the ones that were broken:
-# `extract_keyphrases` keeps YAKE n-grams verbatim, so it was emitting
+# `extract_keyphrases` kept the pool's n-grams verbatim, so it was emitting
 # concepts like `decidibilità]]` and `equazione di ricorrenza|equazioni…]]`.
 # `!?` covers non-image transclusions; image embeds are gone by strip_images.
 # The replacement is space-PADDED: adjacent links (`[[a|x]][[b|y]]`, real in the

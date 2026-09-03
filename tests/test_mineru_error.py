@@ -3,12 +3,15 @@ from silica.sources.convert import _mineru_error
 
 def test_extracts_error_field_from_json_blob():
     # The real failure: mineru wrote a JSON task blob; the old [-300:] slice
-    # started mid-token ("2:25:16…") and buried the message.
+    # started mid-token ("2:25:16…") and buried the message. The recorded blob
+    # carried a missing `six`, which now routes to its own message
+    # (test_missing_six_is_named_with_its_fix), so the parse itself is proved
+    # here with a cause that has nothing to add.
     blob = (
         '{"started_at": "2026-07-21T22:25:16.251918+00:00", '
-        '"error": "No module named \'six\'", "queued_ahead": 0}'
+        '"error": "CUDA out of memory", "queued_ahead": 0}'
     )
-    assert _mineru_error(blob) == "No module named 'six'"
+    assert _mineru_error(blob) == "CUDA out of memory"
 
 
 def test_raw_text_head_truncated_not_tail():
@@ -51,10 +54,32 @@ def test_extracts_error_field_from_embedded_task_blob():
         '{"task_id": "f07cd05c", "status": "failed", "backend": "pipeline", '
         '"file_names": ["l.Spark-SQL"], "created_at": "2026-07-21T23:07:03+00:00", '
         '"started_at": "2026-07-21T23:07:03+00:00", "completed_at": '
-        '"2026-07-21T23:07:06+00:00", "error": "No module named \'six\'", '
+        '"2026-07-21T23:07:06+00:00", "error": "CUDA out of memory", '
         '"queued_ahead": 0}\n'
     )
-    assert _mineru_error(stderr) == "No module named 'six'"
+    assert _mineru_error(stderr) == "CUDA out of memory"
+
+
+def test_missing_six_is_named_with_its_fix():
+    """The one cause relayed as an instruction instead of a quote.
+
+    mineru 3.4.4 imports `six` from its vendored pytorchocr without declaring
+    it, so the message names a dependency of a dependency and the reader has no
+    way to know it is not their fault. The `[pdf]` extra used to patch it in at
+    install time and the user never saw it; since 2026-09-02 mineru is their own
+    install, so the error is the only place the fix can live. Both real shapes
+    it arrives in are pinned: the bare traceback and the task blob.
+    """
+    traceback = (
+        "2026-09-02 | INFO     | mineru.cli:main:41 - Started local mineru-api\n"
+        '  File "/x/pytorchocr/data/imaug/operators.py", line 7, in <module>\n'
+        "ModuleNotFoundError: No module named 'six'\n"
+    )
+    blob = '{"status": "failed", "error": "No module named \'six\'"}'
+    for stderr in (traceback, blob):
+        out = _mineru_error(stderr)
+        assert "six" in out
+        assert "pip install six" in out
 
 
 def test_last_meaningful_line_when_no_explicit_error_keyword():

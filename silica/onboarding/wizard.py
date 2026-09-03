@@ -846,11 +846,12 @@ def _run_wizard_inner(
         updates.pop("SILICA_PDF_PROVIDER", None)
         updates.pop("SILICA_PDF_OCR_LANG", None)
         answer = None
-        while answer not in ("", "pymupdf", "mineru", "docling", "opendataloader"):
+        while answer not in ("", "pdfium", "mineru", "docling", "opendataloader"):
             answer = _ask(
                 input_fn,
-                "PDF converter — pymupdf, mineru, docling, or opendataloader "
-                "[Enter = pymupdf; mineru is the only one with OCR]",
+                "PDF converter — pdfium, mineru, docling, or opendataloader "
+                "[Enter = pdfium; the other three install separately, and "
+                "mineru is the only one with OCR]",
             ).lower()
         if answer:
             updates["SILICA_PDF_PROVIDER"] = answer

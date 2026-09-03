@@ -1,6 +1,6 @@
 """Tests for silica.kernel.text.recon — concept filtering via the DomainOverlay seam.
 
-Concept *extraction* now lives in silica.kernel.text.keyphrase (YAKE); recon keeps the
+Concept *extraction* now lives in silica.kernel.text.keyphrase; recon keeps the
 overlay-driven *filter* (`is_concept`) applied to every candidate, plus the
 collision-ranking helpers. These tests guard the domain knowledge in the overlays
 (which headings/words are noise) against the live filter.
@@ -114,7 +114,7 @@ class _BatchSpyDriver:
         return {q: [Hit(ref=ref, line=1, snippet=q)] for q in queries}
 
 
-# Heading is 4 words → YAKE (n=3) can't produce it → _seed_structural prepends it,
+# Heading is 4 words → the pool may miss it → _seed_structural prepends it,
 # so the corroborated concept survives the MIN_CONCEPTS=1 cutoff. Body is long
 # enough (k = tokens // 20 ≥ 2) for at least one prose-only (INFERRED) concept too.
 _STRUCTURAL = "knowledge graph memory system"
@@ -237,7 +237,7 @@ class TestStripMath:
 
 
 class TestRepeatedTokenPhrases:
-    """YAKE's n-grams slide over the text, so prose that repeats a word inside a
+    """Pool n-grams slide over the text, so prose that repeats a word inside a
     window yields candidates that repeat it too. A Book of Enoch chapter gave
     `Holy Angels holy`, `Mountain holy mountain`, `Angels righteous angels`,
     `Spirit Longed spirit` — nine of forty candidate slots spent on phrases that
