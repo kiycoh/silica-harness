@@ -2461,7 +2461,7 @@ def _nucleate_prepare(
 
     from pathlib import Path as _Path
     from silica.kernel.write.provenance import (
-        check_renucleate, content_sha256, read_records,
+        already_distilled, check_renucleate, content_sha256,
     )
 
     kept_md: list[str] = []
@@ -2472,14 +2472,10 @@ def _nucleate_prepare(
             if not incoming_sha:
                 kept_md.append(mf)
                 continue
-            # Same sha as the last record AND that run yielded notes ⇒
-            # this segment is already in the vault — re-distilling it
-            # costs a full LLM pass to write nothing. A zero-yield
-            # record (all ops deferred) is a failure, not a
-            # completion: never skip on it.
-            recs = read_records(_Path(mf).name)
-            last = recs[-1] if recs else None
-            if last and last.get("sha256") == incoming_sha and last.get("notes"):
+            # Same sha as the last COMPLETE record with notes ⇒ this segment
+            # is already in the vault; re-distilling it costs a full LLM
+            # pass to write nothing (the failure cases are provenance's).
+            if already_distilled(_Path(mf).name, incoming_sha):
                 distilled_prior += 1
                 continue
             modified, prior_notes = check_renucleate(_Path(mf).name, incoming_sha)

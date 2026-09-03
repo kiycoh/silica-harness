@@ -212,8 +212,14 @@ def append_record(
     *,
     vault_path: str | None = None,
     date: str | None = None,
+    partial: bool = False,
 ) -> AppendOutcome:
     """Append one record for `source` and report what is on disk afterwards.
+
+    `partial`: the run lost a chunk. The record still lists what landed (those
+    notes derive from this version), but it must not read as "this version is
+    in the vault": a partial run that wrote two COLLISION notes made the next
+    /nucleate skip the whole segment as already distilled (2026-09-02).
 
     Never raises (CLEANUP must never fail on this), but never hides a failure
     either: anything short of `present` is logged at WARNING with what it
@@ -236,6 +242,7 @@ def append_record(
         "run_id": run_id,
         "date": date or datetime.now().strftime("%Y-%m-%d"),
         "notes": list(notes),
+        **({"partial": True} if partial else {}),
     }
 
     try:
@@ -356,6 +363,19 @@ def note_key(p: str) -> str:
 
 
 _norm_note_ref = note_key
+
+
+def already_distilled(source: str, sha256: str, *, vault_path: str | None = None) -> bool:
+    """True when the last record for `source` is this exact content, from a
+    run that completed and wrote at least one note. A zero-yield record (all
+    ops deferred) or a partial run is a failure, not a completion: never skip
+    a segment on either."""
+    recs = read_records(source, vault_path=vault_path)
+    last = recs[-1] if recs else None
+    return bool(
+        last and last.get("sha256") == sha256 and last.get("notes")
+        and not last.get("partial")
+    )
 
 
 def note_authored_by(

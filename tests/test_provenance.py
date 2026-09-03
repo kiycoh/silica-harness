@@ -567,3 +567,19 @@ def test_drift_map_keys_notes_the_way_the_stale_peek_does(tmp_path):
     append_record("lec.md", "sha-v2", "r2", ["Concepts/A"], vault_path=str(tmp_path))
 
     assert drift_map(vault_path=str(tmp_path)) == {"Concepts/B.md": "lec.md"}
+
+
+def test_partial_run_record_never_counts_as_already_distilled(tmp_vault):
+    """A run that failed a chunk at DELEGATE but wrote two notes through
+    COLLISION recorded them, and the next /nucleate of the unchanged file said
+    "already distilled" and skipped the segment (probe run 2026-09-02). The
+    record carries the run's partial verdict; only a complete run skips."""
+    from silica.config import CONFIG
+    from silica.kernel.write.provenance import already_distilled, append_record
+
+    append_record("lez.md", "sha-1", "run-1", ["Corso/A"], vault_path=CONFIG.vault_path,
+                  partial=True)
+    assert already_distilled("lez.md", "sha-1", vault_path=CONFIG.vault_path) is False
+    append_record("lez.md", "sha-1", "run-2", ["Corso/A", "Corso/B"], vault_path=CONFIG.vault_path)
+    assert already_distilled("lez.md", "sha-1", vault_path=CONFIG.vault_path) is True
+    assert already_distilled("lez.md", "sha-other", vault_path=CONFIG.vault_path) is False
