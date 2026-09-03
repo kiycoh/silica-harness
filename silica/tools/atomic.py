@@ -1110,17 +1110,44 @@ def silica_doctor(live: bool = False) -> dict:
     return checks.report_payload(results)
 
 
-@tool(EmptyArgs, cls="atomic")
-def silica_changes() -> dict:
-    """What THIS session changed in the vault: path, created/modified/moved/
-    deleted, lines added/removed. The after side is read off disk now, so an
-    /undo that restored the bytes empties its row on its own — without this a
-    client reconstructs its own write history from tool-call memory.
+class ChangesArgs(BaseModel):
+    scope: str = Field(default="session", description="'session' = this process (default); 'vault' = every session on this vault, rows with session/ts/mine")
+    since: str = Field(default="", description="vault scope: ISO-8601; only rows first touched after it (pass the last `ts` you saw)")
+    limit: int = Field(default=200, description="vault scope: newest rows kept")
+
+
+@tool(ChangesArgs, cls="atomic")
+def silica_changes(scope: str = "session", since: str = "", limit: int = 200) -> dict:
+    """What changed in the vault: path, created/modified/moved/deleted, lines
+    added/removed, measured against the file as it is now (an /undo empties
+    its row). scope='session' is this process; scope='vault' is every
+    session's ledger on this vault, so another client or a pipeline shows up
+    with `session`, `ts`, `mine`; poll with `since`.
     """
+    import datetime
+
     from silica.kernel.write import session_changes
 
+    if scope == "vault":
+        cut = None
+        if since.strip():
+            try:
+                cut = datetime.datetime.fromisoformat(since.strip()).timestamp()
+            except ValueError:
+                return {"error": f"since must be ISO-8601, got {since!r}",
+                        "scope": scope, "total": 0, "changes": []}
+        rows = session_changes.history(since=cut, limit=limit)
+        for r in rows:
+            # Full precision on purpose: handed back as `since`, it must exclude
+            # exactly this row, and seconds would replay it.
+            r["ts"] = datetime.datetime.fromtimestamp(r["ts"]).isoformat()
+        return {"scope": "vault", "session": session_changes.SESSION,
+                "total": len(rows), "changes": rows}
+    if scope != "session":
+        return {"error": f"scope must be 'session' or 'vault', got {scope!r}",
+                "scope": scope, "total": 0, "changes": []}
     rows = session_changes.rows()
-    return {"total": len(rows), "changes": rows}
+    return {"scope": "session", "total": len(rows), "changes": rows}
 
 
 @tool(ReviewQueueArgs, cls="atomic")

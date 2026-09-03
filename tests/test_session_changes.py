@@ -1,4 +1,5 @@
 # tests/test_session_changes.py
+import re
 import pytest
 
 from silica.kernel.write import session_changes
@@ -172,7 +173,8 @@ def test_the_repl_lists_what_the_session_wrote(tmp_vault, capsys):
     DRIVER.create("Notes/New.md", "fresh\n")
 
     assert _dc_changes([]) is True
-    out = capsys.readouterr().out
+    # Rich honours FORCE_COLOR (set by some harnesses): read the text, not the codes.
+    out = re.sub(r"\x1b\[[0-9;]*m", "", capsys.readouterr().out)
     assert "M Notes/Ada.md" in out and "+1" in out
     assert "A Notes/New.md" in out
     assert "2 note(s)" in out
