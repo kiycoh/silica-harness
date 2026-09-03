@@ -1447,7 +1447,10 @@ def shape():
 
     try:
         nodes, edges = build_graph_data(folder="")
-        communities = detect_communities(nodes, edges)
+        # Called for its side effect, not its return: it assigns node["group"]
+        # and node["color"] in place (graph_export.detect_communities), which is
+        # what group_of reads back two lines down.
+        detect_communities(nodes, edges)
     except Exception as exc:
         logger.warning("shape: graph build failed (%s)", exc)
         return {"error": str(exc)}

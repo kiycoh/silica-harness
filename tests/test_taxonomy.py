@@ -5,7 +5,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-import yaml
 
 from silica.kernel.organize.taxonomy import FolderRule, Taxonomy
 

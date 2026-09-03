@@ -164,7 +164,7 @@ def run():
     print(f"accuracy   — single: {single_acc:.3f}   batch: {batch_acc:.3f}   "
           f"delta: {batch_acc - single_acc:+.3f}")
     print(f"single/batch verdict agreement: {agree:.3f}")
-    print(f"\nconfusion (gold -> single,batch):")
+    print("\nconfusion (gold -> single,batch):")
     for r in rows:
         flag = "" if r[3] == r[2] == r[4] else "  <-- miss"
         print(f"  [{r[0]:>12}] {r[1][:34]:<34} gold={r[2]:<11} "

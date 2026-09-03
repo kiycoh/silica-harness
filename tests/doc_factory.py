@@ -75,7 +75,7 @@ def pdf_bytes(
         add(f"<< /Type /Outlines /First {first} 0 R /Last {last} 0 R /Count {len(toc)} >>".encode())
         for k, (level, heading, page) in enumerate(toc):
             oid = outlines_id + 1 + k
-            entry = (f"<< /Title ".encode() + _pdf_string(heading)
+            entry = ("<< /Title ".encode() + _pdf_string(heading)
                      + f" /Parent {outlines_id} 0 R "
                        f"/Dest [{first_page_id + page - 1} 0 R /XYZ 0 792 0]".encode())
             if k > 0:

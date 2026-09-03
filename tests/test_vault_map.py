@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from silica.kernel.recall.cooccurrence import CooccurStore, build_index
 from silica.kernel.recall.vault_map import build_vault_map

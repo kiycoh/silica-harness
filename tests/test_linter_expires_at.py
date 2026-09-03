@@ -52,7 +52,6 @@ def test_expires_at_none_returns_no_warning():
 
 def test_check_expires_at_integrated_in_validate_note(tmp_path, monkeypatch):
     """validate_note emits an expires_at warning for an expired note."""
-    from silica.kernel.write import frontmatter
     import datetime
 
     past = (datetime.date.today() - datetime.timedelta(days=5)).isoformat()

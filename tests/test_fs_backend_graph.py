@@ -239,6 +239,5 @@ def test_graph_edges_carry_the_scaffold_class(tmp_path):
     backend.create("Spoke C.md", "---\nparent note: \"[[Hub]]\"\n---\n\n# Spoke C\n", )
     _notes, _unresolved, G = backend.graph_data()
     assert G["Spoke C.md"]["Hub.md"]["scaffold"] is True
-    from silica.kernel.recall.graph_export import build_graph_data
     import silica.driver as drv
     drv.DRIVER  # noqa: B018 - the export reads the configured driver; exercised via the nx graph above

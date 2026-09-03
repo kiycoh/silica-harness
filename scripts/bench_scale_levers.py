@@ -18,7 +18,6 @@ and the zoneMST memo is a browser lever measured in-page.
 """
 from __future__ import annotations
 
-import random
 import shutil
 import sys
 import tempfile

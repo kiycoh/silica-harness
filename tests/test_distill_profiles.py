@@ -15,7 +15,6 @@ Selection precedence: SILICA_DISTILL_PROFILE env > conventions.distill_profile
 from pathlib import Path
 from unittest import mock
 
-import pytest
 
 from silica.kernel import prep_delegation
 from silica.kernel.vault_manifest import (

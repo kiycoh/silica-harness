@@ -293,7 +293,6 @@ def test_boundary_anneal_settles_the_ops_the_sweep_landed_flagged(monkeypatch):
     in its own `finally` has both, so flagged landings get the same settle as
     a chunk write (probe run 2026-09-02: a near_title note recovered by the
     anneal carried `review:` but no ledger row and no judge item)."""
-    from silica.router import orchestrator
     from silica.router.orchestrator import InjectorFSM
 
     monkeypatch.delenv("SILICA_BOUNDARY_ANNEAL", raising=False)

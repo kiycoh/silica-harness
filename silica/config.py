@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import dotenv_values
 
 # Captured at package import (silica/__init__.py), before any third-party
 # load_dotenv can blur an exported pin into a .env value. Re-exported here

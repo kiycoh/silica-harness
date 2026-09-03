@@ -6,8 +6,7 @@ Rules under test:
   current vault OR point to a note being created by a write op in the same batch.
 - Links already in the vault (search_names returns a match) are allowed.
 """
-from unittest.mock import patch, MagicMock
-import pytest
+from unittest.mock import patch
 
 from silica.driver.base import NoteContent, NoteRef
 from silica.kernel.write.validate import MIN_WRITE_SNIPPET_CHARS, validate_operations

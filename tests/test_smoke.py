@@ -36,7 +36,7 @@ def test_config_loads():
 def test_driver_base_types():
     """Domain types should be importable."""
     from silica.driver.base import (
-        NoteRef, NoteContent, Hit, Heading, Link, GraphSnapshot, Txn
+        NoteRef, NoteContent
     )
     ref = NoteRef(name="Test", path="test.md")
     assert ref.name == "Test"
@@ -117,7 +117,6 @@ def test_verbose_fsm_logging(caplog):
 def test_inbox_indexing_and_external_reads(tmp_path):
     """Verify that files inside inbox_dir ARE indexed and searchable (staging is
     source material), and that external files can be read."""
-    import os
     from silica.config import CONFIG
     from silica.driver.fs_backend import ObsidianFSBackend
     
@@ -199,7 +198,6 @@ def test_silica_restore_idempotent():
 
 def test_list_inbox_files_fs(tmp_path):
     """Verify that list_inbox_files lists notes inside inbox_dir on FS backend."""
-    import os
     from silica.config import CONFIG
     from silica.driver.fs_backend import ObsidianFSBackend
     

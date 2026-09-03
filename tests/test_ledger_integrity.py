@@ -8,8 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -183,7 +182,6 @@ def test_ledger_null_hash_is_stale(ledger, tmp_path):
 def test_orchestrator_writes_content_hash(tmp_path, monkeypatch):
     """InjectorFSM ledger writes pass the source content_hash from context."""
     from silica.router.orchestrator import InjectorFSM
-    from silica.kernel.write.ops import Op, OpType
     from silica.config import CONFIG
 
     # Point the vault at tmp_path so to_vault_relative can relativize the inbox path

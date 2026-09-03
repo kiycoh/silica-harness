@@ -3,7 +3,6 @@
 md/.txt → Coordinator FSM dispatched inline ("" sentinel); target folder from
 --target= or a single folder-pick LLM call (agent-message fallback if the pick
 fails); code → skeleton stub staged inline, "" sentinel."""
-import json
 import subprocess
 from pathlib import Path
 
@@ -512,7 +511,6 @@ def test_nucleate_missing_target_still_warns_on_renucleate(repo_vault, capsys, m
 
 
 def test_settings_sets_and_shows_vault_yaml(repo_vault, capsys):
-    from pathlib import Path
     from silica.config import CONFIG
     from silica.kernel.vault_manifest import get_active_manifest, reset_manifest_cache
 
@@ -623,7 +621,6 @@ def test_folder_census_offers_folders_that_hold_no_markdown(tmp_vault, monkeypat
 # that the batch reads them.
 
 def _library(tmp_vault, monkeypatch):
-    from pathlib import Path
 
     import silica.cli as cli_mod
 
@@ -669,7 +666,6 @@ def test_folder_batch_converts_documents_and_leaves_page_photos_alone(
 
 def test_an_already_ingested_book_is_not_reconverted(
         tmp_vault, monkeypatch, stub_coordinator):
-    from pathlib import Path
 
     from silica.config import CONFIG
 
@@ -687,7 +683,6 @@ def test_an_already_ingested_book_is_not_reconverted(
 
 def test_interrupted_conversion_segments_are_reused_not_reocred(
         tmp_vault, monkeypatch, stub_coordinator):
-    from pathlib import Path
 
     from silica.config import CONFIG
 
@@ -747,7 +742,6 @@ def test_a_zero_yield_record_does_not_freeze_the_failure(
 
 def test_a_fully_ingested_batch_ends_without_a_run(
         tmp_vault, monkeypatch, stub_coordinator):
-    from pathlib import Path
 
     from silica.config import CONFIG
 
@@ -770,7 +764,6 @@ def test_next_book_converts_while_the_previous_distills(
     they use different resources and used to run strictly in sequence. The
     conversion of book B must complete DURING book A's distill, not after."""
     import threading
-    from pathlib import Path
 
     import silica.cli as cli_mod
     import silica.router.coordinator as coord_mod

@@ -1,7 +1,5 @@
 """Tests for the DeferredStore and the VALIDATE partial-write gate."""
 import pytest
-import tempfile
-from pathlib import Path
 
 from silica.kernel.recall.deferred import DeferredStore
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import types
 from pathlib import Path
 
-from silica.kernel.recall.deferred import DeferredStore
 from silica.kernel.progress import RunManifestEntry
 from silica.kernel.recall.run_log import DEFAULT_LOG_FILENAME
 from silica.router.states import finalize

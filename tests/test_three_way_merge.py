@@ -5,7 +5,6 @@ Terminology:
     current  — content on disk right now when the write lands
     incoming — what the op wants to write
 """
-import pytest
 from silica.kernel.write.merge import (
     CONFLICT_CALLOUT_HEADER,
     LEGACY_CONFLICT_CALLOUT_HEADER,

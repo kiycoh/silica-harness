@@ -20,6 +20,12 @@ how to write.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from silica.kernel.recall.cooccurrence import CooccurStore
+    from silica.kernel.recall.embed import EmbedStore
+
 from collections import OrderedDict
 from pathlib import Path
 
@@ -52,7 +58,7 @@ def memory_vault() -> Path | None:
 # memory vault and the last three peeked vaults warm; the fifth re-reads from
 # disk. ponytail: an index built mid-session by another process is not picked
 # up until eviction or restart; add an mtime check if that ever bites.
-_CACHE: OrderedDict[str, tuple[object, object]] = OrderedDict()
+_CACHE: OrderedDict[str, tuple[EmbedStore | None, CooccurStore | None]] = OrderedDict()
 _CACHE_MAX = 4
 
 

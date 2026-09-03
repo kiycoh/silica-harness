@@ -487,7 +487,7 @@ def run(vault: Path, *, n: int, model: str) -> dict:
     print("\n2. CLAIMS")
     print("   " + "   ".join(f"{k.replace('_', ' ')} {b[k]:>3}" for k in BUCKETS)
           + f"   ({g['n_claims']} total)")
-    print(f"   declines: " + ("  ".join(f"{k} {v}" for k, v in r.items() if v) or "none"))
+    print("   declines: " + ("  ".join(f"{k} {v}" for k, v in r.items() if v) or "none"))
     print(f"   verified spans: median {g['span_chars_median']:.0f} chars, "
           f"{g['short_spans']} under {SPAN_MIN}, {g['long_spans']} over {SPAN_MAX}, "
           f"{g['ambiguous_spans']} non-unique")

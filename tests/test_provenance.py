@@ -11,7 +11,6 @@ import json
 import logging
 from pathlib import Path
 
-import pytest
 
 from silica.kernel.write.provenance import (
     DEFAULT_PROVENANCE_FILENAME,

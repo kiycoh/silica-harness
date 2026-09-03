@@ -67,6 +67,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Sequence
 from glob import escape as glob_escape, glob
 from html.parser import HTMLParser
 from pathlib import Path
@@ -1400,12 +1401,13 @@ def _profile_md(
     sample_cols: list[str],
     sample_rows: list[list],
     sample_label: str,
-    categorical: list[tuple[str, int, str]] = (),
+    categorical: Sequence[tuple[str, int, str]] = (),
     members: list[Path] | None = None,
 ) -> str:
     n_cols = len(sample_cols)
     disp = _display_path(src)
-    family = bool(members and len(members) > 1)
+    members = members or []
+    family = len(members) > 1
     title = f"{_family_stem(members)} family" if family else src.name
     if family:
         # A shard family: one table split across files (same header). The
@@ -1557,7 +1559,7 @@ def _duckdb_profile(src: Path, members: list[Path] | None = None) -> str:
     With `members`, one profile over the whole shard family (same header, one
     schema): stats and sample describe the union, which is the table a reader
     actually reasons about."""
-    from silica.tools.tabular import _bind_source, _connect, utf8_source
+    from silica.tools.tabular import _connect, utf8_source
 
     # Non-utf-8 members are re-encoded into `tmp` and DuckDB is confined there
     # instead: the reader validates encoding and refuses the original outright.

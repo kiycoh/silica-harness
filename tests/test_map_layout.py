@@ -4,7 +4,6 @@ from __future__ import annotations
 import math
 
 import networkx as nx
-import pytest
 
 from silica.kernel.recall.mindmap import (
     BOX_H,

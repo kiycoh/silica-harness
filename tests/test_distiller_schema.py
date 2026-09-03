@@ -15,7 +15,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import BaseModel
 
 from silica.agent.providers import get_provider, Provider, PROVIDER_PRESETS
 from silica.agent.llm import LLMResponse

@@ -23,7 +23,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import time
+# Unused in this file on purpose: silica/router/states/*.py do
+# `from silica.router import orchestrator as orch` and then reach `orch.time`
+# and `orch.silica_*` through this module's namespace, which is also the
+# attribute the suite patches. Ruff sees only this file, so it reads the whole
+# block as dead; deleting it takes six call sites and 46 tests with it.
+import time  # noqa: F401
 from contextlib import contextmanager
 from enum import Enum, auto
 from typing import Any, Callable, TYPE_CHECKING
@@ -38,7 +43,7 @@ if TYPE_CHECKING:
 
 from silica.driver import DRIVER
 from silica.config import CONFIG
-from silica.tools.composed import (
+from silica.tools.composed import (  # noqa: F401  — see the `import time` note above
     silica_lint,
     silica_payload,
     silica_recon,
@@ -827,7 +832,7 @@ class InjectorFSM(BaseFSM[InjectorState]):
                 from silica.kernel.write.ops import Op
                 from silica.router.states.write import _settle_flagged
                 ops = [Op.model_validate(o) for o in res["flagged_ops"]]
-                _settle_flagged(self, ops, committed={o.touched_ref() for o in ops})
+                _settle_flagged(self, ops, committed={r for o in ops if (r := o.touched_ref())})
         except Exception as e:
             logger.debug("boundary anneal skipped (%s)", e)
 

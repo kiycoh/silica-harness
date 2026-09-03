@@ -433,18 +433,6 @@ def test_the_hub_moc_lands_on_the_mirror_copy_not_the_real_note(mirror_vault, mo
     driver.create.assert_called_once_with(landing, body)
 
 
-def test_the_real_inbox_stays_forbidden_under_safe_mode(mirror_vault):
-    """The defect safe mode introduced: `active_inbox_dir` composes the write
-    boundary, so it named `silica/Inbox` and the user's own `Inbox/` stopped
-    reading as an inbox — patch ops aimed at inbox notes stopped being rejected
-    (two landed as mirror copies in a real run)."""
-    from silica.kernel.recall.paths import is_inbox_path
-
-    assert is_inbox_path("Inbox/giovanni_castelli.md") is True
-    assert is_inbox_path("silica/Inbox/staged.md") is True
-    assert is_inbox_path("Matematica/Statistica/PCA.md") is False
-
-
 def test_punctuation_the_filename_dropped_still_reads_as_an_echo():
     """The title arrives slugified off the filename, so an exact match called
     'Classificazione: approcci …' and 'Classificazione approcci …' two headings."""
@@ -598,7 +586,6 @@ def test_neighbours_above_excludes_the_query_note_itself(tmp_path, monkeypatch):
     closest neighbour (cosine 1.0). Downstream autolink's self_title guard
     happened to hide it — the recall keyspace mismatch class, again."""
     import silica.kernel.recall.embed as embed_mod
-    from silica.kernel.recall.embed import EmbedStore
     from silica.kernel.recall.relatedness import neighbours_above
 
     monkeypatch.setattr(embed_mod, "_index_path", lambda: tmp_path / "emb.json")

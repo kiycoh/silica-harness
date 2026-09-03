@@ -1,4 +1,3 @@
-import pytest
 from silica.driver.base import GraphSnapshot, NoteRef, Link
 from silica.kernel.graph_diff import check_graph_regression
 

@@ -1,7 +1,6 @@
 """Tests for the `silica doctor` / `silica init` subcommand dispatch."""
 from __future__ import annotations
 
-import pytest
 
 
 class TestDispatchSubcommand:

@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-import pytest
 
 from silica.kernel.recall.graph_export import (
     Community,

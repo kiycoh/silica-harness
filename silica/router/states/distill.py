@@ -442,15 +442,15 @@ def _run_outline_chunk(fsm: "InjectorFSM", idx: int, chunk: dict,
     regenerates only the rejected bodies.
     """
     fi = fsm._chunk_flat_to_fi_ci.get(idx, (fsm._current_file_idx, 0))[0]
-    inbox_file = (chunk.get("batches") or [{}])[0].get("inbox_file", "") or fsm._current_source_file()
+    inbox_file = (chunk.get("batches") or [{}])[0].get("inbox_file", "") or fsm._current_source_file
     only: set[str] | None = None
     prior = None
     if retry_payload is not None:
         saved = fsm.context.get(f"chunk_{idx}_outline")
         prior = parse_outline(saved) if saved else None
         if prior is not None:
-            only = {c.get("name") for b in retry_payload.get("batches", [])
-                    for c in b.get("concepts", []) if isinstance(c, dict) and c.get("name")}
+            only = {n for b in retry_payload.get("batches", [])
+                    for c in b.get("concepts", []) if isinstance(c, dict) and (n := c.get("name"))}
     try:
         rows = vault_outline(fsm.target_dir, exclude_titles={fsm.hub or ""})
     except Exception as _ve:  # a blind stage B loses cross edges, never the file
@@ -458,7 +458,10 @@ def _run_outline_chunk(fsm: "InjectorFSM", idx: int, chunk: dict,
         rows = []
     from silica.router.states.finalize import file_language
     source_text = chunk.get("source_text", "")
-    language = file_language(fsm, fi, source_text)
+    # file_language returns None when the pin, the manifest and detection all
+    # come up empty (an empty chunk). The value is interpolated into eight
+    # prompt sentences, so a None would ask the model to write "in None".
+    language = file_language(fsm, fi, source_text) or "the source language"
     res = run_outliner(
         source_text=source_text,
         source_basename=os.path.basename(inbox_file),

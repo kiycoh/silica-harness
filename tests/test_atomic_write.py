@@ -1,5 +1,4 @@
 # tests/test_atomic_write.py
-import pytest
 from silica.kernel.write.ops import Op, OpType
 from silica.kernel.write.atomic_write import commit_note_atomic, NoteCommitResult, bulk_write_atomic, AtomicBulkResult
 

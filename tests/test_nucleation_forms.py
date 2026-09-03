@@ -229,7 +229,6 @@ class TestPerFilePlumbing:
 
 class TestPayloadPin:
     def test_pin_resolves_and_stores_profile_form_and_origin(self, tmp_vault, monkeypatch):
-        import silica.kernel.forms as forms
         from silica.router.states.setup import _pin_file_profile
 
         tmp_vault.note("Inbox/talk.md", "---\nform: transcript\n---\n\ncall notes\n")

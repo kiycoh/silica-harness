@@ -8,7 +8,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +103,7 @@ class TestLedgerSteering:
         import silica.kernel.progress as prog_mod
         monkeypatch.setattr(prog_mod, "_RUNS_DIR", tmp_path / "runs")
 
-        from silica.kernel.progress import ProgressLedger, TaskLedger, PlanStep
+        from silica.kernel.progress import ProgressLedger
         from silica.tools.atomic import silica_ledger_next, silica_ledger_update
         import orjson
 

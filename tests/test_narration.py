@@ -14,7 +14,7 @@ import pytest
 
 import silica.agent.narration as narr
 from silica.agent.narration import (
-    NARRATOR, ViewState, fold, fold_all, list_sessions, load_session_messages,
+    ViewState, fold, fold_all, list_sessions, load_session_messages,
     messages_from_beats, prune, read_beats, store_stats,
 )
 

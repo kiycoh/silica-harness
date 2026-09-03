@@ -6,7 +6,6 @@ seams: parsing, coverage, op assembly, edge selection, and the call plan.
 """
 from __future__ import annotations
 
-import os
 import re
 
 import pytest
@@ -507,7 +506,7 @@ def test_default_ask_gives_up_at_the_distiller_deadline(monkeypatch):
     """OpenRouter trickles keep-alive bytes on a dead upstream, so only wall
     clock bounds a stage call (same helper as run_distiller). Measured
     2026-09-02: the live run sat 10 minutes on one open socket."""
-    import threading, time
+    import time
     from silica.kernel import outline as ol
 
     class _Provider:

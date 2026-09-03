@@ -1151,7 +1151,7 @@ def test_every_media_ext_reaches_the_asr_lane(ext, tmp_vault, monkeypatch):
     tmp_vault.note(f"talk{ext}", "x")
 
     body = _inbox_note(conv.convert(f"talk{ext}")[0]).read_text(encoding="utf-8")
-    assert f"# talk" in body
+    assert "# talk" in body
     assert "the demux is one call." in body
 
 

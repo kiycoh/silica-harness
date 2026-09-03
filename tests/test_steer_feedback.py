@@ -6,7 +6,6 @@ steer loop must also cover partial rejections, re-delegating only the
 rejected concepts while validated ops are carried forward.
 """
 import json
-import os
 from unittest.mock import patch
 
 from silica.kernel.prep_delegation import render_steer_feedback

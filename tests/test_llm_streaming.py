@@ -4,7 +4,6 @@ the transient preview buffer and resets it at the turn boundaries."""
 from unittest.mock import MagicMock, patch, PropertyMock
 
 from silica.config import CONFIG
-from silica.ui.console import CONSOLE
 from tests.llm_mocks import litellm_mock_response
 
 

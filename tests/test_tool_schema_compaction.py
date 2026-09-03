@@ -14,7 +14,7 @@ import json
 
 from pydantic import BaseModel, Field
 
-from silica.tools import Tool, _strip_titles
+from silica.tools import Tool
 
 
 class _Params(BaseModel):

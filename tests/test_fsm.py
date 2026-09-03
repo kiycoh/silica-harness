@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from silica.router import states
 from silica.router.orchestrator import InjectorFSM, InjectorState
 from silica.router.recipe_parser import load_recipe
@@ -207,7 +207,6 @@ def test_fsm_multi_chunk_loop(
     mock_cleanup.return_value = {"success": True}
 
     # Setup graph mocks
-    pre_graph = MagicMock()
     post_graph = MagicMock()
     mock_driver.graph_snapshot.return_value = post_graph
 
@@ -546,7 +545,6 @@ def test_fsm_recipe_end_to_end_flow(
     mock_cleanup.return_value = {"success": True}
 
     # Setup graph mocks
-    pre_graph = MagicMock()
     post_graph = MagicMock()
     mock_driver.graph_snapshot.return_value = post_graph
 
@@ -1211,7 +1209,7 @@ def test_handle_write_all_fail_defers_and_continues(mock_commit, tmp_path):
 def test_hub_inverse_appears_in_chunk_ctx_snapshot(tmp_path):
     """After HUB_UPDATE, the hub rollback inverse must land in the txn's authoritative
     inverses list (the single source of truth read by ROLLBACK) — not in a stale dict."""
-    import json, os
+    import json
     from unittest.mock import patch, MagicMock
     from silica.router.orchestrator import InjectorFSM
 

@@ -1,5 +1,4 @@
 from unittest.mock import patch, MagicMock, PropertyMock
-import pytest
 from silica.config import CONFIG
 from silica.cli import _handle_slash_command
 from silica.ui.renderer import make_progress_callback, _redact
@@ -586,7 +585,7 @@ def test_injector_progress_not_given_its_own_live():
     """Regression: the embedded Progress must NOT own an active Live. Progress.start()
     opens a second Live on the global console that double-renders the bar — an orphan
     progress bar above the panel on small consoles. The outer self._live drives it."""
-    from unittest.mock import patch, PropertyMock
+    from unittest.mock import patch
     from rich.console import Console
     from silica.agent.events import ToolStartEvent
     from silica.ui.renderer import make_progress_callback
@@ -608,7 +607,7 @@ def test_injector_progress_not_given_its_own_live():
 
 def test_injector_single_file_has_no_bar():
     """A 0/1→1/1 bar is noise: the file bar only appears for multi-file runs."""
-    from unittest.mock import patch, PropertyMock
+    from unittest.mock import patch
     from rich.console import Console
     from silica.agent.events import ToolStartEvent
     from silica.ui.renderer import make_progress_callback
@@ -759,7 +758,7 @@ def test_failed_chunk_records_its_phase():
 
 
 def test_injector_bar_total_is_file_count():
-    from unittest.mock import patch, PropertyMock
+    from unittest.mock import patch
     from rich.console import Console
     from silica.agent.events import ToolStartEvent
     from silica.ui.renderer import make_progress_callback
@@ -839,7 +838,7 @@ def test_single_file_run_shows_no_file_counter():
 
 def test_injector_summary_shows_yield(capsys):
     import json
-    from unittest.mock import patch, PropertyMock
+    from unittest.mock import patch
     from rich.console import Console
     from silica.agent.events import ToolCompleteEvent
     from silica.ui.renderer import make_progress_callback

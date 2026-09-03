@@ -1,6 +1,5 @@
 """Vault-internal config (taxonomy/overlay) lives at the vault root, with a
 read-time fallback to the legacy _silica/ namespace."""
-from pathlib import Path
 
 from silica.config import CONFIG
 

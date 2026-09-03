@@ -1034,7 +1034,6 @@ def test_command_output_fence_is_the_class_the_stylesheet_wraps():
     `language-text`, and that selector carries pre-wrap. Miss either and the
     tail of a message runs off the right edge, which is how /fetch's yt-dlp
     error hid the pip command it prescribes."""
-    from pathlib import Path
 
     from silica.ui.web.server import _linkify
 
@@ -1857,7 +1856,6 @@ def test_write_card_path_opens_the_diff_not_the_note():
     the transcript has to point at it or the user is asked to press `revert` on
     something they were never shown.
     """
-    from silica.ui.web.server import STATIC_DIR
 
     js = app_js()
 
@@ -1875,7 +1873,6 @@ def test_write_card_path_opens_the_diff_not_the_note():
 def test_write_card_does_not_paint_a_landed_write_in_the_caution_colour():
     """A write that passed the gate, the lint and the re-read is the product
     working. It announced itself in amber, which is the palette's caution."""
-    from silica.ui.web.server import STATIC_DIR
 
     css = app_css()
     block = css[css.index(".wc-op {"):css.index(".wc-path {")]
@@ -1887,7 +1884,6 @@ def test_reduced_motion_is_honoured_for_transitions_not_only_animations():
     """The file carries dozens of transitions and only four were switched off,
     so a session that asked the OS for less motion still got the header, the
     tabs, the sidebar and every row moving."""
-    from silica.ui.web.server import STATIC_DIR
 
     css = app_css()
     blocks = css.split("@media (prefers-reduced-motion: reduce)")
@@ -1925,7 +1921,6 @@ def test_a_write_card_meets_the_changes_payload_on_the_resolved_path():
     /changes reports the path the tool resolved ("Biology/Photosynthesis.md").
     Keyed on the raw argument alone the tally never filled and every card click
     fell through openDiff's baseline lookup to openNote."""
-    from silica.ui.web.server import STATIC_DIR
 
     js = app_js()
     block = js[js.index("function stampWriteTallies"):]
@@ -1975,7 +1970,6 @@ def test_the_vault_changed_offer_is_derived_state():
     button was being set true in one place and false in another. One
     derivation from (mode, staleness) is what makes that unrepresentable.
     """
-    from silica.ui.web.server import STATIC_DIR
 
     js = app_js()
 
@@ -1989,7 +1983,6 @@ def test_the_vault_changed_offer_is_derived_state():
 def test_the_vault_poll_never_rebuilds_the_graph_on_screen():
     """The whole point of the offer: an out-of-band write must not throw away
     the camera, the zoom and the focused node of a graph someone is reading."""
-    from silica.ui.web.server import STATIC_DIR
 
     js = app_js()
 
@@ -2004,7 +1997,6 @@ def test_the_vault_poll_never_rebuilds_the_graph_on_screen():
 def test_the_vault_poll_skips_a_hidden_tab():
     """A background tab has no view to keep fresh, and the poll is a whole-vault
     stat sweep on the server — every open tab would pay it forever."""
-    from silica.ui.web.server import STATIC_DIR
 
     js = app_js()
 

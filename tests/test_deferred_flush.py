@@ -8,7 +8,6 @@ never permanently desyncs.
 """
 from __future__ import annotations
 
-import orjson
 
 from silica.kernel.recall.embed import EmbedStore, refresh_note
 from silica.kernel.recall import cooccurrence as cooc

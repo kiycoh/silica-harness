@@ -2,7 +2,6 @@
 # Copyright (C) 2026 Alessandro Carosia
 
 """`.silicaignore` — per-vault extension of NOISE_DIRS."""
-from pathlib import Path
 
 from silica.kernel.recall.paths import NOISE_DIRS, SILICAIGNORE_REL, ignore_matcher
 from silica.onboarding.adopt import seed_silicaignore
@@ -40,7 +39,7 @@ def test_seed_writes_builtins_commented_out(tmp_path):
     text = seeded.read_text(encoding="utf-8")
     assert all(f"# {d}\n" in text for d in NOISE_DIRS)
     # Commented out ⇒ the seeded file parses to exactly the built-ins.
-    names, globs = ignore_matcher(tmp_path), None
+    names = ignore_matcher(tmp_path)
     assert names("node_modules") and not names("src")
 
     # Never overwrites, and prose vaults stay file-free.

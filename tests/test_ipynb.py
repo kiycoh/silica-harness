@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from silica.kernel.code.ipynb import CODEAST_LANGUAGE, NotebookCells, parse_cells
+from silica.kernel.code.ipynb import CODEAST_LANGUAGE, parse_cells
 
 
 def _nb(cells, language="python"):

@@ -15,7 +15,6 @@ Cases covered (one section per numbered spec requirement):
 """
 from __future__ import annotations
 
-import pytest
 from silica.kernel.link.rename import rewrite_links
 
 

@@ -31,7 +31,7 @@ from silica.kernel.report.history import (
 
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static"
 WORK_JS = WEB / "work.js"
-from tests.webassets import app_css, app_js
+from tests.webassets import app_js
 INDEX = WEB / "index.html"
 
 

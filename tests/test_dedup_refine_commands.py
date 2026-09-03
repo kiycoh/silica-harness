@@ -1,5 +1,4 @@
 """Tests for the ad-hoc /dedup and /refine commands and run_subagent_batch."""
-import json
 from unittest.mock import patch, MagicMock
 
 from silica.agent.subagent import run_subagent_batch, BoundedSubAgent

@@ -5,20 +5,16 @@ All tests should be RED until vault_factory.py is implemented.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from tests.fixtures.vault_factory import (
     SPEC,
     build_synthetic_vault,
     _resolve_root,
-    _spec_sha256,
 )
 
 

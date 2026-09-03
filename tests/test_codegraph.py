@@ -72,7 +72,6 @@ def test_moved_helpers_still_work(tmp_path):
 
 import subprocess
 
-import pytest
 
 from silica.kernel.code import codegraph
 

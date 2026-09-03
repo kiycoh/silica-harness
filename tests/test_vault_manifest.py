@@ -5,9 +5,7 @@ import pytest
 
 from silica.config import CONFIG
 from silica.kernel.vault_manifest import (
-    VaultManifest,
     apply_manifest_to_config,
-    default_sources,
     get_active_manifest,
     load_manifest,
     reset_manifest_cache,

@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 
 import pytest
-import yaml
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +92,7 @@ class TestLoadOverlayMerge:
         assert "the" not in ov.stopwords
 
     def test_noise_patterns_merged(self, tmp_path: Path):
-        from silica.kernel.text.overlay import load_overlay, DEFAULT_OVERLAY
+        from silica.kernel.text.overlay import load_overlay
         custom_pattern = r"^CUSTOM:\s"
         f = tmp_path / "overlay.yaml"
         f.write_text(f"extends_default: true\nstopwords: []\nnoise_patterns:\n  - '{custom_pattern}'\n")

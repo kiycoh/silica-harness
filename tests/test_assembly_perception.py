@@ -1,7 +1,7 @@
 """perceive(assemble=True) folds neighbours into the seed blocks; default off
 leaves the block list byte-identical."""
 from silica.kernel.recall import perception
-from silica.kernel.recall.perception import NoteBlock, Perception
+from silica.kernel.recall.perception import NoteBlock
 
 
 def test_assemble_off_is_identical(monkeypatch):

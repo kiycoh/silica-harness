@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 
 from silica.kernel.calendar.model import (
-    Event,
     parse_event,
     validate_event,
     scan_events,
@@ -199,7 +198,6 @@ def test_scan_skips_malformed_event_note_without_crashing(tmp_path):
 
 
 def test_scan_memoized_on_vault_epoch(tmp_path, monkeypatch):
-    import silica.kernel.calendar.model as model
     vault = tmp_path / "vault"
     vault.mkdir()
     _write(vault, "ok.md", EVENT_NOTE)

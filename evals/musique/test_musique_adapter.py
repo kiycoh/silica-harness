@@ -10,8 +10,6 @@ correct fused ranking must place gold in the top-k.
 """
 from __future__ import annotations
 
-import json
-from pathlib import Path
 
 from evals.musique import runner
 

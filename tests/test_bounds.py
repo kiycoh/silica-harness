@@ -1,6 +1,5 @@
 """Tests for CapabilityBounds (silica/agent/bounds.py)."""
 from silica.agent.bounds import (
-    CapabilityBounds,
     dedup_bounds,
     refiner_bounds,
     orphan_bounds,

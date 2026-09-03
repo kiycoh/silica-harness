@@ -10,7 +10,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
 
 from silica.kernel.write.ops import Op, OpType
 from silica.router.orchestrator import _commit_docs_for_ops

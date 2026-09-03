@@ -5,15 +5,12 @@ edge, one orphan note) without touching a live driver or Obsidian.
 """
 from __future__ import annotations
 
-import dataclasses
 
 import pytest
 
 from silica.kernel.report.graph_report.compute import _empty_report
 from silica.kernel.report.graph_report import (
-    BridgeStat,
     ClusterStat,
-    NodeStat,
     VaultReport,
     compute_report,
     to_digest,
@@ -320,7 +317,6 @@ def test_to_facts_byte_stable(synthetic_graph):
 
 def test_duplicate_pairs_split_confirmed_vs_borderline(monkeypatch):
     """≥ τ_high → confirmed (merge candidate); τ_low..τ_high → borderline; ≤ τ_low dropped."""
-    from silica.kernel.report import graph_report as gr
 
     nn = {  # each note's single nearest neighbour: (target, cosine)
         "a": ("b", 0.92),  # ≥ 0.85  → confirmed

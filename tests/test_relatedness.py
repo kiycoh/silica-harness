@@ -471,7 +471,11 @@ def _old_rank_cooccur_from_profile(cooccur_store, profile, *, k, blocked, scope)
     matched = sum(w * idf.get(s, 0.0) for s, w in profile.items() if s in top_stems)
     coverage = (matched / total_mass) if total_mass > 0 else 0.0
     scores = [s for _p, s in ranked]
-    flatness = scores[0] / _statistics.median(scores)
+    # noqa on the next line, not a deletion: this whole function is a frozen
+    # byte-copy of the pre-3.4 implementation (see the block comment above), so
+    # a line the original computed and dropped has to stay computed and dropped
+    # or the reference stops being a reference.
+    flatness = scores[0] / _statistics.median(scores)  # noqa: F841
     fired = coverage < _relatedness_mod._COOCCUR_MIN_CONFIDENCE
     if fired:
         return None

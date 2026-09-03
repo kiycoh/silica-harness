@@ -1,5 +1,4 @@
 import json
-import pytest
 from silica.kernel.partition import partition_by_concepts
 
 def test_partition_by_concept_count():
@@ -49,12 +48,8 @@ def test_partition_by_bytes():
         ]
     }
     
-    # Serialize a single concept chunk to check base size
     # An empty chunk size is around 50-60 bytes. Adding a concept adds details.
     # We will set a max_bytes size that fits 1 or 2 concepts but not 3.
-    single_chunk = {"schema_version": 1, "batches": [{"inbox_file": "inbox1.md", "concepts": [concept_a]}]}
-    single_size = len(json.dumps(single_chunk, ensure_ascii=False).encode('utf-8'))
-    
     two_chunk = {"schema_version": 1, "batches": [{"inbox_file": "inbox1.md", "concepts": [concept_a, concept_b]}]}
     two_size = len(json.dumps(two_chunk, ensure_ascii=False).encode('utf-8'))
     

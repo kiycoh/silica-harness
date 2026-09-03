@@ -59,7 +59,11 @@ def _count_context_tokens(messages: list[dict], tools: list[dict] | None = None)
 
         from silica.config import drop_foreign_env
         drop_foreign_env()  # litellm calls load_dotenv() at import
-        return litellm.token_counter(model=CONFIG.model, messages=messages, tools=tools)
+        # litellm types `tools` as its own ChatCompletionToolParam TypedDict for
+        # what is a plain dict at runtime; the call already falls back to the
+        # char estimate in the except below.
+        return litellm.token_counter(model=CONFIG.model, messages=messages,
+                                     tools=tools)  # type: ignore[arg-type]
     except Exception:
         return sum(len(m.get("content") or "") for m in messages) // 4
 
@@ -1496,7 +1500,6 @@ def _handle_direct_shortcut(raw_input: str, messages: list[dict]) -> bool:
         /changes
         /undo [note-path]
     """
-    from silica.tools import TOOLS
 
     parts = raw_input.strip().split()
     if not parts:
@@ -2608,12 +2611,9 @@ def _sc_nucleate(args: list[str], *, user_input: str = "", **_) -> str | None:
             CONSOLE.print(f"  [yellow]--seen ignored: {seen!r} is not YYYY-MM-DD[/]")
             seen = ""
 
-    from pathlib import Path
     from silica.kernel.vault_manifest import get_active_manifest
     from silica.sources.convert import convert
     from silica.kernel.write.undo_journal import get_undo_journal
-    from silica.sources.registry import adapter_for, expand_folder, folder_rel, stage
-    from silica.tools.atomic import notes_under
 
     files, glob_miss = _nucleate_globs(files)
     if not files and glob_miss:

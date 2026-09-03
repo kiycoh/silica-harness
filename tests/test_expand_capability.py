@@ -9,7 +9,7 @@ on success — after 2 short attempts the op stays in the deferred store, final.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from silica.config import CONFIG
 from silica.kernel.write.ops import OpType

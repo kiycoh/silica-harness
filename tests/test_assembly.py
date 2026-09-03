@@ -21,7 +21,7 @@ def test_periphery_fills_by_rank_then_reports_drops():
     assert trunc.kept == 3
 
 
-from silica.kernel.recall.assembly import relevel_headers, squash, AssembledBlock
+from silica.kernel.recall.assembly import relevel_headers, squash
 
 
 def test_relevel_shifts_headings_capped_at_six():

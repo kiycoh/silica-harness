@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import textwrap
 
-import pytest
 from silica.kernel.text.media import (
     strip_images,
     images_for_section,

@@ -36,7 +36,7 @@ import logging
 import statistics
 from dataclasses import dataclass
 from collections.abc import Mapping
-from typing import Any, Callable
+from typing import Callable
 
 from silica.kernel.recall.cooccurrence import CooccurStore, cooccur_key
 from silica.kernel.recall.embed import EmbedStore

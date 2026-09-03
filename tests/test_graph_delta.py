@@ -366,7 +366,7 @@ def test_delta_report_json_serializable(delta_report, tmp_path):
     import dataclasses
     import orjson
     from silica.kernel.report.graph_report import write_report
-    paths = write_report(delta_report, str(tmp_path / "GRAPH_REPORT.md"))
+    write_report(delta_report, str(tmp_path / "GRAPH_REPORT.md"))
     data = orjson.loads((tmp_path / "GRAPH_REPORT.json").read_bytes())
     # nested delta dataclasses survive the asdict -> orjson round-trip
     assert "autolink_candidates" in data

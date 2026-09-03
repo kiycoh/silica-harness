@@ -448,7 +448,6 @@ def run_dissonance(vault: Path, *, judge: bool) -> dict:
         rng = random.Random(SEED)
         linked = [n for n in dmap if n not in {m.path for m in report.misfiled}]
         sample = rng.sample(linked, min(20, len(linked)))
-        import networkx as nx
         from silica.kernel.recall.graph_export import build_graph_data, edge_graph
         G = edge_graph(*build_graph_data())
 

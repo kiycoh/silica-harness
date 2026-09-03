@@ -79,7 +79,6 @@ class OrganizerFSM(BaseFSM[OrganizerState]):
 
         # Bundled package data — if it's missing the install is broken; fail fast.
         from silica.router.recipe_parser import load_recipe
-        from silica.config import CONFIG
         self._recipe = load_recipe("organizer")
 
         # BaseFSM contract
@@ -212,7 +211,6 @@ class OrganizerFSM(BaseFSM[OrganizerState]):
             _DEFAULT_TAU_HIGH,
             _DEFAULT_TAU_LOW,
             _llm_arbitrate,
-            _current_folder,
         )
 
         classifications: list[Classification] = self.context["classifications"]

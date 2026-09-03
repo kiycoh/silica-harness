@@ -211,7 +211,6 @@ def test_interrupt_mid_drain_stops_workers_and_renderer():
     coord = _coordinator_with(_KIFakeFSM(), cfg)
 
     renderer = make_progress_callback()
-    threads_at_interrupt: list[threading.Thread] = []
 
     import concurrent.futures
 
@@ -254,7 +253,6 @@ def test_consumer_threads_resolve_the_run_id_lazily_not_at_thread_entry():
     """The pool is submitted BEFORE fsm.run(), so _undo_run_id is still None when
     a worker thread starts. Snapshotting it at entry pins None forever and every
     expand/dedup write skips the journal — read it per item instead."""
-    from silica.router.coordinator import Coordinator
 
     fsm = _FakeFSM(0)
     fsm._undo_run_id = None  # not opened yet, exactly as at pool submit time

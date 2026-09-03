@@ -9,7 +9,6 @@ previous file — the run just does the wrong thing on the NEXT run.
 """
 from unittest.mock import patch
 
-import pytest
 
 from silica.router.orchestrator import InjectorFSM, InjectorState
 from silica.router.states import distill as d

@@ -27,6 +27,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from collections.abc import Set as AbstractSet
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,7 @@ class EdgesReply(BaseModel):
     edges: list[EdgeReply] = Field(default_factory=list)
 
 
-SCHEMA_BY_TAG = {STAGE_A_TAG: OutlineReply, STAGE_GAP_TAG: GapReply,
+SCHEMA_BY_TAG: dict[str, type[BaseModel]] = {STAGE_A_TAG: OutlineReply, STAGE_GAP_TAG: GapReply,
                  STAGE_BODIES_TAG: BodiesReply, STAGE_B_TAG: EdgesReply}
 
 
@@ -201,7 +202,7 @@ def lane_for(profile: str | None) -> str:
 
 
 # ------------------------------------------------------------------ parsing --
-def _clean_title(s: str) -> str:
+def _clean_title(s: object) -> str:
     return re.sub(r"\s+", " ", str(s or "")).strip().strip("*").strip()
 
 
@@ -280,14 +281,14 @@ def coverage_gaps(outline: Outline, headings: list[str]) -> list[str]:
 
 # -------------------------------------------------------------------- edges --
 def select_edges(raw: list, *, ideas: set[str], existing: dict[str, str],
-                 spine_titles: set[str] = frozenset()) -> list[dict]:
+                 spine_titles: AbstractSet[str] = frozenset()) -> list[dict]:
     """Stage B edges the vault will act on, in proposal order."""
     kept: list[dict] = []
     per_target: dict[str, int] = {}
     # Casefold lookups: the model re-cases titles ("Support Vector Machines"
     # for a note filed as "Support vector machines"), and an exact match threw
     # every edge of one live run away (2026-09-02, 0 of the proposals kept).
-    def _endpoint_key(raw: str) -> str:
+    def _endpoint_key(raw: object) -> str:
         # The model echoes the outline ROW it read ("Lezione 11 | Margine
         # geometrico") instead of the title alone: measured 2026-09-02, all 22
         # proposed edges of one run died on exact matching. Take the last
@@ -445,7 +446,7 @@ def _claim_of(body: str) -> str:
     return (re.split(r"(?<=[.!?])\s", prose, 1)[0] or "")[:200]
 
 
-def vault_outline(target_dir: str, *, exclude_titles: set[str] = frozenset()) -> list[dict]:
+def vault_outline(target_dir: str, *, exclude_titles: AbstractSet[str] = frozenset()) -> list[dict]:
     """Rows {title, claim, lesson, path} for every idea note under `target_dir`.
 
     Folder-scoped by design: stage B reads titles + one-line claims, and a

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -444,7 +443,6 @@ def test_refresh_note_then_build_index_skips_it(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_silica_semantic_search_empty_index(tmp_path, monkeypatch):
-    from silica.kernel.recall.embed import EmbedStore as _ES
 
     # Ensure the store loaded by the tool sees an empty index
     monkeypatch.setattr("silica.kernel.recall.embed._index_path", lambda: tmp_path / "empty.json")

@@ -56,7 +56,6 @@ def test_config_knob_default(monkeypatch):
 
 
 def test_handle_collision_honors_prefetch_marker():
-    from types import SimpleNamespace
     from unittest.mock import MagicMock, patch
 
     from silica.router.states import collision as coll
@@ -71,7 +70,6 @@ def test_handle_collision_honors_prefetch_marker():
     assert "chunk_2_collision_done" not in fsm.context  # marker consumed
 
 
-import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 

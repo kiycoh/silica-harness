@@ -11,7 +11,6 @@ from unittest.mock import patch, MagicMock
 from silica.agent.subagent import BoundedSubAgent
 from silica.capabilities.dedup import run_dedup, DedupDecision
 from silica.capabilities.refine import run_refine
-from silica.capabilities.enrich import run_enrich
 from silica.capabilities.orphan import run_orphan, OrphanLinkDecision
 from silica.capabilities._base import NoteContent
 from silica.config import SilicaConfig

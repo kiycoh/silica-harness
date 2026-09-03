@@ -128,7 +128,7 @@ def renamed(old: str, new: str) -> None:
     with _lock:
         ledger = _baselines.get(vault)
         base = ledger.pop(old, None) if ledger else None
-        if base is None:
+        if ledger is None or base is None:
             return
         ledger[new] = Baseline(before=base.before, origin=base.origin or old)
     _persist_rename(vault, old, new)

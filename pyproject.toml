@@ -87,7 +87,7 @@ dependencies = [
 gui = ["fastapi", "uvicorn", "python-multipart", "mdit-py-plugins>=0.6.1", "latex2mathml>=3.81.0"]
 # scipy is dev-only: no product code imports it (PageRank runs on numpy), but the
 # eval harness under evals/ uses scipy.stats (binomtest, spearmanr) for its gates.
-dev = ["pytest>=8.0", "mypy>=1.10", "import-linter>=2.0", "scipy>=1.17.1"]
+dev = ["pytest>=8.0", "mypy>=1.10", "import-linter>=2.0", "scipy>=1.17.1", "ruff>=0.16"]
 connect = [
     "websockets>=16.0",
 ]
@@ -137,6 +137,16 @@ include = ["silica", "silica.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Dead code, not style. Measured 2026-09-03 over 711 files: this select reports
+# 190 findings (158 of them unused imports), ruff's own default select reports
+# 2245 — and those extra 2055 are churn that rewrites rationale comments and
+# git blame to buy nothing. Widen only for a one-shot audit, never for the gate:
+# --select BLE001 alone reports 594 blind excepts, which is the CLAUDE.md
+# "a swallowed exception must name what it tolerates" rule. That is a work list,
+# not a merge blocker.
+select = ["F", "E9"]
 
 [tool.importlinter]
 root_packages = ["silica"]

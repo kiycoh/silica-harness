@@ -11,7 +11,6 @@ free-cut point is the earliest N that already reaches recall@k.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 
 def _inst(qid: str, question: str, gold_session: str, n_sessions: int) -> dict:

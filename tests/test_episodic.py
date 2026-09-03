@@ -310,7 +310,7 @@ def test_promotion_stub_survives_the_payload_window_whole(tmp_path):
     attribute's line — the distiller never saw the entity, emitted empty
     bodies, and every /promote ended no_ops. The stub must reach the distiller
     whole, whatever concept the keyphrase extractor picks."""
-    from silica.kernel.recall.episodic import entity_key, promotion_stub
+    from silica.kernel.recall.episodic import promotion_stub
     from silica.kernel.text.payload import extract_excerpt_from_content
 
     store = _store(tmp_path)

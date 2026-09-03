@@ -5,19 +5,15 @@ and AnalystPlan structure.
 """
 from __future__ import annotations
 
-import pytest
 
 from silica.kernel.report.graph_report.compute import _empty_report
 from silica.kernel.report.graph_report import (
     AutolinkCandidate,
-    BridgeStat,
     ClusterStat,
     NodeStat,
-    VaultReport,
 )
 from silica.kernel.analyst_plan import (
     AnalystPlan,
-    TaskCandidate,
     _CLUSTER_SIZE_THRESHOLD,
     _DANGLING_REFS_THRESHOLD,
     _IRREVERSIBLE,

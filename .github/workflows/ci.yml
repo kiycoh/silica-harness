@@ -49,3 +49,8 @@ jobs:
       # are here because a contract nothing re-checks is a comment.
       - run: uv run lint-imports
       - run: uv run mypy silica
+
+      # Third of the seconds-long gates, added 2026-09-03 at 0 findings after a
+      # cleanup of 158 unused imports. Narrow by config (F, E9 in pyproject):
+      # it blocks dead code, it does not arbitrate style.
+      - run: uv run ruff check silica tests bench scripts evals

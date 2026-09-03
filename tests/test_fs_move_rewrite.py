@@ -16,7 +16,6 @@ from pathlib import Path
 
 from silica.driver import fs_backend
 from silica.driver.fs_backend import ObsidianFSBackend
-from silica.driver.base import NoteRef
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +304,7 @@ class TestGraphSnapshotNonRegression:
         # Orphan and Child are unchanged — their orphan membership must be stable
         orphan_names_before = {o.name for o in snap_before.orphans}
         orphan_names_after = {o.name for o in snap_after.orphans}
+        assert orphan_names_before == orphan_names_after
 
         # Child links to Hub so it's not an orphan; Orphan and Child (no in-links) should be orphans
         # After move Hub is still linked by Child, so Child is still not an orphan

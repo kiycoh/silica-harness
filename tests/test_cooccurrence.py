@@ -458,7 +458,6 @@ def test_refresh_note_replaces_contribution_no_inflation(tmp_path):
     store.upsert_note("A", build_contribution("A", "alpha beta"))
     store.save()
 
-    st = __import__("snowballstemmer").stemmer("english").stemWord
     before = store.neighbors("alpha", k=5)
     w_before = next(c["weight"] for c in before if c["concept"] == "beta")
 

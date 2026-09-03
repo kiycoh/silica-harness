@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 from silica.config import SilicaConfig
-from silica.agent.providers import get_provider, Provider
+from silica.agent.providers import Provider
 from silica.agent.llm import LLMResponse, ToolCall, call_llm
 from silica.agent.loop import run_agent, _is_tool_failure
 from silica.tools import TOOLS, Tool

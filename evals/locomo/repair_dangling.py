@@ -20,7 +20,6 @@ Run:  uv run python evals/locomo/repair_dangling.py [SRC] [DST] [N]
 from __future__ import annotations
 
 import collections
-import os
 import re
 import shutil
 import sys
@@ -124,7 +123,7 @@ def repair(src: Path, dst: Path, n: int) -> int:
     print(f"  dangling before: {total} occ / {len(counts)} folded targets")
     print(f"  materialized:    {created} hubs (refs>={n}, non-prose)")
     print(f"  stripped:        {stripped} link occurrences unwrapped")
-    print(f"  dangling after:  0  (asserted)")
+    print("  dangling after:  0  (asserted)")
     print(f"  notes: {len(list(src.rglob('*.md')))} -> {len(list(dst.rglob('*.md')))}")
     return created
 

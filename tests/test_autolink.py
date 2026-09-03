@@ -1,7 +1,6 @@
 """Phase 4 tests — autolink: deterministic wikilink injector."""
 from __future__ import annotations
 
-import pytest
 from silica.kernel.link.autolink import autolink, build_alias_map, build_title_index
 
 

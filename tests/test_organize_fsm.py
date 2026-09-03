@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from silica.kernel.organize.classify import Classification, classify_notes
+from silica.kernel.organize.classify import classify_notes
 from silica.kernel.organize.taxonomy import FolderRule, Taxonomy
 
 from tests.llm_mocks import litellm_mock_response as _litellm_mock_response
@@ -470,7 +470,7 @@ class TestOrganizerFSMDryRun:
 
 class TestOrganizerFSMRollback:
     def test_rollback_only_moves_successful_ones_back(self):
-        from silica.router.organize_fsm import OrganizerFSM, OrganizerState
+        from silica.router.organize_fsm import OrganizerFSM
         from silica.driver.base import NoteRef
         from silica.kernel.organize.taxonomy import Taxonomy, FolderRule
 

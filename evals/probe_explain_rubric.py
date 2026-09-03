@@ -368,7 +368,7 @@ def run(vault: Path, *, n: int, model: str) -> dict:
     g = gates(arm_a, arm_r, arm_t, notes)
 
     print("\n2. GATES")
-    print(f"   G1 variance      " + "  ".join(
+    print("   G1 variance      " + "  ".join(
         f"{a[:5]} σ{g['stdev'][a]:5.1f} µ{g['mean'][a]:5.1f}" for a in AXES))
     print(f"      {len(g['axes_with_spread'])}/4 axes with σ >= {GATE_MIN_STDEV} "
           f"(need {GATE_MIN_AXES_WITH_SPREAD}) → {'PASS' if g['G1_variance'] else 'FAIL'}")
@@ -382,7 +382,7 @@ def run(vault: Path, *, n: int, model: str) -> dict:
     print(f"      → {'PASS' if g['G3_reproducible'] else 'FAIL'}")
     print(f"   G4 not-a-proxy   structure~degree rho {g['degree_correlation']['structure']:+.3f} "
           f"(< {GATE_MAX_DEGREE_RHO}) → {'PASS' if g['G4_not_a_proxy'] else 'FAIL'}")
-    print(f"   H  judge reads   drop A-T " + "  ".join(
+    print("   H  judge reads   drop A-T " + "  ".join(
         f"{a[:5]} {g['title_only_drop'][a]:+5.1f}" for a in AXES)
         + f" → {'ok' if g['H_judge_reads_the_note'] else 'HARNESS BUG'}")
     print(f"\n   VERDICT: {g['verdict']}")

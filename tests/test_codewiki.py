@@ -1,7 +1,7 @@
 """kernel/codewiki — partition + digest for the behavioral code wiki."""
 from silica.kernel.code.codegraph import CodeGraph
 from silica.kernel.code.codewiki import (
-    Subsystem, _spend_doc_budget, module_roots, partition, source_root)
+    _spend_doc_budget, module_roots, partition, source_root)
 
 
 def _graph(paths, entries=None):
@@ -229,7 +229,7 @@ def test_cross_edges_and_ref(tmp_path):
 # Task 7: flow sketches + deterministic mermaid
 # ---------------------------------------------------------------------------
 
-from silica.kernel.code.codewiki import call_adjacency, flow_sketches, render_mermaid
+from silica.kernel.code.codewiki import flow_sketches, render_mermaid
 
 
 def test_flow_sketches_deterministic_and_capped():
