@@ -250,3 +250,32 @@ def test_no_root_handler_caches_real_stderr(monkeypatch):
             monkeypatch.undo()
     finally:
         _setup_logging(debug=orig_debug)
+
+
+def test_gui_leaves_uvicorn_logging_to_root():
+    """`serve()` must build its Server with log_config=None.
+
+    uvicorn's own colourized formatter re-renders each record from the
+    `color_message` extra, which still holds the raw `%d`/`%s`, and litellm
+    >=1.98 attaches a redaction filter to `uvicorn.error` that interpolates the
+    message and then clears `record.args`. On a TTY the two together printed the
+    format string verbatim — "Started server process [%d]". Reproduced below on
+    the real formatter so the assertion is about the interaction, not about our
+    call site alone.
+    """
+    import inspect
+    from silica.ui.web.server import serve
+
+    src = inspect.getsource(serve)
+    assert "log_config=None" in src
+
+    uvicorn_logging = pytest.importorskip("uvicorn.logging")
+    record = logging.LogRecord(
+        name="uvicorn.error", level=logging.INFO, pathname="f", lineno=1,
+        msg="Started server process [%d]", args=(1234,), exc_info=None,
+    )
+    record.color_message = "Started server process [%d]"
+    record.msg, record.args = record.getMessage(), None  # what the filter does
+    rendered = uvicorn_logging.DefaultFormatter(
+        "%(levelprefix)s %(message)s", use_colors=True).format(record)
+    assert "%d" in _ANSI.sub("", rendered)  # the formatter we are opting out of

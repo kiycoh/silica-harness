@@ -3279,7 +3279,7 @@ async def start_endpoint(payload: dict):
 
 @app.get("/")
 def index():
-    # Cache-bust the three churning assets by content hash: StaticFiles sets no
+    # Cache-bust the churning assets by content hash: StaticFiles sets no
     # Cache-Control, so browsers serve them stale from heuristic freshness
     # (edited JS never reaches the page). A content-keyed URL can't be stale.
     # The big vendored bundles keep their long-lived cache — only these churn.
