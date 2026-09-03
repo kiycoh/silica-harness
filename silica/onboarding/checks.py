@@ -321,12 +321,14 @@ def check_rerank(config: SilicaConfig) -> CheckResult:
                 return CheckResult(
                     "rerank", "warn",
                     f"{config.rerank_base_url} unreachable — using in-process fallback ({LOCAL_RERANK_MODEL})",
-                    "start the reranker to use it instead of the in-process cross-encoder",
+                    "start the reranker to use it instead of the in-process cross-encoder, "
+                    "or set SILICA_RERANK_SERVE_CMD and silica starts it itself",
                 )
             return CheckResult(
                 "rerank", "warn",
                 f"{config.rerank_base_url} unreachable",
-                "start the reranker, or unset SILICA_RERANK_* and `pip install silica-harness[rerank]`",
+                "set SILICA_RERANK_SERVE_CMD so silica starts the reranker itself, start it by hand, "
+                "or unset SILICA_RERANK_* and `pip install silica-harness[rerank]`",
             )
         return CheckResult(
             "rerank", "ok", f"{config.rerank_model} @ {config.rerank_base_url}",

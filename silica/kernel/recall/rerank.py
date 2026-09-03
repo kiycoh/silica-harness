@@ -62,7 +62,7 @@ def window_weights(query: str) -> dict[str, float]:
 
 def best_window_spans(text: str, query: str, width: int, n: int = 1,
                       weights: dict[str, float] | None = None,
-                      ) -> list[tuple[int, str]]:
+                      *, snap: bool = False) -> list[tuple[int, str]]:
     """Up to `n` non-overlapping (offset, slice) windows of `text` densest in
     query terms, in document order (multi-window spec 2026-07-15; offsets
     added for the section chain, graft G1).
@@ -86,6 +86,12 @@ def best_window_spans(text: str, query: str, width: int, n: int = 1,
     the historical single-window behavior); each later window needs hits > 0 —
     never pad with irrelevant text, returning fewer than n windows is normal.
     Document order preserves chat chronology for temporal questions.
+
+    `snap` pulls each offset back to the start of its line (at most one
+    stride, so density is unchanged): the rendered excerpt then opens on a
+    word instead of "matic gate does not", and the section chain reads a real
+    line offset. Off by default because the reranker's scored docs are
+    benchmarked bit-identical; only the render asks for it.
     """
     if len(text) <= n * width:
         return [(0, text)]
@@ -106,6 +112,17 @@ def best_window_spans(text: str, query: str, width: int, n: int = 1,
         chosen.append(pos)
         candidates = [c for c in candidates
                       if c[0] + width <= pos or c[0] >= pos + width]
+    if snap:
+        # The end stays put: a hit in the window's last `step` chars would
+        # otherwise fall off when the start moves back. A body with no newline
+        # in reach (one-line chat turns) keeps its offset instead of jumping
+        # to 0, which is what lost the yoga class in the tests.
+        out = []
+        for p in sorted(chosen):
+            nl = text.rfind("\n", max(0, p - step), p)
+            start = nl + 1 if nl >= 0 else p
+            out.append((start, text[start:p + width]))
+        return out
     return [(p, text[p:p + width]) for p in sorted(chosen)]
 
 

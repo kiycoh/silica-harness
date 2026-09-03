@@ -14,7 +14,6 @@ nothing is known to be broken, and not ok, since nothing is known to work.
 """
 from types import SimpleNamespace
 
-import pytest
 
 from silica.onboarding import checks
 
@@ -187,3 +186,21 @@ class TestTheExitCode:
         assert checks.report_payload([ok])["verdict"] == "ok"
         assert checks.report_payload([ok, checks.CheckResult("b", "warn", "")])["verdict"] == "hold"
         assert checks.report_payload([ok, checks.CheckResult("b", "fail", "")])["verdict"] == "fail"
+
+
+class TestTheDeadRerankerHint:
+    def test_names_the_autostart_variable(self, monkeypatch):
+        """`silica mcp` already runs ensure_local_servers; it only starts the
+        reranker when SILICA_RERANK_SERVE_CMD names a command. "start the
+        reranker" sent the operator to a terminal for something the
+        harness would do itself if told how (2026-09-03)."""
+        def dead(*a, **k):
+            raise ConnectionError("refused")
+        monkeypatch.setattr(checks.httpx, "post", dead)
+        monkeypatch.setattr(checks, "has_local_rerank", lambda: False)
+
+        result = checks.check_rerank(_config(rerank_base_url="http://x:1235",
+                                             rerank_model="bge"))
+
+        assert result.status == "warn"
+        assert "SILICA_RERANK_SERVE_CMD" in result.hint

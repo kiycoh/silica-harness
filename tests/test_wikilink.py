@@ -48,3 +48,10 @@ def test_extract_links_typed_prose_wins_over_a_scaffold_mention():
     from silica.kernel.link.ast import extract_links_typed
     content = "---\nrelated:\n  - \"[[X]]\"\n---\n\nBody cites [[X]] in a sentence.\n"
     assert extract_links_typed(content) == {"X": False}
+
+
+def test_adr_prose_reference_is_a_link():
+    # 36 ADRs cite each other as "ADR-0001" in prose and had out_links: [].
+    # The ADR corpus gets its graph from the reference it already writes.
+    content = "Guardrail (keeps ADR-0001 intact); see ADR-0029.\nNot in `ADR-0002` code.\n"
+    assert extract_links(content) == ["ADR-0001", "ADR-0029"]

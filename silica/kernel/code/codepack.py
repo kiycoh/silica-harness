@@ -24,6 +24,7 @@ about to rewrite, signatures for everything around it (D5).
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from silica.kernel.code import codegraph
@@ -398,8 +399,15 @@ def _neighborhood(graph, path: str, entry: dict,
 
 
 def code_pack(vault: Path | str, target: str,
-              budget_chars: int = BUDGET_CHARS) -> dict:
+              budget_chars: int = BUDGET_CHARS,
+              sections: list[str] | None = None) -> dict:
     """Context pack for `target` ("path", "path#Class" or "path#Class.member").
+
+    `sections` (None = all) names which of hierarchy / neighborhood / external
+    / importers to emit; the target is always served. The tool is stateless,
+    so the second pack in the same package would otherwise repay the same
+    neighbourhood outline (paths.py came back in every pack under
+    kernel/write, 2026-09-03) with no way to say "already seen".
 
     Raises ValueError when the target file cannot be read: a bad path is a
     caller mistake, not a state to degrade around. Every other shortfall
@@ -452,10 +460,14 @@ def code_pack(vault: Path | str, target: str,
     overhead = len(f"## target {path} @ {head_ref} mode: verbatim\n") + 1
     body, mode = _target_block(source, entry, selector, budget_chars - overhead, dropped)
     chunks = [f"## target {path} @ {head_ref} mode: {mode}\n{body}"]
-    sections: dict[str, list[str]] = {"target": [path]}
+    emitted_sections: dict[str, list[str]] = {"target": [path]}
     # one scan of the graph, not two: `fan-in` is defined as len(importers)
     importers = [(p, p) for p in (graph.importers(path) if graph is not None else [])]
-    external = [(d, d) for d in entry.get("external", [])]
+    # A Python stdlib import is not a dependency anyone needs to fetch, and
+    # listed in `dropped` it read as a fetchable section ("external: hashlib").
+    # Other languages keep their externals: no stdlib roster to check against.
+    stdlib = sys.stdlib_module_names if entry.get("language") == "python" else frozenset()
+    external = [(d, d) for d in entry.get("external", []) if d.split(".")[0] not in stdlib]
     used = len(chunks[0]) + 1  # + the trailing newline the pack always ends with
     stop = False
     for name, entries in (
@@ -464,6 +476,8 @@ def code_pack(vault: Path | str, target: str,
         ("external", external),
         ("importers", importers),
     ):
+        if sections is not None and name not in sections:
+            continue
         # len(entries), not len(emitted): the count is the repo-wide total even
         # when the budget trimmed the list printed underneath it.
         header = f"## {name}" + (f" (fan-in {len(entries)})" if name == "importers" else "")
@@ -477,14 +491,20 @@ def code_pack(vault: Path | str, target: str,
                 continue
             used += cost
             emitted.append(block)
-            sections.setdefault(name, []).append(label)
+            emitted_sections.setdefault(name, []).append(label)
         if emitted:
             chunks.append(header + "\n" + "\n".join(emitted))
-    return {
+    out = {
         "text": "\n\n".join(chunks) + "\n",
-        "sections": sections,
+        "sections": emitted_sections,
         "dropped": dropped,
         "target_mode": mode,
         "truncated": mode != "verbatim",
         "head_ref": head_ref,
+        "target_chars": len(source),
     }
+    if mode == "outline":
+        # The one number the caller needs to escalate: the budget at which
+        # `_target_block` would have served the file whole.
+        out["verbatim_at"] = len(source) + overhead
+    return out

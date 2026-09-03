@@ -4,8 +4,7 @@ Tests are isolated from the live driver and ledger; all I/O is mocked.
 """
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -388,7 +387,6 @@ class TestT4PerFileCleanup:
         fsm._file_canonicals = ["inbox/a", "inbox/b"]
         fsm._file_content_hashes = ["hash_a", "hash_b"]
 
-        recorded = []
         mock_op = MagicMock()
         mock_op.op.value = "write"
         mock_op.op.__eq__ = lambda self, other: False  # not OpType.skip
@@ -398,7 +396,6 @@ class TestT4PerFileCleanup:
                 fsm.context.setdefault("chunk", {})["ops_path"] = "/tmp/ops.json"
                 fsm.context.setdefault("chunk", {})["txn_id"] = "txn_1"
                 fsm._write_ledger_for_file(1, "committed")
-                call_kwargs = mock_ledger.return_value.record.call_args
         # source_canonical should be for fi=1 ("inbox/b")
         assert mock_ledger.return_value.record.called
         args = mock_ledger.return_value.record.call_args
@@ -487,7 +484,6 @@ class TestT6DirectShortcuts:
 
     def _swap_tool_fn(self, tool_name: str, new_fn):
         """Context manager that temporarily replaces Tool.fn (bypasses __slots__ read-only issue)."""
-        from silica.tools import TOOLS
         import contextlib
 
         @contextlib.contextmanager
@@ -510,7 +506,7 @@ class TestT6DirectShortcuts:
         # mirrors the tool signature, memory included since ADR-0032: a stub
         # that drops a real parameter dies as a TypeError inside Tool.run,
         # which swallows it and leaves this asserting on an empty list.
-        def capture_search(query: str, k: int = 5, memory: bool = True):
+        def capture_search(query: str, k: int = 5, memory: bool = True, folder: str = ""):
             received_query.append(query)
             return {"query": query, "results": []}
 

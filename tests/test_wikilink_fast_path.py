@@ -94,6 +94,7 @@ LINK_PRODUCING = [
     pytest.param("See [x](HTTP://Xi) here.\n", ["HTTP://Xi"], id="uppercase-scheme"),
     pytest.param("<HTTP://Omicron>\n", ["HTTP://Omicron"], id="uppercase-autolink"),
     pytest.param("    See [b].\n\n    [b]: Pi.md\n", ["Pi.md"], id="reference-behind-dedent"),
+    pytest.param("Keeps ADR-0001 intact.\n", ["ADR-0001"], id="adr-prose-reference"),
 ]
 
 

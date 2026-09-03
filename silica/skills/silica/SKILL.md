@@ -40,7 +40,20 @@ re-nucleated at another version. Cite them with that caveat, never as current.
 Refine with those when `recall` is the wrong shape:
 
 - Bare ranked list by meaning: `silica_semantic_search {query, k}`.
-- Exact strings (error messages, names, quotes): `silica_search_context {query}`.
+- Exact strings (error messages, names, quotes, code symbols):
+  `silica_search_context {query}`. In a codebase vault it also scans the
+  repo's tracked source files (`kind: "source"` hits, file and line) and says
+  so in `scanned`; an empty reply with `scanned` present is a true absence.
+- A subtree keeps taking the slots (research on other products, fixtures,
+  another project's notes in the same vault): `folder=` on `silica_recall`
+  and `silica_semantic_search` scopes the answer to that vault folder, e.g.
+  `folder: "docs/adr"` or `folder: "silica"`. `memory=false` cannot do this:
+  those notes are in the active vault.
+- A reply carrying `degraded: ["rerank"]` was ordered by first-stage fusion,
+  not by the cross-encoder: the notes are candidates, not a ranking. Say so
+  when citing, and pass the `hint` on to the user (the reranker is down).
+- A header token `documents: a.py, b.py` names the source files the note
+  documents: on a code question, open those before answering from prose.
 - Known title: `silica_search {query}`, then read it.
 - Temporal ("when", "before/after", "most recent"): `silica_timeline
   {start?, end?, limit?}`, the chronological index of dated notes. Consult it
@@ -100,7 +113,10 @@ index doctor reports missing.
   replies carry, never a guess).
 - `silica_code_pack {target}` packs one source file with its real
   dependencies inside a character budget: use it before rewriting or porting
-  a file, instead of ten greps.
+  a file, instead of ten greps. When `target_mode` is `outline`, the reply's
+  `verbatim_at` is the `budget_chars` that serves the file whole; on a second
+  pack in the same package pass `sections: ["importers"]` so the
+  neighbourhood outline is not repaid.
 - `silica_impact {range_spec?}` maps a code change (uncommitted by default)
   to the notes documenting the changed files and their import neighbors,
   classified cosmetic/structural: the blast-radius read before and after

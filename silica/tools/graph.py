@@ -294,7 +294,7 @@ def _peek_stale() -> dict[str, str]:
 _NOTE_POOL = 20
 
 
-def _facade_search(text: str, k: int, memory: bool = True) -> dict[str, Any]:
+def _facade_search(text: str, k: int, memory: bool = True, folder: str = "") -> dict[str, Any]:
     """Fused embeddings + co-occurrence search for a fresh text, then reranked.
 
     Shared core of silica_semantic_search, now routed
@@ -334,10 +334,16 @@ def _facade_search(text: str, k: int, memory: bool = True) -> dict[str, Any]:
     # staging, and dropping it here silently shrank the guest lane (ADR-0019).
     notes = [r for r in results
              if r.origin == "memory" or not is_inbox_path(r.path or "")]
+    if folder:
+        from silica.kernel.recall.paths import in_folder
+
+        # A folder of THIS vault never contains a memory-lane path.
+        notes = [r for r in notes if r.origin != "memory" and in_folder(r.path or "", folder)]
     # Never answer empty because everything relevant was staged: if the vault has
-    # nothing else to say, staging IS the answer.
+    # nothing else to say, staging IS the answer. A folder scope is different:
+    # empty there is the true answer, not a staging artefact.
     rr: dict = {"reranked": False}
-    results = (notes or results)[:k]
+    results = (notes or (results if not folder else []))[:k]
     reranker = get_reranker(CONFIG)
     if reranker:
         results = rerank_related(reranker, text, results, k=k, stats=rr)
@@ -368,9 +374,10 @@ class SemanticSearchArgs(BaseModel):
     query: str = Field(description="Free-form query text to embed and search against the vault index")
     k: int = Field(default=5, description="Number of results to return")
     memory: bool = Field(default=True, description="Include the personal-memory lane (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy result slots.")
+    folder: str = Field(default="", description="Only notes under this vault folder (e.g. 'docs/adr'). Empty = whole vault.")
 
 @tool(SemanticSearchArgs, cls="composed")
-def silica_semantic_search(query: str, k: int = 5, memory: bool = True) -> dict[str, Any]:
+def silica_semantic_search(query: str, k: int = 5, memory: bool = True, folder: str = "") -> dict[str, Any]:
     """Find vault notes by MEANING (embeddings + co-occurrence fused, reranked).
 
     Use for "what do I have about X" when the exact wording is unknown;
@@ -385,7 +392,7 @@ def silica_semantic_search(query: str, k: int = 5, memory: bool = True) -> dict[
     much smaller scale). A low score never means "absent" — to decide whether
     a note exists, use silica_exists or silica_search, not a threshold here.
     """
-    return {"query": query, **_facade_search(query, k=k, memory=memory)}
+    return {"query": query, **_facade_search(query, k=k, memory=memory, folder=folder)}
 
 
 class RecallArgs(BaseModel):
@@ -393,10 +400,12 @@ class RecallArgs(BaseModel):
     k: int = Field(default=15, description="Maximum number of notes contributing to the context")
     memory: bool = Field(default=True, description="Include the personal-memory lane and its facts (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy context slots.")
     vault: str = Field(default="", description="Peek: path of another Silica vault to answer from (see silica_vaults). Read-only; the session's vault does not change.")
+    folder: str = Field(default="", description="Only notes under this vault folder (e.g. 'docs/adr', 'silica'). Empty = whole vault. Use it when a subtree of unrelated notes (research on other products, fixtures) keeps taking the slots.")
 
 
 @tool(RecallArgs, cls="composed")
-def silica_recall(query: str, k: int = 15, memory: bool = True, vault: str = "") -> dict[str, Any]:
+def silica_recall(query: str, k: int = 15, memory: bool = True, vault: str = "",
+                  folder: str = "") -> dict[str, Any]:
     """Assemble an answer-ready memory context for a question: fused retrieval,
     each note's query-densest window under a rank/evidence/date header,
     recalled personal facts first. Use when ANSWERING from vault memory
@@ -415,8 +424,10 @@ def silica_recall(query: str, k: int = 15, memory: bool = True, vault: str = "")
     peek = _peek_target(vault)
     if isinstance(peek, dict):  # a refusal, already shaped as the reply
         return {"query": query, **peek}
+    rr: dict[str, Any] = {"reranked": False}
     p = perceive(query, now=datetime.date.today().isoformat(), k=k,
-                 use_memory=memory, vault=peek)
+                 use_memory=memory, vault=peek, rerank_stats=rr,
+                 folder=folder.strip() or None)
     # Staleness is the ACTIVE vault's code lane; a peeked vault's paths would
     # only ever match it by coincidence.
     stale_map = {} if peek else _peek_stale()
@@ -435,6 +446,15 @@ def silica_recall(query: str, k: int = 15, memory: bool = True, vault: str = "")
            "partial": [b.path for b in p.blocks
                        if b.origin != "memory" and b.excerpt.strip() != b.body.strip()],
            "facts": len(p.fact_hits)}
+    if not rr.get("reranked"):
+        # A top-level key, not a per-hit flag: the caller reads `context` and
+        # never looks at scores, so the one place it can learn the ordering is
+        # a fusion one is here. The autostart already exists (`silica mcp`
+        # runs ensure_local_servers); it only fires when the env names a
+        # command, which is what the hint says.
+        out["degraded"] = ["rerank"]
+        out["hint"] = ("ordering is first-stage fusion, not reranked: start the reranker, "
+                       "or set SILICA_RERANK_SERVE_CMD so `silica mcp` starts it")
     mem_paths = [b.path for b in p.blocks if b.origin == "memory"]
     if mem_paths:
         out["memory"] = mem_paths

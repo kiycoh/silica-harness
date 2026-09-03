@@ -20,9 +20,10 @@ import os
 import threading
 import time
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 import networkx as nx
-from silica.kernel.link.ast import NON_MD_EXTENSIONS, extract_refs_typed, resolve_relative
+from silica.kernel.link.ast import ADR_REF_RE, NON_MD_EXTENSIONS, extract_refs_typed, resolve_relative
 
 from silica.driver.base import (
     GraphIndexMixin,
@@ -317,6 +318,15 @@ class ObsidianFSBackend(GraphIndexMixin):
             return None
         else:
             refs = self._notes_by_name.get(target_no_ext.lower(), [])
+            if not refs and (m := ADR_REF_RE.fullmatch(target_no_ext)):
+                # `ADR-0003` names the record filed as `0003-*`; an adr folder
+                # wins over any other note that happens to start with the
+                # number (a dated note, a numbered lecture).
+                refs = sorted(
+                    (r for name, rs in self._notes_by_name.items()
+                     if name.startswith(m.group(1) + "-") for r in rs),
+                    key=lambda r: ("/adr/" not in f"/{r.path.lower()}", r.path.count("/"), r.path.lower()),
+                )[:1]
             if not refs:
                 return None
             if len(refs) == 1:
@@ -368,7 +378,7 @@ class ObsidianFSBackend(GraphIndexMixin):
         return shortest(cands)
 
     def _index_file_refs(self, rel_path: str, content: str, file_targets: list[str],
-                         mentions: list[str] = ()) -> None:
+                         mentions: Sequence[str] = ()) -> None:
         """Record one note's file references: resolved embeds into the forward
         and inverse maps, misses into `_unresolved_assets` (counted, never
         silently dropped), and `documents:` frontmatter into its own

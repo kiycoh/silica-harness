@@ -67,8 +67,15 @@ WIKILINK_TARGET_RE = re.compile(r"\[\[([^\]|#]+)")
 # parser side of this scan, not this side — and every alternative here is
 # mutation-tested (tests/test_wikilink_fast_path.py), because a scan that is
 # merely nearly right looks exactly like one that is right.
+# A decision record cited by number in prose. The 36 ADRs under docs/adr cite
+# each other this way and had `out_links: []`: the graph was blind to the one
+# reference they all write. Emitted as the literal `ADR-NNNN` token; the
+# backend resolver maps it to the note filed as `NNNN-*` (fs_backend).
+ADR_REF_RE = re.compile(r"\bADR-(\d{4})\b")
+
 _LINK_MARKER_RE = re.compile(
     r"\[\["
+    r"|ADR-\d{4}\b"
     r"|\]\((?!https?://|mailto:)"
     # Unanchored on purpose. A definition is document-global wherever it sits,
     # and inside a blockquote its line starts with '>', not whitespace — the
@@ -140,7 +147,7 @@ def _extract_links_ast(content: str) -> list[str]:
     return _extract_refs_ast(content)[0]
 
 
-def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
+def _extract_refs_ast(content: str) -> tuple[list[str], list[str], list[str]]:
     """One parse, three buckets: (note targets, file targets, code mentions).
 
     The note/file split lives at the extension check that used to silently
@@ -186,7 +193,7 @@ def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
 
     walk(tokens)
 
-    cleaned = []
+    cleaned: list[str] = []
     files: list[str] = []
     for text in text_pieces:
         # Match [[target]] links (allowing characters like # and ^)
@@ -215,6 +222,11 @@ def _extract_refs_ast(content: str) -> tuple[list[str], list[str]]:
                 continue
             if t not in cleaned:
                 cleaned.append(t)
+        # Prose only: `text` tokens. A fenced or inline-code `ADR-0001` is a
+        # `fence`/`code_inline` token and never reaches text_pieces.
+        for num in ADR_REF_RE.findall(text):
+            if f"ADR-{num}" not in cleaned:
+                cleaned.append(f"ADR-{num}")
     return cleaned, files, mentions
 
 

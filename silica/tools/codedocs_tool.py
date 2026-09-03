@@ -55,6 +55,13 @@ class CodePackArgs(BaseModel):
         description="Character budget for the whole pack. The target is always "
                     "served, sections fill what is left.",
     )
+    sections: list[str] = Field(
+        default_factory=list,
+        description="Which sections to emit besides the target: any of "
+                    "'hierarchy', 'neighborhood', 'external', 'importers'. "
+                    "Empty = all. Pass ['importers'] on a second pack in the "
+                    "same package so the neighbourhood outline is not repaid.",
+    )
 
 
 def _stamp_code_pack_use() -> None:
@@ -78,7 +85,8 @@ def _stamp_code_pack_use() -> None:
 
 
 @tool(CodePackArgs, cls="composed")
-def silica_code_pack(target: str, budget_chars: int = 24000) -> dict:
+def silica_code_pack(target: str, budget_chars: int = 24000,
+                     sections: list[str] | None = None) -> dict:
     """Deterministic context pack for one source file inside a character
     budget: the target plus its supertypes, extenders, the visible signatures
     it actually names, external dependencies, and importers. A closure, not a
@@ -101,7 +109,7 @@ def silica_code_pack(target: str, budget_chars: int = 24000) -> dict:
         return {"status": "error", "message": "no vault configured"}
     _stamp_code_pack_use()
     try:
-        pack = codepack.code_pack(vault, target, budget_chars)
+        pack = codepack.code_pack(vault, target, budget_chars, sections=sections or None)
     except (ValueError, OSError) as e:
         # OSError: loading the code graph can write its store, and an
         # unwritable store is a tool-level error, not a crash of the caller.

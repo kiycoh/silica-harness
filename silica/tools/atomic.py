@@ -11,6 +11,7 @@ From SILICA.md §4.2:
 from __future__ import annotations
 
 import re
+import subprocess
 import unicodedata
 from collections.abc import Iterable
 from functools import lru_cache
@@ -210,6 +211,51 @@ class SearchContextArgs(BaseModel):
 # already has a tool: silica_semantic_search.
 _CONTEXT_MAX_NOTES = 12
 _CONTEXT_LINES_PER_NOTE = 3
+_SOURCE_MAX_FILES = 20
+_SOURCE_LINES_PER_FILE = 3
+
+
+def _source_hits(query: str) -> list[dict] | None:
+    """Exact-string hits in the repo's source files; None when the vault has
+    no code lane or git could not scan (so the caller reports "not scanned",
+    never a false absence).
+
+    The driver indexes markdown only, so on a codebase vault a symbol probe
+    answered empty while grep found it (2026-09-03, `follow_superseded`, 7
+    lines). `git grep` rather than `grep -r`: it honours .gitignore, so the
+    346MB of fixtures under `data` never get walked, and `--untracked` keeps
+    a file written this session visible. Notes are excluded here because the
+    driver already searched them.
+    """
+    from silica.config import CONFIG
+    from silica.kernel.recall.paths import repo_root_for
+
+    root = repo_root_for(getattr(CONFIG, "vault_path", "") or "")
+    if root is None:
+        return None
+    try:
+        proc = subprocess.run(
+            ["git", "grep", "-n", "-I", "-F", "-i", "--untracked", "-e", query,
+             "--", ":!*.md"],
+            cwd=root, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None  # git missing or hung: "not scanned" is the honest answer
+    if proc.returncode not in (0, 1):  # 1 = no match; anything else is a git error
+        return None
+    hits: list[dict] = []
+    per_file: dict[str, int] = {}
+    for line in proc.stdout.splitlines():
+        path, _, rest = line.partition(":")
+        lineno, _, snippet = rest.partition(":")
+        if path not in per_file and len(per_file) >= _SOURCE_MAX_FILES:
+            break
+        if per_file.get(path, 0) >= _SOURCE_LINES_PER_FILE:
+            continue
+        per_file[path] = per_file.get(path, 0) + 1
+        hits.append({"kind": "source", "path": path, "line": int(lineno),
+                     "snippet": snippet.strip()[:200]})
+    return hits
 
 
 @tool(SearchContextArgs, cls="atomic")
@@ -267,6 +313,10 @@ def silica_search_context(query: str) -> dict:
             f"{_CONTEXT_LINES_PER_NOTE} lines each. Narrow the query, or use "
             "silica_semantic_search to rank by meaning."
         )
+    src = _source_hits(query)
+    if src is not None:
+        out["hits"].extend(src)
+        out["scanned"] = ["notes", "source"]
     return out
 
 
@@ -891,7 +941,8 @@ def silica_graph_explain(note: str, depth: int = 1) -> dict:
     diagnosis = {
         # Structural position
         "is_orphan": resolved_id in report.orphans,
-        "is_hub": bool(cluster_stat and cluster_stat.hub == resolved_id),
+        # A one-note cluster's hub is itself, which made every orphan a hub.
+        "is_hub": bool(cluster_stat and cluster_stat.hub == resolved_id and cluster_stat.size > 1),
         "cluster_size": (cluster_stat.size if cluster_stat else 0),
         # How tightly its own area holds together: a well-linked note in a loose
         # cluster is integrated; the same note in a dense cluster is ordinary.

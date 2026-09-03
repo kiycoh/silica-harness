@@ -44,6 +44,7 @@ DEFAULT_K = 15
 # is what wins. k stays 15: probe_recall_rank showed the rank tail carries gold.
 WINDOW_CHARS = 1000
 DEFAULT_WINDOWS = 3
+TOP_WINDOWED_RANKS = 5  # ranks past this render one window; see perceive()
 FACTS_K = 10
 
 
@@ -60,6 +61,7 @@ class NoteBlock:
     builds_on: str = ""  # rendered prereqs ("A, B"), set only by study order (G6)
     origin: str = "vault"  # "memory" = personal-memory lane (ADR-0019): the path
     #                        resolves in ANOTHER vault, so read_note denies it
+    documents: list[str] = field(default_factory=list)  # `documents:` frontmatter, repo-relative
 
 
 @dataclass
@@ -101,6 +103,11 @@ class Perception:
                     head += (f" | sec: {b.section}" if b.section else "")
                     head += (f" | builds-on: {b.builds_on}" if b.builds_on else "")
                 head += (f" | {b.evidence}" if b.evidence else "")
+                # The files this note documents, so a code question answered
+                # from prose still names the file to open: code itself is not
+                # in the recall index (955 vectors = 955 notes), and until now
+                # the binding only ever fed `stale`.
+                head += (f" | documents: {', '.join(b.documents)}" if b.documents else "")
                 head += (f" | dated {b.date}" if b.date else "")
                 head += (f" | contested: {b.contested}" if b.contested else "")
                 head += (f" | stale:{lvl}" if lvl else "") + "]"
@@ -128,7 +135,7 @@ def _peek_dir(vault: str | None) -> str | None:
     """The resolved folder a `vault=` peek reads, or None for a plain call: no
     vault named, or the active vault named (then the active path, with its
     sweep and its singletons, is the right one)."""
-    if not (vault or "").strip():
+    if vault is None or not vault.strip():
         return None
     from silica.config import CONFIG
 
@@ -271,22 +278,24 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
     return results, query_vec
 
 
-def _read_dated_body(path: str, origin: str = "vault") -> tuple[str, str | None, str | None]:
-    """(frontmatter date, contested reason, body) for one note; ('', None, None)
-    when unreadable. `contested` is the note's flag reason (first `contradictions`
-    entry) or None. origin='memory' resolves in the personal-memory vault
-    (ADR-0019); an absolute-path origin resolves in that peeked vault."""
+def _read_dated_body(path: str, origin: str = "vault") -> tuple[str, str | None, str | None, list[str]]:
+    """(frontmatter date, contested reason, body, documents) for one note;
+    ('', None, None, []) when unreadable. `contested` is the note's flag
+    reason (first `contradictions` entry) or None; `documents` the repo files
+    the note documents (`documents:` frontmatter, [] when none). origin='memory'
+    resolves in the personal-memory vault (ADR-0019); an absolute-path origin
+    resolves in that peeked vault."""
     if origin != "vault":
         from silica.kernel.recall.memory_lane import foreign_root
 
         root = foreign_root(origin)
         if root is None:
-            return "", None, None
+            return "", None, None, []
         p = root / (path if path.endswith(".md") else path + ".md")
         try:
             content = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            return "", None, None
+            return "", None, None, []
     else:
         from silica.driver import DRIVER
 
@@ -294,7 +303,7 @@ def _read_dated_body(path: str, origin: str = "vault") -> tuple[str, str | None,
             content = DRIVER.read_note(
                 path if path.endswith(".md") else path + ".md").content or ""
         except Exception:
-            return "", None, None
+            return "", None, None, []
     from silica.kernel.write import frontmatter
 
     data, _raw, body = frontmatter.split(content)
@@ -309,7 +318,7 @@ def _read_dated_body(path: str, origin: str = "vault") -> tuple[str, str | None,
     # `body` is the frontmatter-stripped text; for a body-only note split()
     # already returns the whole content as body. The old `or content` fallback
     # leaked YAML frontmatter into context whenever the body was empty (A7).
-    return date, contested, body
+    return date, contested, body, frontmatter.documents_in(content)
 
 
 def _recall_facts(perception: Perception, query: str, query_vec, *, now: str,
@@ -398,7 +407,7 @@ def _name_of(path: str) -> str:
 
 
 def _assembly_body(path: str) -> str:
-    _date, _contested, body = _read_dated_body(path)
+    body = _read_dated_body(path)[2]
     return body or ""
 
 
@@ -521,8 +530,21 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
              study_order: bool = False,
              orient: bool = False,
              use_memory: bool = True,
-             vault: str | None = None) -> Perception:
+             vault: str | None = None,
+             rerank_stats: dict | None = None,
+             folder: str | None = None) -> Perception:
     """Retrieve + assemble the answer-time context for `query`.
+
+    ``folder`` keeps only notes under that vault subtree. Retrieval over-fetches
+    3k and cuts to k after the filter, so a scoped call still fills its slots;
+    no index is rebuilt. This is the lever `memory=False` is not: on a repo
+    question the market-research notes (35% of this vault) took 6 of 15 slots
+    by co-occurrence, and they live in the ACTIVE vault.
+
+    ``rerank_stats`` is `facade_retrieve`'s out-dict, forwarded untouched: the
+    tool surface has to tell a reranked ordering from a fusion one, and this
+    was the only hop where that bit got lost (measured 2026-09-03: recall
+    answered for a day with :1235 down and nothing in the reply said so).
 
     ``paths`` skips retrieval and assembles the given notes in order (the eval
     adapter's --stuff arm, or a caller that already holds a shortlist);
@@ -553,9 +575,18 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
         hits = [(p, "", "vault") for p in paths]
     else:
         results, query_vec = facade_retrieve(
-            query, k=k, use_embedder=use_embedder, use_rerank=use_rerank,
-            use_recall_weights=use_recall_weights, use_lexical=use_lexical,
-            use_memory=use_memory, vault=vault)
+            query, k=k * 3 if folder else k, use_embedder=use_embedder,
+            use_rerank=use_rerank, use_recall_weights=use_recall_weights,
+            use_lexical=use_lexical, use_memory=use_memory, vault=vault,
+            rerank_stats=rerank_stats)
+        if folder:
+            from silica.kernel.recall.paths import in_folder
+
+            # Memory-lane paths resolve in another vault, so a folder of THIS
+            # vault cannot contain them.
+            results = [r for r in (results or [])
+                       if getattr(r, "origin", "vault") != "memory"
+                       and in_folder(r.path, folder)][:k]
         hits = [(r.path, " ".join(r.evidence), getattr(r, "origin", "vault"))
                 for r in (results or [])]
 
@@ -563,11 +594,18 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
     # {} — no lexical index — keeps the scan bit-identical to the unweighted one.
     wts = window_weights(query) if query else {}
     blocks: list[NoteBlock] = []
-    for path, evidence, origin in hits:
-        date, contested, body = _read_dated_body(path, origin)
+    for rank, (path, evidence, origin) in enumerate(hits, 1):
+        date, contested, body, documents = _read_dated_body(path, origin)
         if body is None:
             continue
-        spans = (best_window_spans(body, query, window_chars, windows, wts)
+        # Cutting k was refuted (ranks 9-15 carried 9 gold answers on the
+        # rank probe), so the token saving comes from the tail's window count
+        # instead: k=15 at 3 windows is 42k chars (~10.6k tokens, measured
+        # 2026-09-03); one window past rank 5 keeps the tail and bounds the
+        # context at ~25k. The head keeps its multi-window span, which is
+        # where the multi-window spec measured its gain.
+        n = windows if rank <= TOP_WINDOWED_RANKS else 1
+        spans = (best_window_spans(body, query, window_chars, n, wts, snap=True)
                  if query else [(0, body[:window_chars])])
         excerpt = "\n[…]\n".join(s for _p, s in spans)
         if not excerpt.strip():
@@ -575,7 +613,7 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
         blocks.append(NoteBlock(path=path, date=date, evidence=evidence,
                                 body=body, excerpt=excerpt, contested=contested,
                                 section=_section_chain(body, spans[0][0]),
-                                origin=origin))
+                                origin=origin, documents=documents))
     # Correction loop: contested notes are demoted behind clean ones (stable),
     # never dropped — the render marks them so the answer step can distrust them.
     blocks = [b for b in blocks if not b.contested] + [b for b in blocks if b.contested]

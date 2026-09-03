@@ -760,3 +760,53 @@ def test_tool_reports_an_unreadable_code_graph_instead_of_raising(repo, monkeypa
     res = silica_code_pack(target=TARGET)
     assert res["status"] == "error"
     assert "read-only" in res["message"]
+
+
+# --- reply ergonomics, measured 2026-09-03 on this repo ---------------------
+# provenance.py (40k chars) at budget 8k came back as an outline with `dropped`
+# listing `external: hashlib, json, re...` as fetchable sections, no hint of
+# what budget would have served it verbatim, and the same neighbourhood
+# outline repeated in every pack under kernel/write.
+
+PY_A = "import json\nimport os\nfrom pkg import b\n\n\ndef f():\n    return json.dumps(b.g())\n"
+PY_B = "def g():\n    return 1\n"
+
+
+@pytest.fixture
+def pyrepo(tmp_path, monkeypatch):
+    from silica.kernel.recall import paths
+
+    paths.clear_repo_root_cache()
+    monkeypatch.setattr(codegraph, "store_path", lambda: tmp_path / "cg.json")
+    _init_repo(tmp_path)
+    _write(tmp_path, "pkg/a.py", PY_A)
+    _write(tmp_path, "pkg/b.py", PY_B)
+    _write(tmp_path, "pkg/__init__.py", "")
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=tmp_path, check=True)
+    yield tmp_path
+    paths.clear_repo_root_cache()
+
+
+def test_python_stdlib_imports_are_not_external_deps(pyrepo):
+    pack = codepack.code_pack(pyrepo, "pkg/a.py")
+    assert "external" not in pack["sections"]
+    assert not any(d.startswith("external:") for d in pack["dropped"])
+
+
+def test_pack_says_how_big_the_target_is_and_what_budget_serves_it_verbatim(pyrepo):
+    src = (pyrepo / "pkg/a.py").read_text()
+    small = codepack.code_pack(pyrepo, "pkg/a.py", budget_chars=40)
+    assert small["target_mode"] == "outline"
+    assert small["target_chars"] == len(src)
+    again = codepack.code_pack(pyrepo, "pkg/a.py", budget_chars=small["verbatim_at"])
+    assert again["target_mode"] == "verbatim"
+    assert "verbatim_at" not in again
+
+
+def test_sections_filter_skips_the_neighbourhood(repo):
+    pack = codepack.code_pack(repo, TARGET, sections=["target", "importers"])
+    assert set(pack["sections"]) == {"target", "importers"}
+    assert not any(d.startswith("neighborhood:") or d.startswith("hierarchy:")
+                   for d in pack["dropped"])
+    assert "## neighborhood" not in pack["text"]

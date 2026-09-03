@@ -365,7 +365,7 @@ def test_render_shows_the_new_sections(graph_nodes_edges, cooccur_store, monkeyp
 
 def test_dissonance_from_a_real_embed_store(graph_nodes_edges, tmp_path, monkeypatch):
     import silica.kernel.recall.embed as embed_mod
-    from silica.kernel.recall.embed import EmbedStore, get_store
+    from silica.kernel.recall.embed import get_store
 
     monkeypatch.setattr(embed_mod, "_index_path", lambda: tmp_path / "emb.json")
     embed_mod.clear()
@@ -418,7 +418,6 @@ def test_cowrite_transactions_are_scoped_to_the_vault_and_capped(tmp_path, monke
 # Relatedness legs (V1 structural, V3 coupling)
 # ===========================================================================
 
-from silica.kernel.recall.relatedness import related_notes
 
 
 
@@ -433,7 +432,6 @@ from silica.kernel.recall.relatedness import related_notes
 from silica.kernel.recall.curator import compose_curation_plan
 from silica.kernel.report.graph_report import (
     CoupledPair,
-    LoadBearingNote,
     MisfiledNote,
     SprawlingNote,
     StructuralLink,
@@ -521,7 +519,6 @@ def test_review_queue_target_mode_is_in_prerequisite_order():
 
 
 def test_review_queue_a_known_prerequisite_unblocks():
-    now = 100.0 * 86400
     notes = _notes("a/intro.md", "a/advanced.md")
     entries = [{"ts": "2026-01-01T00:00:00+00:00", "path": "a/intro.md", "correct": True}]
     import datetime as dt
@@ -624,3 +621,16 @@ def test_semantic_shift_absent_when_embedder_down(tmp_path, monkeypatch):
     monkeypatch.setattr(providers, "get_embedder", _boom)
     structure._shift_memo.clear()
     assert structure.semantic_shift() == []    # absent, never a fake zero row
+
+
+def test_graph_explain_never_calls_a_singleton_both_orphan_and_hub(monkeypatch, graph_nodes_edges):
+    # Measured 2026-09-03: an ADR with degree 0 came back is_orphan AND
+    # is_hub, because a one-note cluster's hub is itself.
+    import silica.kernel.report.graph_report as gr
+    from silica.tools import atomic
+
+    base = compute_report(_nodes_edges_override=graph_nodes_edges, analytics=True)
+    monkeypatch.setattr(gr, "compute_report", lambda **kw: base)
+    d = atomic.silica_graph_explain("F")["diagnosis"]
+    assert d["is_orphan"] is True
+    assert d["is_hub"] is False
