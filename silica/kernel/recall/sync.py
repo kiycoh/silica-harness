@@ -176,6 +176,7 @@ def sweep(*, force: bool = False) -> SweepStats:
     """
     global _last_sweep
     stats = SweepStats()
+    _mark_namespace()
     if not getattr(CONFIG, "index_sweep", True):
         stats.skipped = True
         return stats
@@ -190,6 +191,28 @@ def sweep(*, force: bool = False) -> SweepStats:
         logger.debug("index sweep skipped (%s)", e)
         stats.skipped = True
         return stats
+
+
+def _mark_namespace() -> None:
+    """Write `vault.json` ({"path": ...}) into the active vault's index namespace
+    once. The namespace key is a one-way digest, so without this a vault served
+    only from the REPL or `silica mcp --vault` (never opened in Obsidian) could
+    not be listed by `silica_vaults`; the sweep is the one call every recall
+    makes, gate or no gate, so it is where "this vault was served here" is
+    cheapest to record (one stat per call). Ahead of the config gate on purpose:
+    the gate is about scanning notes, not about remembering the vault."""
+    vault = (getattr(CONFIG, "vault_path", "") or "").strip()
+    if not vault:
+        return  # legacy global namespace: no vault to name
+    marker = index_dir() / "vault.json"
+    if marker.is_file():
+        return
+    try:
+        atomic_write_bytes(marker, orjson.dumps({"path": str(Path(vault).resolve())}))
+    except OSError as e:
+        # A read-only or full ~/.silica costs discovery of this vault, never a
+        # recall: the sweep is documented as never raising.
+        logger.debug("vault marker not written (%s)", e)
 
 
 def _sweep(stats: SweepStats) -> SweepStats:

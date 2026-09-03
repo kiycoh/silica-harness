@@ -67,10 +67,44 @@ def driver_kind() -> str:
 
 def reset_driver() -> None:
     """Drop the cached driver so the next get_driver() rebuilds against the
-    current CONFIG.vault_path. Used by the runtime /vault switch."""
+    current CONFIG.vault_path. Used by the runtime /vault switch. Foreign
+    readers go too: one of them may now BE the active vault, and the live
+    driver must be the single instance that sees this process's writes."""
     global _driver
     with _driver_lock:
         _driver = None
+        _readers.clear()
+
+
+# Read-only backends on vaults other than the active one, keyed by resolved
+# path (the peek: silica_read_note vault=, ADR-0035). Never installed as the
+# driver and never handed a write: the tool surface routes every write through
+# DRIVER, so a foreign reader cannot become a write path by accident.
+_readers: dict[str, ObsidianDriver] = {}
+
+
+def reader_for(vault: str) -> ObsidianDriver:
+    """A handle to read notes of `vault`: the live driver when it IS the active
+    vault (one index, and the one this process's writes land in), else a
+    filesystem backend on that folder, built once per process. The foreign
+    backend indexes the folder on its first read, the same walk and the same
+    wikilink resolution the active vault gets."""
+    from pathlib import Path
+
+    from silica.config import CONFIG
+
+    target = str(Path(vault).expanduser().resolve())
+    active = (getattr(CONFIG, "vault_path", "") or "").strip()
+    if active and str(Path(active).resolve()) == target:
+        return get_driver()
+    with _driver_lock:
+        reader = _readers.get(target)
+        if reader is None:
+            from silica.driver.fs_backend import ObsidianFSBackend
+
+            reader = ObsidianFSBackend(vault_path=target)
+            _readers[target] = reader
+        return reader
 
 
 def set_driver(driver: ObsidianDriver | None) -> None:

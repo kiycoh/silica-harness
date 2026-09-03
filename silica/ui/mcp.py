@@ -59,6 +59,11 @@ CORE_TOOLS = (
     # The client's own write ledger: an MCP session otherwise reconstructs what
     # it changed from its tool-call memory, and /undo restores rows it cannot see.
     "silica_changes",
+    # Which vault holds the answer. The peek (silica_recall vault=) is reachable
+    # only if the client can NAME a vault, and the default session is the one
+    # that meets "this lives in another vault" mid-task — so the scoreboard is
+    # served by default, not behind --extended.
+    "silica_vaults",
     # Not vault memory: the client's read of whether the memory it is talking to
     # is actually whole. A degraded leg (no embeddings, no rerank, unwritable
     # vault) answers plausibly instead of erroring, so without this the only way
@@ -229,7 +234,9 @@ INSTRUCTIONS = (
     "session with silica_write_note (new concept) or silica_patch_note "
     "(existing note): decisions and their why, non-obvious constraints, "
     "hard-won references. If retrieval behaves as if switched off, call "
-    "silica_doctor."
+    "silica_doctor. If the answer may live in another vault, silica_vaults(query) "
+    "scores the vaults this machine knows (`home` names the ones that hold it) and "
+    "silica_recall(query, vault=<path>) reads one without leaving this session's vault."
 )
 
 

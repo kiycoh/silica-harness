@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -391,17 +392,19 @@ class RecallArgs(BaseModel):
     query: str = Field(description="The question or topic to recall memory for")
     k: int = Field(default=15, description="Maximum number of notes contributing to the context")
     memory: bool = Field(default=True, description="Include the personal-memory lane and its facts (ADR-0019). Pass false for questions scoped to THIS vault — repo and code questions — so an unrelated personal vault cannot occupy context slots.")
+    vault: str = Field(default="", description="Peek: path of another Silica vault to answer from (see silica_vaults). Read-only; the session's vault does not change.")
 
 
 @tool(RecallArgs, cls="composed")
-def silica_recall(query: str, k: int = 15, memory: bool = True) -> dict[str, Any]:
+def silica_recall(query: str, k: int = 15, memory: bool = True, vault: str = "") -> dict[str, Any]:
     """Assemble an answer-ready memory context for a question: fused retrieval,
     each note's query-densest window under a rank/evidence/date header,
     recalled personal facts first. Use when ANSWERING from vault memory
     INSTEAD of stitching searches and reads yourself; for a bare ranked list
     use silica_semantic_search. Answer from `context`; re-read only the notes
     named in `partial`, the rest arrived whole. Paths under `memory` live in
-    the personal-memory vault: cite them from `context`, never read_note them.
+    the personal-memory vault; re-read them, and a peek's `partial`, with
+    silica_read_note(name, vault=<memory_vault> or the same `vault`).
     """
     import datetime
 
@@ -409,9 +412,14 @@ def silica_recall(query: str, k: int = 15, memory: bool = True) -> dict[str, Any
 
     from silica.kernel.code import codedocs
 
+    peek = _peek_target(vault)
+    if isinstance(peek, dict):  # a refusal, already shaped as the reply
+        return {"query": query, **peek}
     p = perceive(query, now=datetime.date.today().isoformat(), k=k,
-                 use_memory=memory)
-    stale_map = _peek_stale()
+                 use_memory=memory, vault=peek)
+    # Staleness is the ACTIVE vault's code lane; a peeked vault's paths would
+    # only ever match it by coincidence.
+    stale_map = {} if peek else _peek_stale()
     flagged = {b.path: lvl for b in p.blocks
                if (lvl := codedocs.peek_level(stale_map, b.path))}
     # render(windowed=True) emits b.excerpt, so a note whose window IS its body
@@ -419,18 +427,84 @@ def silica_recall(query: str, k: int = 15, memory: bool = True) -> dict[str, Any
     # notes recall had already handed over whole.
     out = {"query": query, "context": p.render(stale=stale_map or None),
            "notes": [b.path for b in p.blocks],
-           # A memory-lane note cannot be re-read here (read_note resolves in
-           # the active vault only, ADR-0019): inviting the re-read is exactly
-           # how "recall names notes that search denies" was born.
+           # Active-vault and peeked notes: the caller can re-read both (the
+           # latter with vault=). Memory-lane notes stay out (ADR-0032) — they
+           # are listed under `memory` with the vault to read them from, and
+           # "recall names notes that read_note denies" is how the doctor's
+           # worst report was born.
            "partial": [b.path for b in p.blocks
                        if b.origin != "memory" and b.excerpt.strip() != b.body.strip()],
            "facts": len(p.fact_hits)}
     mem_paths = [b.path for b in p.blocks if b.origin == "memory"]
     if mem_paths:
         out["memory"] = mem_paths
+        from silica.kernel.recall.memory_lane import memory_vault
+
+        mv = memory_vault()
+        if mv is not None:
+            out["memory_vault"] = str(mv)  # silica_read_note(name, vault=this) opens them
     if flagged:
         out["stale"] = flagged
+    if peek:
+        out["vault"] = peek
+        from silica.kernel.recall.vault_registry import coverage
+
+        cov = coverage(Path(peek))
+        if cov["level"] != "indexed":
+            # An empty answer from a cold index reads as "that vault knows
+            # nothing about this"; what it means is that nobody indexed it.
+            out["coverage"] = cov["level"]
+            out["hint"] = (
+                "no recall index yet: open the vault once (SILICA_VAULT=<path> silica) "
+                "and run /embed and /cooccur"
+                if cov["level"] == "cold" else
+                "only the lexical index exists (silica_vaults can score it); run /embed "
+                "and /cooccur in that vault for recall to see it")
     return out
+
+
+def _peek_target(vault: str) -> str | dict | None:
+    """Resolve `vault=`: None for a plain call (empty, or the active vault
+    itself), the resolved path for a peek, or the error reply for a folder
+    Silica never adopted (no vault.yaml — `capture.find_vault`'s own test)."""
+    if not (vault or "").strip():
+        return None
+    from silica.config import CONFIG
+    from silica.kernel.recall.vault_registry import resolve_known
+
+    try:
+        target = resolve_known(vault)
+    except ValueError as e:
+        return {"error": str(e), "hint": "silica_vaults lists the vaults this machine knows",
+                "context": "", "notes": [], "partial": [], "facts": 0}
+    active = (getattr(CONFIG, "vault_path", "") or "").strip()
+    if active and Path(active).resolve() == target:
+        return None
+    return str(target)
+
+
+class VaultsArgs(BaseModel):
+    query: str = Field(default="", description="Question to score each vault against; empty = the plain list")
+    k: int = Field(default=3, description="Top titles per vault")
+
+
+@tool(VaultsArgs, cls="atomic")
+def silica_vaults(query: str = "", k: int = 3) -> dict[str, Any]:
+    """The Silica vaults this machine knows (active, personal memory, adopted
+    Obsidian vaults): name, path, brief, write_dir, coverage. With `query`,
+    each row adds `top` titles and `rerank`, to tell WHICH vault to read with
+    silica_recall(query, vault=<path>). `home` lists the vaults that hold the
+    answer ([] = none of them; null = no calibrated reranker, judge by `top`).
+    Rows are in relevance order only when `ranked` is true. `coverage: "cold"`
+    = never indexed, not "no hits". Never switches or fuses vaults.
+    """
+    from silica.config import CONFIG
+    from silica.kernel.recall import vault_registry
+
+    out = vault_registry.route(query, k=k)
+    active = next((r["path"] for r in out["vaults"] if r["active"]),
+                  (getattr(CONFIG, "vault_path", "") or ""))
+    return {"query": query, "active": active, **out}
 
 
 class TimelineArgs(BaseModel):
@@ -744,12 +818,22 @@ def silica_embed_refresh(folder: str = "", force: bool = False) -> dict[str, Any
     except Exception as e:
         return {"error": f"Index build failed: {e}", "read_errors": errors}
 
-    return {
+    out = {
         "indexed": len(store),
         "total_notes": len(notes),
         "read_errors": errors,
         "index_path": str(store._path),
     }
+    # First whole-vault build also seeds the lexical index: the sweep maintains
+    # stores that exist and never builds one, and until 2026-09-01 no vault on
+    # the field had a lexical.json because it was a separate opt-in, so the
+    # cheap stage of silica_vaults (1.4 MB for 872 notes) never existed where
+    # the 18 MB embed store did. Whole vault only: a folder-scoped first build
+    # would leave a partial index the sweep then keeps partial.
+    from silica.kernel.recall.paths import index_dir
+    if not folder and not (index_dir() / "lexical.json").is_file():
+        out["lexical"] = silica_lexical_refresh().get("indexed")
+    return out
 
 
 class CooccurrenceRefreshArgs(BaseModel):

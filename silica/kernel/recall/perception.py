@@ -18,6 +18,8 @@ context would score as a memory miss with no signal.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -122,10 +124,25 @@ class Perception:
         return out
 
 
+def _peek_dir(vault: str | None) -> str | None:
+    """The resolved folder a `vault=` peek reads, or None for a plain call: no
+    vault named, or the active vault named (then the active path, with its
+    sweep and its singletons, is the right one)."""
+    if not (vault or "").strip():
+        return None
+    from silica.config import CONFIG
+
+    p = Path(vault).expanduser().resolve()
+    active = (getattr(CONFIG, "vault_path", "") or "").strip()
+    if active and Path(active).resolve() == p:
+        return None
+    return str(p)
+
+
 def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
                     use_rerank: bool = True, use_recall_weights: bool = False,
                     use_lexical: bool = False, rerank_stats: dict | None = None,
-                    use_memory: bool = True):
+                    use_memory: bool = True, vault: str | None = None):
     """Fused first-stage retrieval + cross-encoder rerank for a fresh text query.
 
     The single retrieval path shared by the chat tools
@@ -152,33 +169,54 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
     relevance when True and a first-stage fusion cosine when False, and the two
     are an order of magnitude apart. A caller that shows the number, or
     thresholds on it, has to know which one it got.
+
+    ``vault`` (peek): the path of ANOTHER adopted vault whose stores stand in
+    for the active legs, read-only and read as they lie on disk. The memory
+    lane still applies under ``use_memory``; results carry that folder as
+    their ``origin`` so body readers open the right files. The active vault's
+    singletons, sweep and CONFIG are never touched — this is the memory lane
+    (ADR-0019) pointed where the caller says, not a vault switch.
     """
     from silica.agent.providers import get_embedder, get_reranker
     from silica.config import CONFIG
     from silica.kernel.recall.cooccurrence import get_cooccur_store
     from silica.kernel.recall.embed import get_store
-    from silica.kernel.recall.memory_lane import memory_stores
+    from silica.kernel.recall.memory_lane import memory_stores, memory_vault
     from silica.kernel.recall.relatedness import related_notes_for_query
     from silica.kernel.recall.rerank import rerank_related
     from silica.kernel.recall.sync import sweep
 
-    # Out-of-band freshness: hand-edits (Obsidian, rm, git) land in the
-    # indexes before this query reads them. Debounced, never raises.
-    sweep()
-
-    embed_store = get_store()
+    peek = _peek_dir(vault)
     cooccur_store: CooccurStore | None
-    try:
-        loaded = get_cooccur_store(lang=CONFIG.cooccurrence_lang)
-        cooccur_store = loaded if len(loaded) else None  # empty store ⇒ abstain
-    except Exception:
-        cooccur_store = None
+    if peek is None:
+        # Out-of-band freshness: hand-edits (Obsidian, rm, git) land in the
+        # indexes before this query reads them. Debounced, never raises.
+        sweep()
+
+        embed_store = get_store()
+        try:
+            loaded = get_cooccur_store(lang=CONFIG.cooccurrence_lang)
+            cooccur_store = loaded if len(loaded) else None  # empty store ⇒ abstain
+        except Exception:
+            cooccur_store = None
+    else:
+        # No sweep for a peek: the sweep reconciles the ACTIVE vault's indexes
+        # with its disk and must not seed a foreign one from here. A cold
+        # peeked index answers nothing; `vault_registry.coverage` says so.
+        from silica.kernel.recall.memory_lane import stores_for
+
+        embed_store, cooccur_store = stores_for(peek)
     # ADR-0032: lane scope is caller intent. False = "this vault only" — the
     # memory legs are never loaded, fusion is bit-identical to single-vault.
     mem_embed, mem_cooccur = memory_stores() if use_memory else (None, None)
+    if peek is not None and memory_vault() == Path(peek):
+        # Peeking AT the memory vault: it already fills the primary legs, and
+        # the same store on both lanes would double every RRF term.
+        mem_embed = mem_cooccur = None
 
     query_vec = None
-    if use_embedder and (len(embed_store) > 0 or mem_embed is not None):
+    if use_embedder and ((embed_store is not None and len(embed_store) > 0)
+                         or mem_embed is not None):
         try:
             query_vec = get_embedder(CONFIG).embed([query])[0]
         except Exception:
@@ -195,9 +233,15 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
 
     lexical_rank = None
     if use_lexical:
-        from silica.kernel.recall.lexical import get_lexical_store
+        if peek is None:
+            from silica.kernel.recall.lexical import get_lexical_store
 
-        lexical_rank = get_lexical_store().rank(query, k=k) or None
+            lex = get_lexical_store()
+        else:
+            from silica.kernel.recall.vault_registry import lexical_for
+
+            lex = lexical_for(Path(peek))
+        lexical_rank = (lex.rank(query, k=k) if lex is not None else None) or None
 
     results = related_notes_for_query(
         query_vec=query_vec,
@@ -210,6 +254,13 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
         recall_rank=recall_rank,
         lexical_rank=lexical_rank,
     ) or []
+    if peek is not None:
+        # Fusion marks the primary legs "vault", which every body reader takes
+        # to mean the ACTIVE vault. Stamp the peeked folder before rerank reads
+        # bodies: a wrong-vault read scores as irrelevant and buries the peek.
+        for r in results:
+            if r.origin == "vault":
+                r.origin = peek
     reranker = get_reranker(CONFIG) if use_rerank else None
     if rerank_stats is not None:
         rerank_stats["reranked"] = False  # no reranker configured ⇒ cosines stand
@@ -223,14 +274,15 @@ def facade_retrieve(query: str, *, k: int, use_embedder: bool = True,
 def _read_dated_body(path: str, origin: str = "vault") -> tuple[str, str | None, str | None]:
     """(frontmatter date, contested reason, body) for one note; ('', None, None)
     when unreadable. `contested` is the note's flag reason (first `contradictions`
-    entry) or None. origin='memory' resolves in the personal-memory vault (ADR-0019)."""
-    if origin == "memory":
-        from silica.kernel.recall.memory_lane import memory_vault
+    entry) or None. origin='memory' resolves in the personal-memory vault
+    (ADR-0019); an absolute-path origin resolves in that peeked vault."""
+    if origin != "vault":
+        from silica.kernel.recall.memory_lane import foreign_root
 
-        mv = memory_vault()
-        if mv is None:
+        root = foreign_root(origin)
+        if root is None:
             return "", None, None
-        p = mv / (path if path.endswith(".md") else path + ".md")
+        p = root / (path if path.endswith(".md") else path + ".md")
         try:
             content = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -468,7 +520,8 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
              use_lexical: bool = False,
              study_order: bool = False,
              orient: bool = False,
-             use_memory: bool = True) -> Perception:
+             use_memory: bool = True,
+             vault: str | None = None) -> Perception:
     """Retrieve + assemble the answer-time context for `query`.
 
     ``paths`` skips retrieval and assembles the given notes in order (the eval
@@ -488,7 +541,10 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
     honest prior from PEEK's content ablation is single digits, so it stays
     an arm until an agent-mode gate passes.
     ``use_lexical`` (default off) forwards to `facade_retrieve`'s lexical leg;
-    no effect when ``paths`` is set.
+    no effect when ``paths`` is set. ``vault`` (default None) peeks at another
+    adopted vault — see `facade_retrieve`; blocks then carry that folder as
+    ``origin``, and assembly stays off because it walks the ACTIVE vault's
+    link graph.
     """
     from silica.kernel.recall.rerank import best_window_spans, window_weights
 
@@ -499,7 +555,7 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
         results, query_vec = facade_retrieve(
             query, k=k, use_embedder=use_embedder, use_rerank=use_rerank,
             use_recall_weights=use_recall_weights, use_lexical=use_lexical,
-            use_memory=use_memory)
+            use_memory=use_memory, vault=vault)
         hits = [(r.path, " ".join(r.evidence), getattr(r, "origin", "vault"))
                 for r in (results or [])]
 
@@ -527,7 +583,7 @@ def perceive(query: str, *, now: str, k: int = DEFAULT_K,
         blocks = _study_order(blocks)
 
     if paths is None:
-        blocks = _maybe_assemble(blocks, assemble=assemble, query=query)
+        blocks = _maybe_assemble(blocks, assemble=assemble and vault is None, query=query)
 
     perception = Perception(query=query, blocks=blocks)
     if orient:

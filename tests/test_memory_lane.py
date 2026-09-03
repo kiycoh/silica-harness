@@ -124,3 +124,28 @@ def test_memory_artifacts_filtered_like_vault_ones(tmp_path):
     )
     out = related_notes_for_query(query_vec=[1.0, 0.0], memory_embed_store=memory, k=5)
     assert [r.path for r in out] == ["real"]
+
+
+def test_foreign_store_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path, monkeypatch):
+    # silica_vaults loads one embed store per known vault and a peek adds its
+    # co-occurrence store: unbounded, a process serving one vault ends up
+    # holding every vault on the machine (108 MB for the repo vault alone).
+    from silica.kernel.recall.paths import index_dir_for
+
+    memory_lane.clear()
+    vaults = []
+    for i in range(memory_lane._CACHE_MAX + 1):
+        v = tmp_path / f"v{i}"
+        v.mkdir()
+        d = index_dir_for(str(v))
+        d.mkdir(parents=True, exist_ok=True)
+        _store(d / "embeddings.json", [("N", "N", [1.0, 0.0])]).save()
+        vaults.append(v)
+    for v in vaults:
+        assert memory_lane.stores_for(v)[0] is not None
+    assert len(memory_lane._CACHE) == memory_lane._CACHE_MAX
+    assert str(index_dir_for(str(vaults[0]))) not in memory_lane._CACHE  # the first one went
+    memory_lane.stores_for(vaults[1])  # touch: v1 becomes the most recent
+    memory_lane.stores_for(vaults[0])  # re-read from disk, evicts v2, not v1
+    assert str(index_dir_for(str(vaults[1]))) in memory_lane._CACHE
+    assert str(index_dir_for(str(vaults[2]))) not in memory_lane._CACHE

@@ -129,15 +129,16 @@ _best_window = best_window  # transitional alias; drop once callers migrate
 def _read_body(path: str, *, origin: str = "vault") -> tuple[str, str]:
     """(note name, full body text) for one note; ('', '') when unreadable —
     a length of 0 fails open toward reranking, and '' scores as irrelevant.
-    origin='memory' (ADR-0019) resolves the path in the personal-memory vault,
-    which the active-vault driver cannot open — so rerank never buries the lane."""
-    if origin == "memory":
-        from silica.kernel.recall.memory_lane import memory_vault
+    origin='memory' (ADR-0019) resolves the path in the personal-memory vault
+    and an absolute-path origin in that peeked vault — folders the active-vault
+    driver cannot open — so rerank never buries a foreign lane."""
+    if origin != "vault":
+        from silica.kernel.recall.memory_lane import foreign_root
 
-        mv = memory_vault()
-        if mv is None:
+        root = foreign_root(origin)
+        if root is None:
             return "", ""
-        p = mv / (path if path.endswith(".md") else path + ".md")
+        p = root / (path if path.endswith(".md") else path + ".md")
         try:
             content = p.read_text(encoding="utf-8", errors="replace")
         except OSError:

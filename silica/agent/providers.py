@@ -298,6 +298,14 @@ class Provider:
 _warned_down: set[tuple[str, str]] = set()
 
 
+# What a call to `OpenAIEmbedder.embed` can raise when the endpoint, not the
+# caller, is at fault: the SDK's own family, the transport under it, and the
+# socket errors a local server exposes. A fail-open guard that catches these
+# and nothing else lets a programming error surface instead of reading as
+# "embedder down" (silica_vaults and the recall probes catch this tuple).
+EMBED_ERRORS: tuple[type[BaseException], ...] = (openai.APIError, httpx.HTTPError, OSError)
+
+
 def _failure_kind(exc: Exception) -> str:
     """'down' | 'rejected' | 'failed' — what the user has to go fix.
 

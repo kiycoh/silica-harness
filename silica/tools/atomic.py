@@ -272,15 +272,32 @@ def silica_search_context(query: str) -> dict:
 
 class ReadNoteArgs(BaseModel):
     name: str = Field(description="Name of the note to read (wikilink style, without file extension)")
+    vault: str = Field(default="", description="Read from another Silica vault (the `vault` or `memory_vault` a recall reply named). Read-only.")
+
 
 @tool(ReadNoteArgs, cls="atomic")
-def silica_read_note(name: str) -> str:
-    """Reads the complete content of a note in the vault by name (wikilink-style resolution). DO NOT use paths."""
+def silica_read_note(name: str, vault: str = "") -> str:
+    """Reads the complete content of a note in the vault by name (wikilink-style
+    resolution). DO NOT use paths. `vault=<path>` reads from another vault,
+    read-only."""
+    if vault.strip():
+        from silica.config import CONFIG
+        from silica.driver import reader_for
+        from silica.kernel.recall.vault_registry import resolve_known
+
+        target = resolve_known(vault)  # ValueError names the rule and the fix
+        active = (getattr(CONFIG, "vault_path", "") or "").strip()
+        if not active or Path(active).resolve() != target:
+            nc = reader_for(str(target)).read_note(name)
+            body = _with_stale_banner(nc.content, path=nc.ref.path or "", vault=str(target))
+            return (f"> [read-only] {target}: this note belongs to another vault; "
+                    "silica_write_note and silica_patch_note act on the active vault only\n\n"
+                    + body)
     nc = DRIVER.read_note(name)
     return _with_stale_banner(nc.content, path=nc.ref.path or "")
 
 
-def _with_stale_banner(content: str, path: str = "") -> str:
+def _with_stale_banner(content: str, path: str = "", vault: str | None = None) -> str:
     """Prefix a note with its staleness warnings, when it has any.
 
     A wiki note derived from source outlives the source: after a refactor it
@@ -293,26 +310,29 @@ def _with_stale_banner(content: str, path: str = "") -> str:
     drift banner is one ledger lookup keyed by `path`.
     """
     banners: list[str] = []
+    from silica.config import CONFIG
+
+    # `vault` names the folder the note was read from (a peek); the code lane
+    # and the provenance ledger are per vault, so both lookups follow it.
+    vault = vault or CONFIG.vault_path
     try:
-        from silica.config import CONFIG
         from silica.kernel.code import codedocs
         from silica.kernel.write import frontmatter
 
         data, _, _ = frontmatter.split(content)
         if data and codedocs.documents_of(data):
-            warning = codedocs.read_warning(CONFIG.vault_path, data)
+            warning = codedocs.read_warning(vault, data)
             if warning:
                 banners.append(warning)
     except Exception:
         pass  # a banner is an aid, never a reason a read fails
     try:
         if path:
-            from silica.config import CONFIG
             from silica.kernel.code import codedocs
             from silica.kernel.write import provenance
 
             source = codedocs.peek_level(
-                provenance.drift_map(vault_path=CONFIG.vault_path), path)
+                provenance.drift_map(vault_path=vault), path)
             if source:
                 banners.append(
                     f"[stale] source {source} was re-nucleated after this note was "

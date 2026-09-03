@@ -128,6 +128,25 @@ class LexicalStore(DiskSynced):
                 out[t] = math.log(1 + (n - df + 0.5) / (df + 0.5))
         return out
 
+    def match_count(self, query: str, *, min_terms: int = 2) -> int:
+        """Notes matching at least `min_terms` DISTINCT query terms (capped at
+        the query's own term count, so a one-word query still counts).
+
+        A plain union count is not a signal: measured 2026-09-01, the token
+        "silica" sits in 244 of 270 notes of a nucleated vault and made a query
+        about MCP tiers "hit" 250 of them. Two distinct terms is the cheapest
+        cut that keeps the stats/occult/cooking separation the union already had.
+        """
+        terms = set(_tokens(query))
+        if not terms or not self._docs:
+            return 0
+        need = min(max(int(min_terms), 1), len(terms))
+        seen: dict[str, int] = {}
+        for term in terms:
+            for path in self._postings.get(term, {}):
+                seen[path] = seen.get(path, 0) + 1
+        return sum(1 for n in seen.values() if n >= need)
+
     def rank(self, query: str, *, k: int = 25) -> list[tuple[str, float]]:
         if not self._docs:
             return []

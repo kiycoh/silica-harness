@@ -46,6 +46,18 @@ Refine with those when `recall` is the wrong shape:
   {start?, end?, limit?}`, the chronological index of dated notes. Consult it
   before free-text recall, then read the linked note.
 
+**Another vault may hold the answer.** `silica_vaults {query?}` lists the
+vaults this machine knows (the active one, the personal-memory vault, every
+adopted vault served here or listed by Obsidian) and, given a query, has each
+vault's own index nominate a few notes and the cross-encoder score them. Read
+`home` first: the vaults that hold the answer, `[]` when none does, `null`
+when there is no calibrated verdict (no reranker), in which case judge by
+`top` and read `coverage` before the score: `cold` means never indexed, not
+"knows nothing". Then `silica_recall {query, vault: <path>}` answers from that
+vault without leaving this one: read-only, the session's vault and writes stay
+put. Re-read a note it lists under `partial` with
+`silica_read_note {name, vault: <the same path>}`, and a note under `memory`
+
 Never conclude "nothing in the vault" from a single miss: try at least one
 semantic and one literal probe. If retrieval keeps coming back empty, or a
 capability behaves as if switched off, call `silica_doctor` instead of
