@@ -254,7 +254,7 @@ def _rewrite_raw_img_src(html: str) -> str:
 # --- raw-HTML allowlist ------------------------------------------------------
 # markdown-it's commonmark preset passes raw HTML through verbatim, and a note
 # body is untrusted input: it can arrive from a nucleated document written by
-# anyone. app.js writes this render with innerHTML, so whatever is emitted here
+# anyone. app-chat.js writes this render with innerHTML, so whatever is emitted here
 # executes on the GUI's own origin, which can reach /chat, /note and /settings.
 #
 # Raw HTML stays SUPPORTED — <br>, <details>, <img> are ordinary Obsidian markup
@@ -632,7 +632,7 @@ def _mathml(tex: str, display: bool) -> str:
 
 def _highlight(code: str, lang: str, _attrs: str) -> str:
     """Pygments fence highlighting; empty string falls back to a plain fence.
-    Token colors live in app.css, mapped onto the site palette."""
+    Token colors live in app-chat.css, mapped onto the site palette."""
     try:
         from pygments import highlight
         from pygments.formatters import HtmlFormatter
@@ -3073,7 +3073,7 @@ async def stt(audio: UploadFile = File(...)):
 
     The browser sends 16 kHz mono WAV. MediaRecorder can only produce webm/opus,
     and whisper.cpp's server reads WAV unless it was built with ffmpeg, so the
-    conversion happens in app.js, where it costs no dependency on either side.
+    conversion happens in app-chat.js, where it costs no dependency on either side.
     """
     import httpx
 
@@ -3288,10 +3288,17 @@ def index():
     from silica.config import CONFIG
 
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    # work.js belongs here as much as the other two: it owns the whole node
+    # work.js belongs here as much as the others: it owns the whole node
     # panel and churns with it, and without a version an edit to it reaches
     # nobody who has already loaded the page once.
-    for asset in ("app.js", "app.css", "work.js"):
+    # Read back out of the document rather than listed here: app.js is now eight
+    # cuts whose load order lives in index.html and nowhere else, and a second
+    # copy of that list is a copy that drifts. The pattern is deliberately not
+    # every /static/ href -- the vendored bundles keep their long-lived cache,
+    # and hashing 3.5 MB of mermaid on each page load is the reason why.
+    for asset in dict.fromkeys(
+        re.findall(r"/static/(app[\w-]*\.(?:js|css)|work\.js)", html)
+    ):
         ver = hashlib.sha256((STATIC_DIR / asset).read_bytes()).hexdigest()[:8]
         html = html.replace(f"/static/{asset}", f"/static/{asset}?v={ver}")
     # The preference, not the resolution: "auto" is a question only the browser
@@ -3323,8 +3330,20 @@ def serve(port: int = 8765) -> None:
     # timeout_graceful_shutdown is the backstop under it, for the one stream
     # that does not poll - an in-flight /chat turn, which carries its own cancel
     # path and would otherwise hold Ctrl+C for the length of the turn.
+    # log_config=None: uvicorn installs no logging of its own, so its records
+    # reach the handler `_setup_logging` already put on root and obey its level
+    # (quiet by default, the full access log under --verbose). Two reasons, and
+    # the second is a defect. The banner it prints duplicates the line above.
+    # And its colourized formatter re-renders each record from the
+    # `color_message` extra, which still carries the raw `%d`/`%s`, while
+    # litellm >=1.98 attaches a redaction filter to `uvicorn.error` that
+    # interpolates the message and then sets `record.args = None` — so on a TTY
+    # every uvicorn line with arguments printed its format string verbatim
+    # ("Started server process [%d]", "Uvicorn running on %s://%s:%d"). Piped
+    # output escaped it, which is why it never showed in a captured log.
     _SERVER = uvicorn.Server(uvicorn.Config(
-        app, host="127.0.0.1", port=port, timeout_graceful_shutdown=1))
+        app, host="127.0.0.1", port=port, timeout_graceful_shutdown=1,
+        log_config=None))
     try:
         try:
             _SERVER.run()

@@ -24,8 +24,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "silica" / "ui" / "web" / "static"
 INDEX = WEB / "index.html"
-APP_JS = WEB / "app.js"
-APP_CSS = WEB / "app.css"
+from tests.webassets import app_css, app_js
 WORK_JS = WEB / "work.js"
 FRAME_HTML = WEB / "graph-frame.html"
 FRAME_CSS = WEB / "graph-frame.css"
@@ -122,7 +121,7 @@ def test_pointing_at_a_node_fills_the_column_on_every_view():
     already drifted apart -- the drawer drew snippets the column dropped, the
     column drew degree the drawer dropped. One reader now, so the tab decides
     nothing and openContext is gone from the file."""
-    app = APP_JS.read_text()
+    app = app_js()
     routing = _block(app, 'if (e.data.type === "silica-open-context")', "});")
     assert "activeTab" not in routing, "the view still decides where a node lands"
     assert "showNode(e.data)" in routing
@@ -139,11 +138,11 @@ def test_the_drawer_keeps_no_second_reading_of_the_context():
     it, and that makes the duplicate cheaper to reintroduce, not dearer: the two
     readings are one click apart. This is the test that fails if an edit brings
     the pair back by habit."""
-    app, html, css = APP_JS.read_text(), INDEX.read_text(), APP_CSS.read_text()
+    app, html, css = app_js(), INDEX.read_text(), app_css()
     for gone in ("renderContext", "openContext", "cxSection", "cxCloud", "cxList"):
         assert gone not in app, f"{gone} is still in app.js"
     assert "note-context" not in app and "note-context" not in html
-    # Comments are exempt on purpose: app.css keeps one line saying WHY the
+    # Comments are exempt on purpose: the stylesheet keeps one line saying WHY the
     # metrics view's `bridge` button stopped being a `.cx-do`, which is the kind
     # of note a removal is supposed to leave behind. Rules are not exempt.
     rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
@@ -190,7 +189,7 @@ def test_a_click_off_a_row_drops_the_node_the_way_a_background_click_does():
     """The graph clears its selection when you click the background. Rows had no
     equivalent, so pointing at one was a one-way door: the column became that
     note and the report behind it was unreachable without leaving the view."""
-    app = APP_JS.read_text()
+    app = app_js()
     for pane in ("#metrics-body", "#shape-pane"):
         handler = _block(app, '$("' + pane + '").addEventListener("click"', "\n});")
         assert "announceNode(null, null)" in handler, pane + " cannot deselect"
@@ -264,7 +263,7 @@ def test_a_closed_pane_is_opened_by_the_click_that_fills_it():
     Unconditional now: the sidebar can be open on a NOTE, which is the other
     thing this pane used to be invisible behind (`body.note-open #work`), so
     "is it open" was never the whole question."""
-    work, app = WORK_JS.read_text(), APP_JS.read_text()
+    work, app = WORK_JS.read_text(), app_js()
     listener = _block(work, 'document.addEventListener("silica:node"', "});")
     assert "window.openNodeDrawer()" in listener
     # and the thing it calls is app.js's, which owns the drawer
@@ -275,7 +274,7 @@ def test_the_two_suggestion_prompts_are_written_once():
     """The drawer and the panel offer the same two rows over the same payload.
     A prompt written twice is two turns that drift the first time one of them is
     reworded -- the rule the metrics view's bulk prompts already follow."""
-    app, work = APP_JS.read_text(), WORK_JS.read_text()
+    app, work = app_js(), WORK_JS.read_text()
     for fn in ("function writeGhostPrompt(", "function linkNotesPrompt(",
                "function ghostWritePrompt("):
         assert app.count(fn) == 1, f"{fn} is not defined exactly once"
@@ -294,11 +293,11 @@ def test_one_lighting_rule_serves_the_concept_pills():
     gone and the rule outlives it: lightConcept stays exported and stays the
     only place that resolves a term and focuses whatever carries it, so a second
     concept surface cannot quietly grow its own."""
-    app = APP_JS.read_text()
+    app = app_js()
     assert app.count("async function lightConcept(") == 1
     assert "window.lightConcept = lightConcept;" in app
     assert '.wk-pill.lit"' in app, "the un-lighting query lost its only surface"
-    assert ".wk-pill.lit {" in APP_CSS.read_text()
+    assert ".wk-pill.lit {" in app_css()
 
 
 # --- 2. the legend's Layout compartment -------------------------------------
@@ -315,7 +314,7 @@ def test_the_legend_is_the_only_place_the_surfaces_are_named():
     this test read as "the surfaces changed" the day someone capitalised the
     legend. What must not drift is the set of mode ids, which is what every
     other file switches on."""
-    html, app = INDEX.read_text(), APP_JS.read_text()
+    html, app = INDEX.read_text(), app_js()
     assert 'id="lg-layout"' in html and 'id="layout-modes"' in html
     assert 'id="side-layout"' not in html, "the rail's copy of the surfaces is back"
     modes = re.findall(r'\["([a-z]+)", "[A-Za-z]+",', _block(app, "const LAYOUT_MODES = [", "\n];"))
@@ -331,7 +330,7 @@ def test_the_layout_rows_leave_with_the_view_they_name():
     """They name the surfaces of ONE view. The gate is structural now and not a
     hidden flag: #legend lives inside #view-graph, so it is on screen exactly
     when the surfaces it switches are."""
-    html, app = INDEX.read_text(), APP_JS.read_text()
+    html, app = INDEX.read_text(), app_js()
     view = _block(html, '<section id="view-graph"', "</section>")
     assert 'id="legend"' in view, "the legend is not inside the view it describes"
     assert "syncLayoutRail();" in _block(app, "function setGraphMode(", "\n}")
@@ -344,7 +343,7 @@ def test_the_legend_states_a_key_for_every_surface_it_can_show():
     """A legend that is blank on four of six surfaces is a panel the reader
     learns to ignore. Every mode in LAYOUT_MODES gets a key; nothing else does,
     or the table has grown an entry for a surface that does not exist."""
-    app = APP_JS.read_text()
+    app = app_js()
     modes = re.findall(r'\["([a-z]+)", "[A-Za-z]+",', _block(app, "const LAYOUT_MODES = [", "\n];"))
     keys = re.findall(r"^  ([a-z]+): \[", _block(app, "const SURFACE_KEYS = {", "\n};"), re.M)
     assert sorted(keys) == sorted(modes), (keys, modes)
@@ -356,7 +355,7 @@ def test_the_renderer_is_offered_in_one_place_per_context():
     """Embedded, the HUD's own segment is hidden: the same control in two places
     is two places that can disagree about which renderer is up. Standalone the
     HUD is the only chrome there is, so it keeps it."""
-    app, markup, css = APP_JS.read_text(), FRAME_HTML.read_text(), FRAME_CSS.read_text()
+    app, markup, css = app_js(), FRAME_HTML.read_text(), FRAME_CSS.read_text()
     # built into the legend rather than declared in index.html: it is one
     # surface's control among six, and only that surface may declare it
     assert 'seg.id = "renderer-tabs";' in app
@@ -369,7 +368,7 @@ def test_the_toolbar_paints_the_renderer_the_frame_actually_built():
     """The frame owns the instance, so the click is a request and the answer is
     the truth. Painting on the way out would leave the segment claiming 3D for
     as long as a fallback or a slow build takes."""
-    app, frame = APP_JS.read_text(), FRAME_JS.read_text()
+    app, frame = app_js(), FRAME_JS.read_text()
     handler = _block(app, '$("#lg-surface").addEventListener("click"', "\n});")
     assert "silica-set-renderer" in handler
     assert "setActive" not in handler, "the toolbar paints itself before the answer"
@@ -384,7 +383,7 @@ def test_the_toolbar_paints_the_renderer_the_frame_actually_built():
 def test_the_segment_is_absent_on_the_five_surfaces_with_one_renderer():
     """Not hidden: built only for the surface that has two renderers. A hidden
     control is a control that can be un-hidden by a stylesheet."""
-    app = APP_JS.read_text()
+    app = app_js()
     builder = _block(app, "function buildSurfaceLegend() {", "\n}")
     assert 'if (graphMode === "graph") {' in builder
     assert 'seg.id = "renderer-tabs";' in builder
@@ -421,7 +420,7 @@ def test_the_full_path_is_readable_without_hovering_it():
     """The strip names the vault by its last segment, which is what identifies
     it at a glance. The full path was a tooltip, and a path you can only get by
     hovering is a path you cannot read while comparing two windows."""
-    html, app, css = INDEX.read_text(), APP_JS.read_text(), APP_CSS.read_text()
+    html, app, css = INDEX.read_text(), app_js(), app_css()
     rail = _block(html, '<aside id="sidebar">', "</aside>")
     assert 'id="railfoot"' in rail
     setter = _block(app, "function setVaultPath(", "\n}")
@@ -445,7 +444,7 @@ def test_a_click_the_panel_answers_does_not_read_as_a_click_outside_it():
     question was read as a click away from it. isConnected has to be checked,
     and checked BEFORE the closest() calls it invalidates.
     """
-    app = APP_JS.read_text()
+    app = app_js()
     guard = _block(app, "if (drawerBefore && drawerBefore === drawerNow()", "closeNote();")
     assert "e.target.isConnected" in guard
     assert guard.index("e.target.isConnected") < guard.index('closest("#note-panel")')
@@ -466,16 +465,9 @@ def test_naming_a_neighbour_row_reads_it_and_leaves_the_column_on_that_note():
 def test_a_lit_concept_can_be_put_out_by_the_pill_that_lit_it():
     """A set you can only swap for another set is a mode with no exit: before
     this there was no gesture at all for "drop the filter, show me the graph"."""
-    light = _block(APP_JS.read_text(), "async function lightConcept(", "window.lightConcept")
+    light = _block(app_js(), "async function lightConcept(", "window.lightConcept")
     assert 'btn.classList.contains("lit")' in light
     assert "focusGraphNodes([])" in light
-
-
-def test_work_js_is_cache_busted_like_the_other_two_churning_assets():
-    """It owns the whole node panel. Left out of the hash list, every edit to it
-    reached a browser that had already loaded the page exactly never."""
-    src = (ROOT / "silica" / "ui" / "web" / "server.py").read_text()
-    assert '"app.js", "app.css", "work.js"' in src
 
 
 def test_the_ladder_footer_roots_path_before_it_enters_the_tab():
@@ -487,7 +479,7 @@ def test_the_ladder_footer_roots_path_before_it_enters_the_tab():
     finishes last and overwrites the rooted one. rootPath has to run before the
     tab click, not after it.
     """
-    app = APP_JS.read_text()
+    app = app_js()
     body = _block(app, "window.openLadder = (note) => {", "};")
     assert 'graphMode = "path"' not in body, "pre-setting the mode races the rooted draw"
     assert body.index("rootPath(note)") < body.index('.tab[data-tab="graph"]')

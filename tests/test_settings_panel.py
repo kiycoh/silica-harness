@@ -178,3 +178,20 @@ def test_the_bug_payload_carries_no_api_key(tmp_vault, monkeypatch):
 
     assert secret not in payload
     assert "silica" in payload  # it still says something useful
+
+
+def test_vault_switch_is_live_only_and_never_persists(client, env_file, tmp_path):
+    """A SILICA_VAULT line in the .env is ignored at boot (config.load_user_env),
+    so persisting the switch would write a value nothing reads back and the
+    panel would show a "file" origin for a vault the next launch will not use."""
+    _, server = client
+    other = tmp_path / "other-vault"
+    other.mkdir()
+    out = server._apply_vault_switch(str(other))
+    assert out["ok"] and out["vault"] == str(other.resolve())
+    assert CONFIG.vault_path == str(other.resolve())
+    assert not env_file.exists() or "SILICA_VAULT" not in env_file.read_text()
+
+
+def test_vault_origin_is_never_the_file():
+    assert st._origin(st.VAULT_KEY, {st.VAULT_KEY}) == "derived"

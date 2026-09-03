@@ -20,7 +20,8 @@ import pytest
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web"
 WORK_JS = WEB / "static" / "work.js"
 INDEX = WEB / "static" / "index.html"
-APP_CSS = WEB / "static" / "app.css"
+
+from tests.webassets import app_css, app_js
 
 # The shape is the real one: silica/agent/narration.py writes these records and
 # `read_beats` hands them back verbatim. A thought span WRAPS the llm call that
@@ -167,8 +168,13 @@ def test_the_panel_is_wired_into_the_page():
     html = INDEX.read_text()
     assert 'id="work-body"' in html
     assert '/static/work.js' in html
-    # loaded after app.js, which owns openNote() and send()
-    assert html.index("/static/app.js") < html.index("/static/work.js")
+    # loaded after every cut of app.js: it calls openNote() (app-notes.js) and
+    # send() (app-chat.js), and the last cut is the one that has to precede it.
+    import re
+
+    cuts = [m.end() for m in re.finditer(r"/static/app-[\w-]+\.js", html)]
+    assert cuts, "index.html loads no app-*.js"
+    assert max(cuts) < html.index("/static/work.js")
     assert "/narration/sse" in WORK_JS.read_text()
 
 
@@ -180,7 +186,7 @@ def test_the_run_and_the_node_are_two_panes_at_two_edges():
 
     The rules that once kept a second right-edge aside out of the drawer's way
     have to stay gone, not merely unused."""
-    html, css, js = INDEX.read_text(), APP_CSS.read_text(), WORK_JS.read_text()
+    html, css, js = INDEX.read_text(), app_css(), WORK_JS.read_text()
     drawer = html[html.index('<aside id="note-panel"'):]
     for pane in ("note-body", "note-diff", "node-pane"):
         assert f'id="{pane}"' in drawer, f"{pane} is not a pane of the drawer"
@@ -226,7 +232,7 @@ def test_the_toggle_restores_a_mode_rather_than_picking_one():
     have touched the file, `node` needs something to have been pointed at -- so
     reopening on the remembered mode blindly lands on an empty pane. The ladder
     degrades, and its last rung is the one mode with a real empty state."""
-    app = (WEB / "static" / "app.js").read_text()
+    app = app_js()
     fn = app[app.index("function reopenDrawer() {"):]
     fn = fn[:fn.index("\n}")]
     assert 'drawerMode === "diff" && changedPaths.has(path)' in fn
@@ -257,13 +263,13 @@ def test_the_drawer_glyph_is_on_the_button_and_nowhere_else():
     drawer = html[html.index('<aside id="note-panel"'):html.index('id="note-actions"')]
     assert "np-ico" not in re.sub(r"<!--.*?-->", "", drawer, flags=re.S), \
         "the open drawer states its own name again"
-    assert "np-ico" not in (WEB / "static" / "app.css").read_text()
+    assert "np-ico" not in app_css()
     # and it is the ONE control: #note-last was an accent-blue document glyph
     # beside it opening the same sidebar on a different mode. Markup only —
     # index.html keeps a line saying what stood there and why it does not.
     markup = re.sub(r"<!--.*?-->", "", html, flags=re.S)
     assert "note-last" not in markup
-    assert "note-last" not in (WEB / "static" / "app.js").read_text()
+    assert "note-last" not in app_js()
 
 
 def test_a_click_that_moves_the_sidebar_never_also_closes_it():
@@ -274,7 +280,7 @@ def test_a_click_that_moves_the_sidebar_never_also_closes_it():
     just asked for -- whether the click opened the sidebar or swung it off a note.
     The sample is taken in the capture pass and compared, so the rule is "did this
     click leave it alone" rather than "was it open"."""
-    app = (WEB / "static" / "app.js").read_text()
+    app = app_js()
     assert '{ drawerBefore = drawerNow(); }, true)' in app, "the sample is not captured"
     assert "drawerBefore && drawerBefore === drawerNow()" in app, \
         "the close still keys on a live read"
@@ -288,7 +294,7 @@ def test_the_run_needs_no_boot_preference_to_survive_a_reload():
     BEFORE the first sync (which overwrote it). Both are gone with the move. The
     run is a rail compartment, and <details open> in the markup is the whole
     restore -- no key, no ordering, nothing to get wrong."""
-    app = (WEB / "static" / "app.js").read_text()
+    app = app_js()
     html = INDEX.read_text()
     assert "bootWantsWork" not in app and "work-open" not in app
     rail = html[html.index('<aside id="sidebar">'):html.index('<section id="view-chat"')]

@@ -1,0 +1,360 @@
+/* --- notifications: hairline status strip (bottom-right). Two levels only —
+   info = accent, error = gold (caution). The palette reserves no third UI
+   signal, so errors read as caution, not a new red. Fills the silent-catch
+   gaps: a failed background fetch is now visible instead of a stale "—". */
+#toasts {
+  position: fixed;
+  /* Under the header, not over the composer. Bottom-right put a 360px strip
+     across #send at every width the composer's own --measure left room for,
+     so the app's resting state was a diagnostic covering its primary control.
+     --header-h is measured live, because the strip wraps to two rows when the
+     drawer is open on a narrow window. Inset by the drawer the same way #dock
+     is, so the two never stack. */
+  top: calc(var(--header-h, 3rem) + 0.75rem);
+  right: 1rem;
+  z-index: 120;
+  /* above drawer (50), drop-hint (100), scanline (90) */
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: min(300px, 90vw);
+  pointer-events: none;
+  transition: right var(--dur) var(--ease);
+}
+
+body.note-open #toasts {
+  right: calc(var(--note-w, 630px) + 1rem);
+}
+
+/* the roll-up: older toasts collapse behind it rather than stacking */
+.toast-more {
+  align-self: flex-end;
+  pointer-events: auto;
+  font-family: var(--sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  background: var(--slate);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+
+.toast-more:hover {
+  color: var(--frost);
+  border-color: var(--ash-dim);
+}
+
+.toast {
+  pointer-events: auto;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  color: var(--frost);
+  border: 1px solid var(--line-2);
+  border-left: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 0.5rem 0.7rem;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgb(var(--shadow-rgb) / .35);
+  animation: toast-in var(--dur) var(--ease);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.toast.error {
+  border-left-color: var(--warn);
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateX(8px);
+    opacity: 0;
+  }
+}
+
+/* screen-reader-only: the polite a11y status region (turn state + notifications),
+   so the streaming transcript itself needn't be a chatty live region */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- settings button: the gear alone. It carried the model name until the name
+   moved under the composer, where the conversation it describes is. */
+#settings-btn svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.sp-title {
+  color: var(--ash-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--line-2);
+}
+
+/* --- help panel: the app's only answer to "what can I do here" -------------- */
+#help-btn {
+  font-size: 13px;
+  min-width: 2.6rem;
+  justify-content: center;
+}
+
+#help-panel {
+  display: block;
+  /* beats `header > * { display:flex }`; [hidden] still wins */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 130;
+  /* same corner as #toasts (120), same rule: the deliberate panel wins */
+  width: min(390px, 92vw);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-top: none;
+  border-radius: 0 0 var(--r) var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+}
+
+#help-panel .sp-title {
+  border-top: 1px solid var(--line);
+}
+
+#help-panel .sp-title:first-child {
+  border-top: none;
+}
+
+.hp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding: 0.45rem 0.8rem;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.hp-row kbd {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--frost);
+  background: var(--slate-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xs);
+  padding: 0.1rem 0.35rem;
+}
+
+.hp-row>span:last-child {
+  color: var(--ash);
+}
+
+.hp-row .hp-what {
+  flex-shrink: 0;
+  min-width: 6.5rem;
+  color: var(--frost);
+}
+
+/* --- sidebar filter status: the filter says what it did --------------------- */
+#side-search-status {
+  margin-top: 0.45rem;
+  font-size: 11px;
+  color: var(--ash-dim);
+  line-height: 1.5;
+}
+
+#side-search-status.empty {
+  color: var(--ash);
+}
+
+#side-search-status .linklike {
+  display: block;
+  padding: 0.25rem 0 0;
+  color: var(--accent);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 11px;
+}
+
+#side-search-status .linklike:hover {
+  color: var(--frost);
+}
+
+
+/* --- quick-action launch pad: shown only on an empty chat, collapsed out by
+   the first message. Flat square chips, native Silica actions. Identity note:
+   the composer group SNAPS between states (no soft glide) — the grid is rigid
+   by rule ("hard 1px key-travel, no soft scale"), so a 700ms drift would be
+   off-identity. `:has()` drives it; no JS state. */
+#quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 1rem 0.2rem;
+  max-height: 6rem;
+  overflow: hidden;
+  /* max-height + padding is a layout animation on purpose: the row has to
+     collapse to nothing and give its space back to the transcript, which
+     transform and opacity cannot do. It fires once per session, when the first
+     message lands, and measures 12 layouts / 1.5ms. grid-template-rows would
+     buy an inner wrapper and the same layout pass. */
+  /* impeccable-disable-next-line layout-transition -- measured: 12 layouts / 1.5ms once per session, and only a layout property can give the space back to the transcript */
+  transition: max-height var(--dur) var(--ease), opacity var(--dur) var(--ease), padding var(--dur) var(--ease);
+}
+
+#view-chat:not(:has(#log:empty)) #quick-actions {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* one track, one moving pill. The segments are transparent and the pill is the
+   only painted surface, so exactly one of them can ever look chosen — four
+   independently-styled chips could not make that promise. The row wraps rather
+   than scrolls: a scrolling track cut "organize" in half at a 496px pane with
+   nothing to say it had more, and the pill is placed from measured rects, so
+   following a second row costs it one translate axis. */
+.qa-track {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 2px;
+  /* the pill is a full row tall, so a wrapped row needs the track's own inset
+     twice over between rows or the pill would graze its neighbour */
+  row-gap: 6px;
+  padding: 3px;
+  max-width: 100%;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--glass-edge);
+}
+
+/* anchored at the track's padding-box origin and moved from measured rects, so
+   the padding, the border and the centring of a wrapped row stay out of the
+   arithmetic entirely. Height comes from JS too: it spans the whole row, so it
+   reads as a lens sliding along the track rather than a box drawn per segment. */
+#qa-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 0;
+  height: 0;
+  border-radius: var(--r);
+  background: var(--slate-2);
+  border: 1px solid var(--line-2);
+  pointer-events: none;
+  /* width is a layout property on purpose: the segments have different widths,
+     and the usual scaleX dodge would stretch the radius the pill shares with
+     the track into ovals — the one thing this shape must not do. It is one
+     out-of-flow childless element, so nothing else re-lays out: measured at
+     13-14 layouts per move, the same band as the two other deliberate layout
+     animations in this file, and that count includes the composer's autoGrow. */
+  /* impeccable-disable-next-line layout-transition -- measured: 13-14 layouts per move on one childless out-of-flow element, and scaleX would stretch the shared radius into ovals */
+  transition: transform var(--dur) var(--ease), width var(--dur) var(--ease);
+}
+
+.qa {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--ash);
+  background: none;
+  border: 0;
+  border-radius: var(--r);
+  padding: 0.42rem 0.85rem;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.qa svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+
+.qa:hover,
+.qa[aria-pressed="true"] {
+  color: var(--frost);
+}
+
+.qa:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* idle: an empty transcript centers the landing and floats the composer right
+   under it as a CONTAINED command island — not a full-width footer dragged up
+   the page with dead space beneath it. Contained width + a centered cluster
+   reads as an intentional hero, not a stretched empty box. */
+#view-chat:has(#log:empty) {
+  justify-content: center;
+  align-items: center;
+  gap: 2.2rem;
+}
+
+/* The composer is on the measure in BOTH states now, so idle no longer has to
+   resize it — that switch was the whole defect. Idle only centres the chips
+   under the art and drops the scrim, since nothing scrolls under the composer
+   when the transcript is empty. */
+/* align-items:center above makes every child shrink to its own content, which
+   collapsed the composer to the width of its placeholder. The shell already
+   carries the measure, so the row just has to span the pane and let it centre. */
+#view-chat:has(#log:empty) :is(#quick-actions, #composer, #chat-models) {
+  align-self: stretch;
+}
+
+#view-chat:has(#log:empty) #quick-actions {
+  justify-content: center;
+  padding: 0 2rem;
+}
+
+#view-chat:has(#log:empty) #composer::before {
+  display: none;
+}
+
+/* honor reduced-motion for the animated bits added/kept here */
+@media (prefers-reduced-motion: reduce) {
+
+  .caret,
+  .tool:not(.done):not(.error),
+  .spinner,
+  .toast,
+  .msg {
+    animation: none !important;
+  }
+
+  #quick-actions,
+  #qa-pill,
+  #note-panel,
+  .composer-shell {
+    transition: none;
+  }
+}
+

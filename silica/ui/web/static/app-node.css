@@ -1,0 +1,608 @@
+/* --- the Node panel: same column, the third question ------------------------
+   On explore this column stops narrating the run and states the node you
+   pointed at. It reuses the beat/source rows wholesale for the same reason the
+   Report does: a name, what it is and one number is exactly the shape those
+   rows already have, and a second row layout for the same shape is a second
+   thing to keep in step. Only three things are new here - a pill for a concept,
+   a meter for a score, and a third column on the row that carries an action. */
+.wk-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.5rem 0.85rem 0.65rem;
+}
+
+.wk-pill {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--sheet);
+  color: var(--text);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.wk-pill:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+/* Lit = this concept's notes are the ones glowing in the graph right now. One
+   at a time, and the same class the drawer's cloud uses, because both surfaces
+   drive the same lighting through lightConcept(). */
+.wk-pill.lit {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A meter is drawn only where a real number exists (the relatedness score).
+   A wikilink has no strength to draw, so those rows get no bar rather than a
+   bar at some default width, which would rank rows nobody ranked. */
+.wk-mtr {
+  width: 34px;
+  height: 3px;
+  flex: none;
+  background: var(--line);
+}
+
+.wk-mtr i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.55;
+}
+
+.wk-src.has-act {
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+}
+
+/* A direction reads as a direction, not as a swatch: the two link lists are the
+   only sections whose rows have one, and a 3px bar said the same thing on both.
+   Wider first column only here - every other section keeps the bar, and a 10px
+   gutter on all of them would indent rows that have nothing to put in it. */
+.wk-src.dir {
+  grid-template-columns: 10px minmax(0, 1fr);
+}
+
+.wk-src.dir.has-act {
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+}
+
+/* The reading order: a depth chip where every other section has a swatch. It
+   is wider than the 3px bar and than the 10px arrow because it carries two
+   glyphs ("−2"), and only these rows pay for it. */
+.wk-src.rung {
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+
+.wk-lad-d {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  text-align: center;
+}
+
+/* The note you are standing on. It is in the list rather than implied between
+   two headings, so it has to be the one row that does not read as a place to
+   go: no hover lift, and the accent moved off the chip and onto the name. */
+.wk-src.rung.here {
+  background: var(--slate-2);
+}
+
+.wk-src.rung.here:hover {
+  background: var(--slate-2);
+}
+
+.wk-src.rung.here .wk-lad-d,
+.wk-src.rung.here .wk-src-n {
+  color: var(--accent);
+}
+
+.wk-lad-x {
+  padding: 0.1rem 0.85rem 0.3rem 1.4rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.wk-lad-f {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.85rem 0.6rem 1.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--ash-dim);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.wk-lad-f:hover {
+  color: var(--accent);
+}
+
+.wk-src-ar {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wk-srct {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.wk-src-sw.warn {
+  background: var(--warn);
+}
+
+.wk-run .wk-acts {
+  margin-top: 0.5rem;
+}
+
+/* The one figure on a line of words. Without it "97 links hub statistica ·
+   variabile" is four grey strings that read as one sentence. */
+.wk-num.strong {
+  color: var(--frost);
+}
+
+/* What the note SAYS, which this column took over from the drawer. Two lines
+   per snippet and no more: it is the extract that decides whether to spend the
+   second click, not a second reader. The server already withholds snippets for
+   a note under 700 characters, so a note short enough to read whole never gets
+   an extract of itself here. */
+.wk-snip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-snip-h {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.wk-snip-t {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* The tail of a section past its fifth row. <details> because the browser owns
+   this toggle already: no open/closed state in JS, and it survives a re-render
+   by simply not existing across one. */
+.wk-more summary {
+  padding: 0.35rem 0.85rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.wk-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.wk-more summary:hover {
+  color: var(--frost);
+}
+
+.wk-more summary:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* Why a section came back thin, printed under the sections it explains. Muted
+   because it is never the answer, only the reason the answer is short. */
+.wk-hint {
+  padding: 0.55rem 0.85rem;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ash-dim);
+}
+
+#drawer-toggle[aria-pressed="true"] {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+/* --- the Report panel: same column, different question ---------------------
+   On the metrics view the third column stops narrating the run and states the
+   report. It reuses the beat row wholesale — a signal, its value, what it was
+   and by how much it moved lands in exactly the four slots a beat already has,
+   and a second row layout for the same shape would be a second thing to keep
+   in step. */
+.wk-write-h .wk-num {
+  margin-left: auto;
+}
+
+/* The write card's third state. `write` is amber because it HAS changed the
+   vault; `suggested` is accent because it is an offer, and accent is the one
+   interactive colour. */
+.wk-write.suggested {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+}
+
+.wk-write.suggested .wk-op {
+  color: var(--accent);
+}
+
+/* A delta is only good or bad where the direction means something: notes and
+   areas are in neither class, because a vault that grew has more of both. */
+.wk-dur.good {
+  color: var(--add);
+}
+
+.wk-dur.bad {
+  color: var(--del);
+}
+
+/* --- the 1120 floor: the deck folds, it does not reflow --------------------
+   Below the width that holds rail + reading measure + right sidebar side by
+   side, the rail becomes five icons summoned over the transcript. It is not
+   removed: a fold that takes a surface away and leaves nothing where it was is
+   not a fold, it is a deletion the user cannot undo.
+
+   The threshold lives HERE and nowhere else; app-shell.js reads --narrow back out
+   through isNarrow(). The pixel count is what a three-column deck needed:
+   264 (rail) + 560 (the reading measure the prose needs) + 372 (the work
+   column, before it became a mode of the drawer).
+
+   1195 and not the 1120 the header keys on: this is exactly the width where the
+   old affordable() took the panel away, so the fold replaces the disappearance
+   at the same pixel and nothing else about the app moves. The header's 1120 is
+   a different measurement of a different row (whether the strip can hold the
+   counts), and collapsing the two would change one of them for no reason. */
+@media (max-width: 1195px) {
+  body {
+    --narrow: 1;
+  }
+
+  /* Summoned, not gone. #railmini keeps the five entry points; this is the
+     compartment they open, over the transcript rather than beside it. */
+  #sidebar {
+    position: fixed;
+    top: var(--header-h, 3rem);
+    left: 52px;
+    bottom: 0;
+    width: var(--side-w);
+    z-index: 45;
+    display: none;
+    /* Opaque for the same reason the folded panel is: summoned, it stands over
+       the transcript, and a file tree read through a message is neither. */
+    background: var(--slate, var(--chrome-glass));
+    /* --shadow-rgb, not a literal black: on paper the app casts a warm shadow
+       and a folded rail casting a grey one beside it is the tell that this
+       overlay was written before the second ground existed. Same geometry both
+       ways, only the channel changes. */
+    box-shadow: 18px 0 40px -22px rgb(var(--shadow-rgb) / 0.9);
+  }
+
+  body.rail-open #sidebar {
+    display: flex;
+  }
+
+  /* No fold for the work pane below this floor, and none needed: it is the
+     drawer, which has been position:fixed against this edge at max-width:55vw
+     with its own close control at every width since it existed. The rules that
+     were here folded a SECOND panel into an overlay that the drawer then had to
+     be told to win over — three selectors keeping two surfaces out of each
+     other's way at one edge, which is the duplication the merge removed. */
+}
+
+#railmini {
+  flex: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  border-right: 1px solid var(--line-2);
+  background: var(--chrome-glass);
+}
+
+#railmini[hidden] {
+  display: none;
+}
+
+.rm {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--ash-dim);
+  cursor: pointer;
+  position: relative;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.rm:hover {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+.rm.on {
+  color: var(--frost);
+  background: var(--slate-2);
+}
+
+/* This session has no room for its count at 34px, and the count is not the
+   reading anyway: what you need from an icon is that there IS something in it. */
+.rm[data-sec="side-changes"]::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--warn);
+}
+
+/* --- the Structure block: where a note SITS --------------------------------
+   Same 3px swatch grammar as a source row, and deliberately NOT a button: a
+   reading has nowhere to walk to. The second line is the sentence the number
+   means, because "core 3" and "surprise +11" are jargon on their own and this
+   panel is the only surface that states them. */
+.wk-str {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.4rem 0.85rem;
+}
+
+.wk-str-sw {
+  width: 3px;
+  /* Taller than a source row's 16px: this row is two lines, and a swatch that
+     stopped at the first would read as marking only the number. */
+  height: 100%;
+  min-height: 28px;
+  background: var(--ash-dim);
+}
+
+/* Only the cut vertex is a warning. Dissonance failed its judge gate, so it
+   keeps the neutral swatch: an amber bar is an accusation. */
+.wk-str.warn .wk-str-sw {
+  background: var(--warn);
+}
+
+.wk-str-n {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.wk-str.warn .wk-str-n {
+  color: var(--warn);
+}
+
+.wk-str-w {
+  margin-top: 0.15rem;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ash-dim);
+}
+
+/* --- path: the reading order around one note -------------------------------
+   The only directed surface. Rungs stack downward because that is the reading
+   direction, and the wires are drawn from the chips' measured boxes rather
+   than laid out in SVG: chip width is text width, which only the browser
+   knows. Centred on the same 1180px measure as the other pane surfaces. */
+/* Only the surface that keeps the note search reserves room for it. Set from
+   setGraphMode rather than from a :has() on the pane, because what decides it
+   is the MODE and not what happens to be in the DOM. */
+#shape-pane.with-bar {
+  padding-top: 6.4rem;
+}
+
+.pl-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.pl-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.pl-h-t {
+  font-family: var(--sans);
+  font-size: 15px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+}
+
+.pl-empty,
+.pl-foot {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash-dim);
+  max-width: 62ch;
+}
+
+.pl-foot {
+  margin-top: 0.9rem;
+}
+
+.pl-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.4rem;
+}
+
+.pl-pick {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  background: var(--bubble);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.pl-pick:hover {
+  border-color: var(--accent);
+}
+
+.pl-pick-n {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pl-pick-d {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.pl {
+  position: relative;
+}
+
+/* Under the chips, never over them: a wire crossing a name would make the name
+   the thing you cannot read on a surface whose whole content is names. */
+.pl-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pl-wire {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.2;
+}
+
+.pl-rung {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+  padding: 0.85rem 0;
+}
+
+.pl-lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  padding-top: 0.35rem;
+  text-align: right;
+}
+
+.pl-rung.here .pl-lbl {
+  color: var(--accent);
+}
+
+.pl-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pl-n {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  /* Opaque, because the wires pass underneath and a translucent chip would let
+     one through the middle of a word. */
+  background: var(--page);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+
+.pl-n:hover {
+  border-color: var(--accent);
+}
+
+.pl-n.root {
+  border-color: var(--accent);
+  background: var(--slate-2);
+}
+
+/* A note RefD placed in a cycle: its rung is a guess, so it says so rather than
+   sitting on the ladder as if the order were settled. */
+.pl-n.cyc {
+  border-style: dashed;
+}
+
+.pl-re {
+  border: 0;
+  background: transparent;
+  color: var(--ash-dim);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 0.1rem;
+  cursor: pointer;
+}
+
+.pl-re:hover {
+  color: var(--accent);
+}
+
+/* --- the burst strip: what this fortnight of writing was about --------------
+   Above the days, because it frames them. Pills reuse .wk-pill wholesale: the
+   verb is identical to the note drawer's concept cloud (light its notes in the
+   graph), and a second pill that behaved the same and looked different would
+   be a second thing to keep in step. */
+.cal-burst {
+  padding: 0 0 0.7rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.7rem;
+}
+
+.cal-burst-p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0 0.85rem;
+}

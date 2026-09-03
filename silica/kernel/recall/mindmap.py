@@ -648,7 +648,7 @@ def render_map_svg(mv: MapView, title: str = "Mindmap") -> str:
     --card-shadow:rgba(0,0,0,.55);
     --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
   }}
-  /* Warm paper, the app shell's ramp — see static/app.css for how the values
+  /* Warm paper, the app shell's ramp — see static/app-base.css for how the values
      were derived. Restated rather than imported because this document is
      emitted standalone and has no stylesheet to link to. */
   :root[data-theme="light"]{{

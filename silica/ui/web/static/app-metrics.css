@@ -1,0 +1,1539 @@
+/* --- metrics tab ------------------------------------------------------------
+   Charts are HTML tables: the bar is a cell, so the chart and its table view
+   are one DOM and every value stays readable without hovering. No library, no
+   canvas, no toggle to keep in sync.
+
+   Chart fills get their own tokens rather than reusing --accent/--warn: those
+   two sit at OKLCH L .767, above the dark-mode mark band, and glow as large
+   fills. These are the same two hues snapped into the band (L .66), which is
+   also what makes the pair pass the contrast and CVD checks against --page.
+   Values below are computed, not eyeballed:
+     accent #05a3c2 / amber #bc8803 — 5.76:1 and 5.46:1 on --page,
+       CVD ΔE 20.1 (protan), 23.6 normal-vision. Cool/warm, so they read as
+       opposite arms of the diverging scale; the zero rule stays neutral gray.
+     ordinal ramp .74/.66/.58/.50 — one hue, monotone, ΔL .08 per step. The
+       fourth step was added with the context panel's fourth part and extends
+       the emphatic end (7.56:1), because the recessive end is where --c-track
+       already sits at .42 and a tier there would read as an unfilled measure. */
+:root {
+  --c-accent: #05a3c2;
+  --c-amber: #bc8803;
+  --c-ord-4: #0BBEE2;
+  --c-ord-3: #05a3c2;
+  --c-ord-2: #0288a3;
+  --c-ord-1: #006f85;
+  --c-track: #005768;
+}
+
+/* Light reverses the ordinal ramp's DIRECTION, not just its values. On crystal
+   a bar recedes by getting darker, toward the floor; on paper it recedes by
+   getting lighter, toward the sheet. Reusing the dark ramp here would have put
+   the most emphatic tier on the faintest fill and read the chart backwards.
+   Computed against --page again, same method:
+     accent #0E7A93 4.89:1, amber #8A6008 5.50:1 — still cool/warm, so the
+       diverging scale keeps its two arms and the zero rule stays neutral.
+     ordinal .45/.54/.62/.71 lightness, ΔCR ~1.45 per step, monotone; the
+       emphatic end lands at 7.17:1, mirroring the dark ramp's fourth step.
+     the track lands at 1.31:1 on --page: visible as an unfilled measure,
+       quiet enough that a row of them is not a second chart. */
+:root[data-theme="light"] {
+  --c-accent: #0E7A93;
+  --c-amber: #8A6008;
+  --c-ord-4: #005F73;
+  --c-ord-3: #0E7A93;
+  --c-ord-2: #3595AB;
+  --c-ord-1: #63B0C1;
+  --c-track: #CFE3E9;
+}
+
+/* .frame-loading is inset:0, so the view has to be its containing block —
+   without this the overlay resolves against the viewport and blanks the whole
+   app (header and sidebar included) while the report computes. #view-graph
+   already carries this for the same reason. */
+#view-metrics {
+  position: relative;
+}
+
+#metrics-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--slate);
+  flex-shrink: 0;
+}
+
+.mbar-title {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.mbar-stamp {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ash-dim);
+  margin-right: auto;
+}
+
+#metrics-refresh {
+  font-size: 11px;
+  color: var(--ash);
+}
+
+#metrics-body {
+  flex: 1;
+  overflow-y: auto;
+  /* No padding-top on the scrollport, and the same 1rem restored as a margin on
+     whatever lands first. A sticky offset resolves against the scrollport's
+     PADDING box, so with padding-top here the section summaries parked 1rem
+     below the top edge and every table scrolled through the gap above them: a
+     permanent band of half a row of somebody else's column headers, sitting
+     between the metrics bar and the heading that was supposed to have covered
+     it. Identical layout, and `top: -1px` now means what it says. */
+  padding: 0 1rem;
+  /* the ask-from-here dock no longer reaches this view, so the 5.5rem it used to
+     reserve for the composer is now just a hole under the last card */
+  padding-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: opacity var(--dur) var(--ease);
+  /* refetch holds the previous render at reduced opacity — no skeleton flash */
+}
+
+/* --- the standing ------------------------------------------------------------
+   The worklist and the four rates, side by side, sharing one compartment. Two
+   readings of the same question — what to do, and how far along you are — so
+   they are one object split by a hairline rather than two stacked panels. */
+#metrics-body > :first-child {
+  margin-top: 1rem;
+}
+
+/* --- worklist and evidence ---------------------------------------------------
+   The worklist is the navigation and the pane beside it is that row's evidence.
+   This view used to be three walls of tables: 532 unresolved targets printed as
+   rows, in a card you had to go find, with nothing to do about them from the
+   view that found them.
+
+   340px of worklist, because the longest row is "structural gaps / areas that
+   should connect and do not" and the meaning line must not wrap. */
+.mv {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--page);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mv-l {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.mv-lh {
+  padding: 0.85rem 1rem 0.5rem;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.mv-r {
+  padding: 1rem 1.2rem 1.3rem;
+  min-width: 0;
+}
+
+/* A row is a count, what it is, and what that means, with the bar under the
+   two text lines. Three fields: the count is what you compare, the name is what
+   you recognise, and the meaning is what stops the name needing a glossary. */
+.wl {
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr);
+  gap: 2px 0.8rem;
+  padding: 0.5rem 1rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+}
+
+.wl[data-sig] {
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.wl[data-sig]:hover {
+  background: var(--slate-2);
+}
+
+/* The selected row and the pane are one surface: the left border is the join,
+   and it is the one place cyan appears in this list. */
+.wl.on {
+  background: var(--slate-2);
+  border-left-color: var(--accent);
+}
+
+.wl[data-sig]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.wl-q {
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1.15;
+  text-align: right;
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+.wl-l {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wl-d {
+  grid-column: 2;
+  font-size: 10.5px;
+  color: var(--ash-dim);
+}
+
+/* --- the worklist slot: direction, not a cross-signal ranking --------------
+   This held a magnitude bar whose scale was n over the largest count in the
+   list -- a comparison between unresolved links, lean notes and area pairs,
+   which share no unit. The sort order and the printed figure already said
+   which was biggest. A row whose signal the store has never seen twice keeps
+   the slot and shows nothing, the same rule the histogram's zero bin follows. */
+.wl-b {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: auto;
+  margin-top: 3px;
+  background: none;
+}
+
+/* A zero is an answer, it is just not a destination: no bar, no hover, and the
+   figure steps down so the list still ranks by what is actually there. */
+.wl.zero .wl-q {
+  font-size: 13px;
+  color: var(--ash-dim);
+}
+
+.wl.zero .wl-l {
+  color: var(--ash-dim);
+}
+
+/* --- the evidence pane ------------------------------------------------------ */
+.ev-h {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.ev-t {
+  font-size: 16px;
+  color: var(--frost);
+}
+
+.ev-n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reading, not a caption: it says what the numbers mean together, which is
+   the one thing the table under it cannot. 64ch, the prose measure. */
+.ev-s {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ash);
+  max-width: 64ch;
+  margin: 0 0 1.1rem;
+}
+
+.ev-act {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.1rem;
+}
+
+.mini {
+  height: 22px;
+  padding: 0 0.6rem;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  color: var(--ash);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.mini:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+/* The one that changes the vault carries the one interactive colour. It drafts
+   the turn into the composer: nothing here writes anything by itself.
+   The border was rgba(53, 198, 232, .4), which is the accent this palette
+   REPLACED, frozen at 40% alpha: the last literal in the file still wearing the
+   crystal cyan, three planes away from the .wk-mini.go beside it that had
+   already been written as a color-mix on the token. Same expression, same
+   value, one source. */
+.mini.go {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.mini.go:hover {
+  border-color: var(--accent);
+}
+
+.mini:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- the tail ---------------------------------------------------------------
+   Linear height, and the caption names both ends. The skew IS the reading: a
+   handful of targets carry most of the references and the rest are asked for
+   once each, which is the difference between writing twenty notes and stubbing
+   four hundred. A log axis would need a disclaimer, and a chart arguing with
+   its own caption is worse than no chart. */
+.ev-tail {
+  margin-top: 1.4rem;
+}
+
+.ev-tl,
+.ev-tc {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.ev-tl {
+  margin-bottom: 0.5rem;
+}
+
+.ev-tc {
+  margin-top: 0.45rem;
+  font-family: var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+}
+
+/* Fixed-width bars, left-aligned: stretched across the full pane the first bin
+   reads as a block and the tail as a rule under it. At 22px the same numbers
+   read as the distribution they are. */
+.hist i {
+  flex: 0 0 22px;
+  background: var(--line-2);
+}
+
+.hist i.hot {
+  background: var(--accent);
+}
+
+/* --- one figure, when the column is constant --------------------------------
+   Attention printed fifteen rows of `113 · 0 · 114`: three columns, one value
+   each, fifteen times. A constant column is not data. */
+.ev-fig {
+  padding: 0.4rem 0 0;
+}
+
+.ev-figv {
+  font-family: var(--mono);
+  font-size: 34px;
+  line-height: 1;
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-figc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ash);
+  max-width: 64ch;
+  margin: 0.7rem 0 0;
+}
+
+/* --- sections ----------------------------------------------------------------
+   Sixteen cards unrolled at once is what made this view unreadable. Health
+   opens because the worklist above points into it; the other two are readings
+   you come looking for. */
+.msec {
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+}
+
+/* Sticky: Health is long enough that Structure and Activity sit two screens
+   below their own headings, and a closed section you have to scroll past a
+   whole open one to reach is a section you never open. */
+.msec > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+  list-style: none;
+  user-select: none;
+  position: sticky;
+  top: -1px;
+  z-index: 2;
+  /* Cards genuinely travel under this one, so it blurs; and it takes the
+     near-opaque chrome tint rather than --glass, because at .78 a table row
+     passing behind stayed legible enough to read as a second line of the
+     heading. A flat --void would have shown its own seam against the body's
+     fixed wash. */
+  background: var(--chrome-glass);
+  backdrop-filter: var(--glass-blur);
+  margin: 0 -1rem;
+  padding-inline: 1rem;
+}
+
+.msec > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* the disclosure mark is drawn, so it can carry the state without a glyph that
+   changes width between the two states */
+.msec > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border: 4px solid transparent;
+  border-left-color: var(--ash-dim);
+  margin-right: 0.1rem;
+  transform-origin: 2px 50%;
+  transition: transform var(--dur) var(--ease);
+}
+
+.msec[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.msec > summary:hover .msec-t {
+  color: var(--accent);
+}
+
+.msec-t {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--frost);
+  transition: color var(--dur) var(--ease);
+}
+
+.msec-s {
+  font-size: 11px;
+  color: var(--ash-dim);
+}
+
+.msec[open] > .mgrid {
+  margin-top: 0.9rem;
+}
+
+/* where a worklist row lands. One pass of the accent along the card's own
+   border, so the eye is told which of sixteen compartments answered. */
+@keyframes mcard-flash {
+  from { border-color: var(--accent); }
+  to   { border-color: var(--line); }
+}
+
+.mcard.flash {
+  animation: mcard-flash 1.2s var(--ease);
+}
+
+/* E(vault), inside its own card now rather than at the head of the view.
+   Proportional figures on purpose — tabular-nums makes a large number read
+   loose. 34, not 52: the display step belongs to the chat landing's wordmark,
+   and a thermometer reading is not the loudest thing on a metrics page. */
+.hero-val {
+  font-family: var(--sans);
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--frost);
+  margin: 0.1rem 0 0.35rem;
+}
+
+.chip {
+  display: inline-block;
+  margin-top: 0.7rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line-2);
+  background: var(--slate-2);
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* The four rates, as the right half of the standing panel. Two by two rather
+   than one row of four: paired with the worklist they are context, and a
+   four-across strip beside a list reads as the louder of the two. */
+.mkpi {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+
+/* Left-aligned and larger than the sidebar's: these four have a 170px cell
+   each, where the sidebar's four share 264px and have to centre to survive it. */
+.mkpi .stat {
+  /* these four stretch to the worklist's height, so the pair has to sit in the
+     middle of the cell or the tile reads as hollow underneath */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+}
+
+.mkpi .stat .val {
+  font-size: 18px;
+}
+
+.mkpi .stat .lbl {
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* the panel stacks under 1100px, where 340px of rates beside a worklist starts
+   truncating the meanings rather than the names */
+/* Under the worklist, not beside it: the rates put the counts above them in
+   proportion, so they read after the list. Not pushed to the foot of the
+   column either -- the evidence pane runs to several screens, and margin-top
+   auto parked them below all of it. */
+.mkpi {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+  margin-top: 0.6rem;
+}
+
+/* Under 1100px the pane cannot hold a table beside a 340px worklist, so the two
+   stack: the worklist keeps its full width and the evidence follows it. */
+@media (max-width: 1100px) {
+  .mv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mv-l {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .mkpi {
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  }
+}
+
+/* Columns, not a grid: the cards run from ~200px to ~700px tall, and on a
+   grid every row is as tall as its tallest card — which left voids the size
+   of a card under the short ones. CSS multi-column packs and balances them for
+   free. The trade is column-major reading order, which costs nothing here:
+   every card is self-contained and none refers to the one beside it. */
+.mgrid {
+  columns: 330px 3;
+  column-gap: 1rem;
+}
+
+.mgrid > .mcard {
+  break-inside: avoid;
+  margin-bottom: 1rem;
+}
+
+.mcard {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--page);
+  padding: 0.85rem 0.9rem 0.9rem;
+  min-width: 0;
+}
+
+.mcard-head {
+  margin-bottom: 0.7rem;
+}
+
+.mcard h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--frost);
+}
+
+.mcard-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 11px;
+  color: var(--ash-dim);
+}
+
+.mcard.proposed {
+  border-left: 2px solid var(--line-2);
+}
+
+.mcard.proposed h3::after {
+  content: " · proposed";
+  font-weight: 400;
+  color: var(--ash-dim);
+}
+
+.mempty,
+.mnote {
+  margin: 0.4rem 0 0;
+  font-size: 11px;
+  color: var(--ash-dim);
+}
+
+/* --- charts: a table where one cell carries the bar ------------------------ */
+.chart {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.chart th,
+.chart td {
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+  font-weight: 400;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+/* text never wears the data color — identity comes from the mark beside it */
+.chart thead th {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.35rem;
+}
+
+.chart .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chart .num.sub {
+  color: var(--ash-dim);
+}
+
+.chart tbody tr {
+  border-bottom: 1px solid var(--line);
+  /* hairline, solid, one step off the surface — never dashed */
+}
+
+.chart tbody tr:last-child {
+  border-bottom: none;
+}
+
+/* Bar-chart row labels stay on one line: they are names, and a label wrapping
+   to two lines breaks the rhythm the bars beside it are read by. The full
+   string stays reachable through the cell's tooltip. */
+.chart tbody th {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Data-table text cells wrap instead. Clamping them cost more than it saved:
+   the clipped column was usually the explanation ("frontmatter flags a …") or
+   the pair, the two things the row exists to say. Wrapping grows the card
+   downward, which the column layout absorbs; ellipsis just hid the content.
+   overflow-wrap because a vault path has no space to break at. */
+.chart tbody td:not(.num) {
+  overflow-wrap: anywhere;
+}
+
+/* last resort: a card never scrolls the page sideways — the wrapper scrolls,
+   not the table itself (display:block on a <table> drops column alignment) */
+.tscroll {
+  overflow-x: auto;
+}
+
+/* an action cell: tight against the right edge, and never the column that grows */
+.chart td.act {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart tr.clickable {
+  cursor: pointer;
+}
+
+.chart tr.clickable:hover {
+  background: var(--slate-2);
+}
+
+/* the bar cell takes the slack; the label and value columns stay tight */
+.bars .cell {
+  width: 100%;
+}
+
+.bar {
+  height: 10px;
+  /* thin marks: the data is loud, nothing else is */
+  background: var(--c-accent);
+  min-width: 2px;
+  /* E's six terms span three orders of magnitude on a real vault; a term that
+     measured 8 next to one that measured 3600 must still paint, or it reads as
+     "measured, came out flat". The value column carries the real number. */
+}
+
+.bar.amber {
+  background: var(--c-amber);
+}
+
+/* waterfall: every bar is placed on one shared scale spanning the running
+   total, so a step starts where the last one ended. The zero rule sits
+   wherever 0 falls on that scale (--zero, set per chart), not at the middle:
+   when every term but one raises E, zero is near the left edge and pretending
+   otherwise would put the arms where the data isn't. */
+.chart.waterfall .cell {
+  position: relative;
+  height: 18px;
+}
+
+.chart.waterfall .cell::before {
+  content: "";
+  position: absolute;
+  left: var(--zero, 0%);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line-2);
+}
+
+.chart.waterfall .bar {
+  position: absolute;
+  top: 4px;
+  height: 10px;
+}
+
+/* the total is a sum, not a term: neutral, so it never joins either arm */
+.bar.total {
+  background: var(--ash);
+}
+
+.chart tbody tr.total th,
+.chart tbody tr.total .num {
+  color: var(--frost);
+}
+
+.chart tbody tr.total {
+  border-top: 1px solid var(--line-2);
+}
+
+.mlegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-bottom: 0.55rem;
+  font-size: 11px;
+  color: var(--ash);
+}
+
+.mlegend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.swatch.accent { background: var(--c-accent); }
+.swatch.amber { background: var(--c-amber); }
+.swatch.ord-4 { background: var(--c-ord-4); }
+.swatch.ord-3 { background: var(--c-ord-3); }
+.swatch.ord-2 { background: var(--c-ord-2); }
+.swatch.ord-1 { background: var(--c-ord-1); }
+
+/* stacked part-to-whole: 2px surface gaps do the separating, never a stroke */
+.stack {
+  display: flex;
+  height: 14px;
+  gap: 2px;
+  margin-bottom: 0.7rem;
+}
+
+.stack-seg {
+  min-width: 2px;
+}
+
+.stack-seg.ord-4 { background: var(--c-ord-4); }
+.stack-seg.ord-3 { background: var(--c-ord-3); }
+.stack-seg.ord-2 { background: var(--c-ord-2); }
+.stack-seg.ord-1 { background: var(--c-ord-1); }
+
+/* --- the four forms this view had no way to draw ---------------------------
+   Every chart above answers a question about one reading of the vault. These
+   answer questions a single reading cannot hold: which way a count is going,
+   how two measurements sit against each other, and how the mass is spread.
+   All four are inline SVG or CSS boxes, on the same argument `squarify` makes
+   for not pulling in d3-hierarchy: the vendored graph renderers are the only
+   libraries on this page and a layout dependency for a polyline would be the
+   largest of them. */
+
+/* A direction, never a measurement -- the figure beside it is the measurement,
+   which is why every caller prints one. Drawn at its own viewBox size so the
+   stroke stays a stroke and the head stays round; max-width only stops it
+   overflowing a narrow slot, it never stretches it. */
+.spark {
+  display: block;
+  max-width: 100%;
+}
+
+.spark-l {
+  fill: none;
+  stroke: var(--c-accent);
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* The head, so "where it ended" reads without counting points from the left. */
+.spark-h {
+  fill: var(--c-accent);
+}
+
+/* The move, and whether the move was the good direction. Neutral by default:
+   more areas is fragmentation or coverage depending on the vault, and a colour
+   there would be the view asserting something it cannot know. */
+.dchip {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  white-space: nowrap;
+}
+
+.dchip.up { color: var(--add); }
+.dchip.down { color: var(--del); }
+
+/* --- scatter: two continuous measurements at once --------------------------
+   Drawn at the wrapper's measured width, so one unit is one CSS pixel and a
+   9px axis label is 9px in a 330px card and in a 650px one. Nothing here sets
+   a width on the svg: the element carries the pixel size its own draw computed,
+   and a rule that stretched it would put the scaling back. */
+.sc-wrap {
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+
+.sc {
+  display: block;
+}
+
+.sc.pick .sc-dot {
+  cursor: pointer;
+}
+
+.sc-dot {
+  fill: var(--c-accent);
+  fill-opacity: 0.62;
+}
+
+/* Drawn over the field rather than by restyling the hovered circle, which
+   would take the whole field's DOM with it on every pointer move. */
+.sc-ring {
+  fill: var(--c-accent);
+  fill-opacity: 0.9;
+  stroke: var(--text);
+  stroke-width: 1.2;
+  pointer-events: none;
+}
+
+.sc-ax {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.sc-med {
+  stroke: var(--ash-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+}
+
+/* One quadrant washed, not four coloured panels: the dots are the content, and
+   a tint behind all four would spend the visual budget re-saying what the two
+   dashed guides already say. */
+.sc-tint {
+  fill: var(--c-amber);
+  fill-opacity: 0.08;
+}
+
+.sc-q,
+.sc-al {
+  fill: var(--ash-dim);
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.sc-q {
+  fill: var(--ash);
+}
+
+/* Positioned above the plot, not at the pointer: at this size a card that
+   follows the cursor covers the dots either side of the one being read. */
+.sc-tip {
+  position: absolute;
+  inset: auto 0 100% 0;
+  padding: 0.3rem 0.45rem;
+  background: var(--bubble);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* --- the trend band: small multiples over the stored readings --------------
+   One frame per signal and NOT one chart with nine lines: these counts do not
+   share a domain, so on one linear axis the four that matter flatten along the
+   bottom. What the panels do share is the x axis, which is the comparison the
+   band exists for -- which signals moved together. */
+.mband {
+  margin: 0.9rem 0 0.2rem;
+  border: 1px solid var(--line);
+  padding: 0.7rem 0.8rem 0.8rem;
+}
+
+.mband-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.mband-t {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.mband-s {
+  font-size: 10.5px;
+  color: var(--ash-dim);
+}
+
+/* auto-fit rather than a fixed count: the band holds nine panels on a wide
+   deck and three per row on a laptop, and a 9-column grid at 1200px would put
+   130px of sparkline in a 90px cell. */
+.mband-g {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 0.7rem 0.9rem;
+}
+
+.mband-ct {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* The placeholder is a paragraph, not a half-line, because what a reader has to
+   learn here is not that the band is empty but what fills it. Held to a reading
+   measure: it sits above a 9-column grid and would otherwise run the full width
+   of the deck as one line. */
+.mband-p {
+  max-width: 68ch;
+  margin: 0 0 0.75rem;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash);
+}
+
+/* A frame with a real figure and no line yet. Dimmed as a whole rather than
+   greying the number: the value is not provisional, only the direction is. */
+.mband-c.waiting .mband-v {
+  color: var(--ash);
+}
+
+/* Where the line will go. Dotted, and exactly the sparkline's own height, so
+   the frame does not resize when the second reading arrives. Nothing in this
+   view draws a VALUE dotted, so it cannot be read as a flat series -- which is
+   what a solid stroke here would say, and the one thing the store cannot claim
+   with a single reading. */
+.mband-wait {
+  height: 26px;
+  border-bottom: 1px dotted var(--line);
+  box-sizing: border-box;
+}
+
+.mband-v {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.mband-l {
+  font-size: 10px;
+  color: var(--ash-dim);
+  margin-top: 1px;
+}
+
+/* --- the KPI tiles: a rate, its move, and where it came from --------------- */
+.stat-h {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.mkpi .stat .spark {
+  margin-top: 4px;
+}
+
+/* --- the areas field ------------------------------------------------------
+   .tmap is sized for the full-page shape view; inside a card it has to be a
+   card's worth of height. Fixed rather than aspect-driven: the tiles are laid
+   out in an abstract 100x100 box, so the container alone decides the pixels
+   and a shorter box just makes every tile shorter. */
+.tmap-holder {
+  margin-bottom: 0.5rem;
+}
+
+.tmap.tmap-a {
+  height: 300px;
+}
+
+/* --- the legend carries its own figures ----------------------------------
+   A stacked bar shows shares, and a reader who wanted the count had to find it
+   again in a table underneath. Two renderings of one measurement are two things
+   that can disagree after an edit. */
+.mlegend-n {
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- explore: folders / areas / read ---------------------------------------
+   Three in-page surfaces sharing one pane, where graph and map each own an
+   iframe. They scroll as a unit under the toolbar. */
+/* flex: 1 like the two iframes it stands in for, so the toolbar keeps its
+   height and only this scrolls. min-height:0 or the matrix's own width would
+   push the pane past the viewport instead of scrolling inside it. */
+#shape-pane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  /* #graph-bar is absolute over the whole view so it can float on the graph
+     canvas. These panes have content at the top instead, so they clear it —
+     and the ask-from-here dock floats over the bottom, so they clear that too
+     or the last row of a scrolled list sits under the composer.
+
+     The right inset is #legend's band, the same 236px #graph-bar reserves. A
+     translucent panel over a canvas is a HUD; over a treemap it is a tile whose
+     label you cannot read — measured, the second-largest folder's corner sat
+     under it. The content is centred inside what is left, so the inset reads as
+     margin rather than as a shove. */
+  padding: 3.4rem 236px 5.5rem 1.1rem;
+}
+
+/* Every one of these three has content that is wider than tall and narrower
+   than the pane — a treemap, a square matrix, a reading roll — so left-aligned
+   they each sat in the first third of a 1500px screen with the rest blank.
+   Centred, the width reads as margin. */
+.shape-body {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.shape-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.shape-sub {
+  font-size: 11px;
+  color: var(--ash);
+}
+
+/* treemap: tiles are positioned in percentages of an abstract 100x100 box, so
+   the container alone decides the pixels and a resize needs no relayout. */
+.tmap {
+  position: relative;
+  width: 100%;
+  height: min(62vh, 620px);
+  background: var(--bubble);
+}
+
+.tmap-tile {
+  position: absolute;
+  overflow: hidden;
+  /* 2px of surface between tiles, the same separator .stack uses — never a
+     stroke, which at this density would read as a grid of its own. */
+  outline: 2px solid var(--page);
+  outline-offset: -1px;
+  /* --i is impurity: a folder whose notes all sit in one area stays near-blank
+     and a folder mixing nine areas goes solid, so the disagreements are the
+     loud ones. Capped like the session matrix, so one foreground reads across
+     the whole ramp in both themes. */
+  background: color-mix(in srgb, var(--c-accent) calc(var(--i, 0) * 45%), transparent);
+}
+
+.tmap-tile.folder {
+  cursor: pointer;
+}
+
+.tmap-tile:hover {
+  outline-color: var(--accent);
+}
+
+.tmap-lbl {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem 0.4rem;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--frost);
+  pointer-events: none;
+}
+
+.tmap-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Demoted by size, not by colour. --ash is a muted foreground for the page
+   ground; over a tile that ramps to 45% accent it measured 2.59:1, so the count
+   on the biggest, most mixed folder was the least readable thing on the view.
+   The ground varies here, and size is the only hierarchy channel that does not. */
+.tmap-n {
+  color: var(--frost);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* reading path: a roll, not a chart — the order is the whole content.
+   The rail and the roll centre together as one cluster: a reading measure
+   cannot fill a wide pane, and what the leftover width is worth is a way back
+   into a path that scrolls past its own headings. */
+/* Rail and roll centre as one cluster. Pinning the rail to the pane's left
+   edge instead put 500px of nothing between an index and the thing it indexes;
+   a reading measure cannot fill a 1300px pane and the honest answer is to let
+   the leftover read as margin on both sides. */
+.shape-body.read {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 68ch);
+  grid-template-areas:
+    "head head"
+    "rail roll"
+    "rail note";
+  align-content: start;
+  justify-content: center;
+  column-gap: 2.75rem;
+  max-width: none;
+}
+
+.shape-body.read > .shape-head { grid-area: head; }
+.shape-body.read > .rpath { grid-area: roll; }
+
+.shape-body.read > .mnote {
+  grid-area: note;
+  margin-top: 0.9rem;
+}
+
+.rpath-rail {
+  grid-area: rail;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  /* the rail is a table of contents, not a list of controls: hairline on the
+     reading side, so the path has an edge to run along */
+  border-left: 1px solid var(--line);
+}
+
+.rpath-rail-i {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  padding: 0.32rem 0 0.32rem 0.7rem;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+  color: var(--ash-dim);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.rpath-rail-i:hover {
+  color: var(--text);
+}
+
+.rpath-rail-i.here {
+  color: var(--frost);
+  border-left-color: var(--accent);
+}
+
+.rpath-rail-i:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* under the two-column floor the rail would take a third of the measure, so it
+   lies down over the roll as a plain index */
+@media (max-width: 1120px) {
+  .shape-body.read {
+    grid-template-columns: minmax(0, 68ch);
+    grid-template-areas: "head" "rail" "roll" "note";
+    max-width: 1180px;
+  }
+
+  .rpath-rail {
+    position: static;
+    flex-flow: row wrap;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    gap: 0 1rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .rpath-rail-i {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid transparent;
+    margin: -1px 0 0;
+  }
+
+  .rpath-rail-i.here {
+    border-left-color: transparent;
+    border-top-color: var(--accent);
+  }
+}
+
+.rpath {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* aligned with the stop NAMES, not with the number gutter they run beside */
+.rpath-area {
+  margin: 1.3rem 0 0.35rem;
+  padding-left: 2.46rem;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+.rpath-area:first-child {
+  margin-top: 0;
+}
+
+/* The stop number sits in a gutter the path runs down, so the sequence reads
+   as one line rather than as a digit repeated at the head of every row. */
+.rpath-stop {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.1rem 0;
+  padding: 0.45rem 0.5rem;
+  border-left: 1px solid var(--line);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.rpath-stop:hover {
+  border-left-color: var(--accent);
+  background: var(--bubble);
+}
+
+.rpath-n {
+  grid-row: 1 / 3;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+  align-self: center;
+}
+
+.rpath-name {
+  color: var(--frost);
+}
+
+.rpath-why {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--ash);
+}
+
+/* session x area matrix: one hue, intensity carries magnitude and the printed
+   number carries the value, so the cell never depends on colour alone. Column
+   heads run vertical because an area is named by its hub note and those names
+   are phrases, not labels — rotated they cost 90px of height once instead of
+   forcing a 7-column grid to 900px of width. */
+.smx-scroll {
+  overflow-x: auto;
+  margin-bottom: 0.7rem;
+}
+
+.smx {
+  display: grid;
+  /* fallback like --zero's: an unset count makes the repeat() invalid, which
+     drops the whole declaration and collapses the matrix into one column. */
+  grid-template-columns: max-content repeat(var(--cols, 1), 30px) 40px;
+  gap: 2px;
+  width: max-content;
+  /* centre the matrix in the pane the way the reading path centres its rail.
+     Safe against the scroller: auto margins resolve to 0 when there is no free
+     space, so a matrix wider than the pane still starts at its left edge and
+     scrolls from there rather than losing its first column off-screen. */
+  margin-inline: auto;
+  font-size: 11px;
+}
+
+.smx-corner {
+  /* the empty cell over the date column */
+}
+
+.smx-col {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  height: 118px;
+  /* block, not flex: text-overflow does nothing inside a flex container, so the
+     flex version cut "Apprendimento automatico" to "Apprendimento autor" with
+     no mark that anything was missing. In vertical-rl + rotate(180deg) the
+     text ends at the bottom, so text-align:right is what bottom-aligns the
+     short heads against the long ones. */
+  display: block;
+  text-align: right;
+  padding-bottom: 3px;
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  /* A hub note's name is a phrase, so the longest still run past the head.
+     Ellipsis rather than a bare cut: "Intelligenza artifi" reads as a word,
+     "Intelligenza artifici…" reads as a name that did not fit, and the full
+     one is on the head's own tooltip either way. */
+  text-overflow: ellipsis;
+}
+
+.smx-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.smx-cell {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--frost);
+  /* --i is the sqrt-scaled intensity over the card's own ground, the same way
+     .stack lets the surface through its gaps and .hist-bar sits on no track at
+     all. Mixing over a filled track instead made an unwritten cell paint a
+     saturated teal, so the matrix read as full everywhere and absence read as
+     a low value.
+
+     Capped at 45%, which is what lets one foreground serve the whole ramp. The
+     first pass swapped to --on-vivid past the midpoint, tuned by eye in dark
+     mode; in light mode that put white on a 70%-teal cell at 3.0:1, under the
+     floor. A translucent fill makes contrast a function of the mix, so no
+     static pairing can track it — bounding the mix is what makes it static
+     again. The number carries the value here anyway; the tint is the second
+     encoding, not the first. */
+  background: color-mix(in srgb, var(--c-accent) calc(var(--i, 0) * 45%), transparent);
+}
+
+.smx-cell.empty {
+  background: none;
+}
+
+/* 26 areas need a tighter cell than 9 sessions do, or the matrix is 900px wide
+   before the label column */
+.smx.dense {
+  grid-template-columns: max-content repeat(var(--cols, 1), 22px);
+}
+
+.smx.dense .smx-cell {
+  height: 22px;
+  font-size: 10px;
+}
+
+/* the diagonal is an area against itself: cohesion, on its own scale. Neutral
+   rather than a step of the accent ramp, because a 0.11 cohesion and 11 links
+   sharing one ink invites reading either as the other. */
+.smx-cell.diag {
+  background: var(--bubble);
+  /* --ash on --bubble measured 4.48:1, just under the floor. The neutral ground
+     is already what separates the diagonal from the accent ramp, so the colour
+     demotion was buying nothing the background did not already say. */
+  color: var(--frost);
+}
+
+/* the totals column is a sum, not another area: neutral, never on the ramp */
+.smx-cell.smx-tot {
+  background: none;
+  color: var(--frost);
+}
+
+.smx-col.smx-tot {
+  color: var(--ash-dim);
+}
+
+.smx-cell.clickable {
+  cursor: pointer;
+}
+
+.smx-cell.clickable:hover {
+  outline: 1px solid var(--accent);
+}
+
+/* meter: one ratio against its limit, fill and track from one ramp */
+.meter-wrap {
+  margin-bottom: 0.7rem;
+}
+
+.meter {
+  height: 12px;
+  background: var(--c-track);
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--c-accent);
+}
+
+.meter-lbl {
+  margin-top: 0.35rem;
+  font-size: 11px;
+  color: var(--ash);
+}
+
+.mbtn {
+  margin-top: 0.7rem;
+  padding: 0.4rem 0.9rem;
+  background: var(--slate-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mbtn:hover {
+  border-color: var(--frost);
+  color: var(--frost);
+}
+
+/* --- histogram: columns on an ordered numeric axis -------------------------- */
+.hist-plot {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  /* the 2px surface gap does the separating, same as the stacked bar. No fixed
+     height here: only the track is fixed, so the container grows to include the
+     cap and tick bands instead of clipping them. */
+}
+
+.hist-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hist-track {
+  height: 120px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.hist-bar {
+  /* thin marks: capped so a wide card gives the bins air instead of slabs */
+  max-width: 24px;
+  width: 100%;
+  margin: 0 auto;
+  background: var(--c-accent);
+  min-height: 2px;
+}
+
+.hist-bar.empty {
+  min-height: 0;
+}
+
+/* values on the cap, so the columns are readable without a hover */
+.hist-cap {
+  font-size: 10px;
+  color: var(--ash);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 3px;
+  min-height: 13px;
+}
+
+/* the axis band lives inside the container, so the card never grows a nested
+   scrollbar to reach its own tick labels */
+.hist-tick {
+  font-size: 9px;
+  color: var(--ash-dim);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 3px;
+}
+

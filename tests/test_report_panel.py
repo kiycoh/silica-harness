@@ -31,8 +31,7 @@ from silica.kernel.report.history import (
 
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static"
 WORK_JS = WEB / "work.js"
-APP_JS = WEB / "app.js"
-APP_CSS = WEB / "app.css"
+from tests.webassets import app_css, app_js
 INDEX = WEB / "index.html"
 
 
@@ -224,7 +223,7 @@ def test_an_empty_payload_projects_to_an_empty_report(tmp_path):
 def test_the_report_rides_the_metrics_fetch(tmp_path):
     """One fetch, two surfaces. A second /metrics from work.js would recompute
     the whole vault to paint a panel beside the view that just computed it."""
-    src = APP_JS.read_text()
+    src = app_js()
     assert 'CustomEvent("silica:report"' in src
     assert 'CustomEvent("silica:view"' in src
     assert 'silica:report' in WORK_JS.read_text()
@@ -235,7 +234,7 @@ def test_the_two_bulk_turns_are_written_once():
     """The Report panel offers the same two turns the evidence panes do. A write
     prompt stated twice is two turns that can drift, and the one people would
     notice is the one that writes twenty notes."""
-    src = APP_JS.read_text()
+    src = app_js()
     assert src.count("function bulkWritePrompt(") == 1
     assert src.count("function bulkAutolinkPrompt(") == 1
     assert src.count("most referenced ones that do not exist yet") == 1

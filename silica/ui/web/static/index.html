@@ -24,7 +24,23 @@
       paint();
     })();
   </script>
-  <link rel="stylesheet" href="/static/app.css" />
+  <!-- app.css was one 8143-line file. Nine CUTS of it, in cascade order: link
+       order is source order, so this list reproduces the one stylesheet exactly
+       and a rule that used to win still wins. Two things it costs: tokens must
+       stay ahead of every user of them (app-base.css defines the :root palette
+       and the @font-face), and a chunk that redefines a token late still does
+       -- app-metrics.css rebinds the chart palette at its own :root and that is
+       load-bearing. Cut at a `/* --- */` banner and insert in position; never
+       reorder to group a section more neatly. -->
+  <link rel="stylesheet" href="/static/app-base.css" />
+  <link rel="stylesheet" href="/static/app-shell.css" />
+  <link rel="stylesheet" href="/static/app-chat.css" />
+  <link rel="stylesheet" href="/static/app-panels.css" />
+  <link rel="stylesheet" href="/static/app-chrome.css" />
+  <link rel="stylesheet" href="/static/app-metrics.css" />
+  <link rel="stylesheet" href="/static/app-settings.css" />
+  <link rel="stylesheet" href="/static/app-work.css" />
+  <link rel="stylesheet" href="/static/app-node.css" />
 </head>
 <body>
   <div id="drop-hint">Drop to nucleate into Inbox/</div>
@@ -296,7 +312,7 @@
              one choice, a hand's width apart: the rail keeps it, because it is
              the column you are in when you decide WHAT to look at, and it is
              the one that survives a narrow window. The list itself moved to
-             LAYOUT_MODES in app.js, which is now its single source. -->
+             LAYOUT_MODES in app-shell.js, which is now its single source. -->
 
         <!-- The vault moves under a built graph (Obsidian, a nucleate in a
              terminal, a second window) and /vault_version says so. Rebuilding
@@ -552,7 +568,23 @@ SILICA_STT_SERVE_CMD="whisper-server -m ggml-base.bin --port 1236"</pre>
   <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
   <div id="toasts" aria-hidden="true"></div>
 
-  <script src="/static/app.js"></script>
+  <!-- app.js was one 6766-line file. These eight are CUTS of it, not modules:
+       classic scripts share one global lexical scope, so a top-level const or
+       function in any of them is visible to the ones after it and nothing here
+       imports or exports. What that buys is paid for by ORDER: 114 top-level
+       statements run at load (listener registrations, the first fetches,
+       syncNarrow()), so this list is the load order and it is the only copy of
+       it -- server.py reads its cache-bust list back out of these lines, and so
+       do the tests. Add a file by cutting at a `// ---` banner and appending
+       here in position; never reorder to make a file read more thematically. -->
+  <script src="/static/app-chat.js"></script>
+  <script src="/static/app-shell.js"></script>
+  <script src="/static/app-explore.js"></script>
+  <script src="/static/app-metrics.js"></script>
+  <script src="/static/app-notes.js"></script>
+  <script src="/static/app-boot.js"></script>
+  <script src="/static/app-settings.js"></script>
+  <script src="/static/app-calendar.js"></script>
   <script src="/static/work.js"></script>
 </body>
 </html>

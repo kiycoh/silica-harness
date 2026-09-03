@@ -1,0 +1,1754 @@
+/* --- chat log: dense terminal transcript, not floating bubbles -------------- */
+#log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.msg {
+  display: block;
+  padding: 0.45rem 2rem;
+  animation: msg-in var(--dur) var(--ease);
+}
+
+.msg:first-child {
+  padding-top: 1.6rem;
+}
+
+.msg:last-child {
+  padding-bottom: 1.4rem;
+}
+
+/* Sided transcript: one shared measure, inside which your turn is a bubble
+   hugging its own text against the right edge while the answer runs the full
+   width as a sheet. The padding here IS the measure, so the bubble can align to
+   the column edge and not to the pane edge — and it is THE SAME measure the
+   answer uses, or the two right edges disagree by 12rem and the bubble reads as
+   centred (i.e. as neither side of the conversation). */
+.msg.user {
+  padding-inline: max(2rem, calc(50% - var(--measure) / 2));
+}
+
+/* Capped below the measure on purpose: a long question that filled the column
+   edge to edge became a box the exact size of the answer's sheet, and "who is
+   talking" went back to being a colour difference. The gutter it leaves on the
+   left is the signal. */
+.msg.user>.body {
+  background: var(--bubble);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  padding: 0.7rem 1rem;
+  width: fit-content;
+  max-width: min(100%, 42rem);
+  margin-inline: auto 0;
+  color: var(--frost);
+}
+
+/* The answer is a sheet, not a hug-content bubble, and that is a constraint
+   rather than a preference: it carries code fences, tables, MathML, mermaid,
+   the thinking block and the sources footer. Shrink-wrapping that content puts
+   a 90-character code line in a bubble the width of the sentence above it. */
+.msg.silica>.body {
+  background: var(--sheet);
+  border-radius: var(--r);
+  padding: 1.1rem 1.3rem;
+}
+
+/* one measure in rem, not ch: ch resolves against each element's own font-size,
+   so an 11px label and 16px prose would centre on two different widths and the
+   footer would sit indented from the paragraph above it. The measure is wider
+   than the classic 66 on purpose, because this transcript is as much table and
+   code fence as it is prose, and those were the things being squeezed. */
+.msg>.role,
+.msg>.body {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
+/* ...but only the wide things get the wide measure. The rule above used to
+   carry the whole claim, and the number in it was wrong: 58rem was said to hold
+   "~92 characters", and it holds 119. That figure came from the ch unit, which
+   is the advance of a zero, and a zero is one of the widest glyphs Archivo
+   draws; real lowercase prose sets about 30% denser than it, so measuring a
+   text column in ch overstates the measure every time.
+   119 characters is past the point where the eye loses the line it is
+   returning to, and this surface is the one thing in the app people actually
+   read. So prose takes the measure it was always meant to have and a code
+   fence, a table, a diagram or an image keeps the full sheet, which is the
+   whole reason the sheet is wide. 43rem is 92 characters, measured at 15px root
+   with a rendered string rather than with a zero. */
+:is(.msg, #note-body, #peek-body) > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6),
+:is(.msg, #note-body, #peek-body) .body > :is(p, ul, ol, dl, blockquote, h1, h2, h3, h4, h5, h6) {
+  max-width: 43rem;
+}
+
+/* Whose turn it is is now carried by the shape, so the byline stops saying it a
+   second time. It stays in the DOM for the screen reader, which has no bubble
+   to look at. */
+.msg .role {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.msg .body {
+  min-width: 0;
+  overflow-wrap: break-word;
+  position: relative;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* per-message copy button — hover-revealed, inset into the sheet's own padding
+   so it never sits on the rounded corner or on the first line of the answer */
+.copy-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.55rem;
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--slate-2);
+  color: var(--ash);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.msg:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: var(--frost);
+  border-color: var(--line-2);
+}
+
+/* A failed turn, where it failed. Amber like every other caution in this
+   palette, and carrying the only thing the user actually wants at that moment. */
+.turn-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+  padding: 0.65rem 0.8rem;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--r-sm);
+}
+
+.te-msg {
+  flex: 1;
+  min-width: 12rem;
+  font-size: 13px;
+  color: var(--frost);
+}
+
+.te-retry {
+  flex-shrink: 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-vivid);
+  background: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.te-retry:hover {
+  background: var(--frost);
+  border-color: var(--frost);
+}
+
+.te-retry:focus-visible {
+  outline: 1px solid var(--frost);
+  outline-offset: 2px;
+}
+
+/* thin-coverage hint: every vault search this turn came back empty. Muted on
+   purpose — it reports, it does not ask. */
+.turn-hint {
+  margin-top: 0.6rem;
+  color: var(--ash-dim);
+  font-size: 12px;
+}
+
+/* sources footer — notes this turn touched, click opens the drawer */
+.writes+.sources {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0.5rem;
+}
+
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.9rem;
+  margin-top: 0.7rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+/* One group per effect (written / moved / deleted / read), each labelled. The
+   groups sit on one row while they fit and wrap as whole units, so a label never
+   detaches from its chips. */
+.sgroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sources-label {
+  color: var(--ash-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+
+.sources .note-link {
+  font-size: 12px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--slate-2);
+  border-bottom-color: var(--line-2);
+}
+
+.sources .note-link:hover {
+  border-bottom-color: var(--accent);
+}
+
+/* --- write cards: the vault changed, and that is an object, not a chip -------
+   The product's claim is that delegating a write is safe. A write used to say so
+   with a 12px chip in a row of identical chips, next to an outlined button that
+   was the quietest element in its own footer — the highest-stakes moment in the
+   app rendered as its cheapest. Each change now carries its own surface, its own
+   operation label, its own tally, and its own way back.
+
+   The label was amber, which said "caution" about a write that had already
+   passed the gate, the lint and the re-read — the product working, coloured as
+   the product hesitating. It now takes the diff poles, which is what the label
+   actually names: `written` is lines that arrived, `deleted` is a file that
+   left, and both open the diff that shows them. Measured on --slate-2:
+   add 7.82:1 dark / 5.05:1 light, del 4.81:1 / 5.71:1, ash 5.35:1 / 5.73:1. */
+.writes {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.wcard {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.55rem 0.5rem 0.75rem;
+  background: var(--slate-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.wc-op {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+
+/* `moved` keeps the neutral: no line arrived and none left, which is exactly
+   what the diff for a move says too. */
+.wcard.written .wc-op {
+  color: var(--add);
+}
+
+.wcard.deleted .wc-op {
+  color: var(--del);
+}
+
+.wc-path {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--frost);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wc-path.wc-open {
+  cursor: pointer;
+}
+
+.wc-path.wc-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Same shape and same tokens as the sidebar's .chg-tally, because it is the
+   same number: how many lines arrived and left since this session's baseline.
+   Mono, so the digits line up down a stack of cards. */
+.wc-tally {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.wc-act {
+  flex-shrink: 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 0.28rem 0.7rem;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+/* Cyan, not amber. Amber here meant "clickable" on the one control the design
+   system says amber must never mean clickable on, and it read as a warning
+   about pressing the button rather than about the state of the vault. */
+.wc-act:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.wc-act:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wc-act:disabled {
+  color: var(--ash-dim);
+  border-color: var(--line);
+  cursor: default;
+}
+
+.wcard.reverting {
+  opacity: 0.6;
+}
+
+/* A write that failed its lint and self-reverted used to leave no trace in the
+   footer at all — its refs were dropped, so the turn went quiet about a note it
+   had just tried to change. It says so now, in the palette's neutral rather than
+   its caution: nothing happened to the vault, which is the reassuring half. */
+.wcard.failed {
+  background: transparent;
+  border-style: dashed;
+}
+
+.wcard.failed .wc-op,
+.wcard.failed .wc-path {
+  color: var(--ash);
+}
+
+.wc-note {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ash-dim);
+}
+
+/* The turn wrote something, so the way back is offered at the moment it matters
+   instead of being a command the user has to know exists. */
+.undo-turn {
+  align-self: flex-start;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+}
+
+.undo-turn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* armed is the one place amber is right on this control: it is not saying
+   "clickable", it is saying "the next click takes back twelve notes" */
+.undo-turn.armed,
+.undo-turn.armed:hover {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.undo-turn:disabled {
+  color: var(--ash-dim);
+  border-color: var(--line);
+  cursor: default;
+}
+
+/* markdown-it output — typeset it instead of leaving raw-looking browser
+   defaults. Shared by the chat transcript (.msg), the note drawer (#note-body)
+   and the dock card (#peek-body): one renderer server-side, one typesetting
+   client-side. */
+:is(.msg, #note-body, #peek-body) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table) {
+  margin: 0.75em 0;
+}
+
+:is(.msg, #note-body, #peek-body) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table):first-child {
+  margin-top: 0;
+}
+
+:is(.msg, #note-body, #peek-body) :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table):last-child {
+  margin-bottom: 0;
+}
+
+:is(.msg, #note-body, #peek-body) :is(h1, h2, h3, h4, h5, h6):not(:first-child) {
+  margin-top: 1.6em;
+}
+
+/* headings earn their rank from size, not from shouting. The old scheme set
+   every level at body size in uppercase, which produced loud text with no
+   hierarchy: the single strongest tell in the whole interface. */
+:is(.msg, #note-body, #peek-body) :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--frost);
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+:is(.msg, #note-body, #peek-body) h1 {
+  font-size: 1.72em;
+}
+
+:is(.msg, #note-body, #peek-body) h2 {
+  font-size: 1.45em;
+}
+
+:is(.msg, #note-body, #peek-body) h3 {
+  font-size: 1.15em;
+}
+
+:is(.msg, #note-body, #peek-body) :is(h4, h5, h6) {
+  font-size: 1em;
+  letter-spacing: 0;
+  color: var(--ash);
+}
+
+/* the model emits bold constantly. At 700 in the same colour as the body it
+   turned every paragraph into a dazzle, so bold now moves colour (--text to
+   --frost) and only half a weight step. */
+:is(.msg, #note-body, #peek-body) strong {
+  color: var(--frost);
+  font-weight: 600;
+}
+
+:is(.msg, #note-body, #peek-body) em {
+  font-style: italic;
+}
+
+:is(.msg, #note-body, #peek-body) :is(ul, ol) {
+  padding-left: 1.4rem;
+}
+
+:is(.msg, #note-body, #peek-body) ul {
+  list-style-type: "– ";
+}
+
+:is(.msg, #note-body, #peek-body) li {
+  margin: 0.3em 0;
+}
+
+:is(.msg, #note-body, #peek-body) li::marker {
+  color: var(--ash-dim);
+}
+
+:is(.msg, #note-body, #peek-body) blockquote {
+  border-left: 2px solid var(--line-2);
+  margin-left: 0;
+  padding: 0 0.7rem;
+  color: var(--ash);
+  font-style: italic;
+}
+
+/* A rule is a section break, so it gets more air than the 0.75em paragraph
+   rhythm around it — at the UA default 0.5em it read as a stray hairline
+   between two paragraphs rather than as a division. */
+:is(.msg, #note-body, #peek-body) hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 1.6em 0;
+}
+
+:is(.msg, #note-body, #peek-body) table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9em;
+}
+
+/* Tabular figures, because a table in an answer is usually a table of
+   measurements and the whole reason it is a table is that the reader compares
+   one row against the next. With proportional digits 0.8815 and 0.8233 start at
+   the same x and end at two different ones, so the comparison the table exists
+   for has to be read digit by digit. It is the rule this file already applies
+   to every number it prints itself; a number the model prints is not a
+   different kind of number.
+   Alignment is deliberately NOT touched: markdown carries per-column alignment
+   (`---:`) and the writer owns it. Guessing "this column looks numeric" in CSS
+   would right-align a version string and a commit hash too. */
+:is(.msg, #note-body, #peek-body) :is(th, td) {
+  border: 1px solid var(--line);
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+:is(.msg, #note-body, #peek-body) thead th {
+  color: var(--ash);
+  font-weight: 600;
+  font-size: 0.92em;
+}
+
+:is(.msg, #note-body, #peek-body) pre {
+  overflow-x: auto;
+  background: var(--well);
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+:is(.msg, #note-body, #peek-body) code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  /* code keeps the grid font */
+  color: var(--frost);
+  background: var(--slate-2);
+  border-radius: var(--r-xs);
+  padding: 0.1em 0.32em;
+}
+
+:is(.msg, #note-body, #peek-body) pre code {
+  background: none;
+  padding: 0;
+}
+
+/* A slash command's own output is wrapped in a ```text fence to borrow the mono
+   grid, but it is prose, not code: it has to wrap instead of hiding its tail
+   behind the scrollbar. /fetch's yt-dlp error was losing the pip command it
+   prescribes off the right edge, which is the one part worth reading. Real code
+   blocks keep overflow-x, where a hard wrap would corrupt the listing. */
+:is(.msg, #note-body, #peek-body) pre code.language-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+:is(.msg, #note-body, #peek-body) a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+:is(.msg, #note-body, #peek-body) a:hover {
+  text-decoration-color: var(--accent);
+}
+
+:is(.msg, #note-body, #peek-body) img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+/* pygments fences — restrained syntax scheme mapped onto the site palette:
+   keywords azure, literals gold, comments dim, names frost. */
+:is(.msg, #note-body, #peek-body) pre :is(.k, .kc, .kd, .kn, .kp, .kr, .kt, .ow, .nd, .nt) {
+  color: var(--accent);
+}
+
+:is(.msg, #note-body, #peek-body) pre :is(.s, .s1, .s2, .sa, .sb, .sc, .sd, .se, .sh, .si, .sr, .ss, .sx,
+  .m, .mb, .mf, .mh, .mi, .mo, .il) {
+  color: var(--accent);
+}
+
+:is(.msg, #note-body, #peek-body) pre :is(.c, .c1, .ch, .cm, .cp, .cpf, .cs) {
+  color: var(--ash-dim);
+  font-style: italic;
+}
+
+:is(.msg, #note-body, #peek-body) pre :is(.nf, .nc, .fm) {
+  color: var(--frost);
+  font-weight: 500;
+}
+
+:is(.msg, #note-body, #peek-body) pre :is(.nb, .bp, .o, .p) {
+  color: var(--ash);
+}
+
+/* --- OFM sugar (highlight, tags, callouts, tasks, mermaid) ------------------ */
+:is(.msg, #note-body, #peek-body) mark {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--frost);
+  padding: 0 2px;
+}
+
+:is(.msg, #note-body, #peek-body) .tag {
+  color: var(--accent);
+}
+
+:is(.msg, #note-body, #peek-body) .callout {
+  border-left: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--slate-2);
+  padding: 0.6rem 0.8rem;
+  color: var(--frost);
+  font-style: normal;
+}
+
+:is(.msg, #note-body, #peek-body) .callout-title {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 0 0 0.3rem;
+}
+
+:is(.msg, #note-body, #peek-body) .callout p:empty {
+  display: none;
+}
+
+/* title-only callouts */
+:is(.msg, #note-body, #peek-body) :is(.callout-warning, .callout-caution, .callout-danger, .callout-error, .callout-bug) {
+  border-left-color: var(--warn);
+}
+
+:is(.msg, #note-body, #peek-body) :is(.callout-warning, .callout-caution, .callout-danger, .callout-error, .callout-bug) .callout-title {
+  color: var(--warn);
+}
+
+:is(.msg, #note-body, #peek-body) li.task {
+  list-style: none;
+}
+
+:is(.msg, #note-body, #peek-body) li.task input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0 0.3rem 0 -1.2rem;
+  vertical-align: -2px;
+}
+
+:is(.msg, #note-body, #peek-body) pre.mermaid {
+  text-align: center;
+  white-space: pre-wrap;
+  color: var(--ash-dim);
+}
+
+:is(.msg, #note-body, #peek-body) pre.mermaid svg {
+  max-width: 100%;
+}
+
+/* LaTeX → native MathML; display math gets its own centered strip */
+:is(.msg, #note-body, #peek-body) .math {
+  text-align: center;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+
+:is(.msg, #note-body, #peek-body) math {
+  font-size: 1.08em;
+}
+
+:is(.msg, #note-body, #peek-body) .math-err {
+  color: var(--warn);
+}
+
+/* unconvertible source, flagged */
+
+/* collapsible thinking block — native <details>, no JS toggle needed */
+.thinking {
+  margin: 0.3rem 0;
+  font-size: 12px;
+}
+
+.thinking summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--ash-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 10px;
+  /* 10px of uppercase text is a ~12px-tall pointer target; the padding is the
+     hit area, not decoration. fit-content keeps it on the label so a stray
+     click beside the trace does not collapse it. */
+  padding: 0.25rem 0;
+  width: fit-content;
+  transition: color var(--dur) var(--ease);
+}
+
+.thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking:not([open]) summary::before {
+  content: "▸ ";
+}
+
+.thinking[open] summary::before {
+  content: "▾ ";
+}
+
+.thinking summary:hover {
+  color: var(--frost);
+}
+
+.thinking-body {
+  margin-top: 0.3rem;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--line-2);
+  white-space: pre-wrap;
+  color: var(--ash-dim);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* TUI gutter language: tool lines grouped under a left rule. */
+.tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.3rem 0;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--line-2);
+}
+
+/* The stack used to be inverted: running was the dimmest thing on screen, done
+   was near-white, and error wore --accent — the exact cyan of #send and of every
+   note-link, so a rejected write read as a hyperlink. Now the step happening NOW
+   is the loud one, finished steps recede, and failure is the palette's caution
+   amber, which is what the toasts already used for the same condition. */
+.tool {
+  color: var(--frost);
+  font-size: 12px;
+  transition: color var(--dur) var(--ease);
+  overflow-wrap: anywhere;
+  /* tool lines now carry a vault path as their target */
+}
+
+.tool[data-state="done"] {
+  color: var(--ash);
+}
+
+.tool[data-state="error"] {
+  color: var(--warn);
+}
+
+/* The row itself: a button when it has a card under it, the same geometry when
+   it hasn't. Unstyled to a button reset rather than given button chrome — this
+   is a line in a transcript that happens to open, and a group of tools drawn as
+   a stack of buttons would put five chrome affordances where there is one fact
+   per line. */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+  position: relative;   /* the sweep's anchor */
+  overflow: hidden;     /* …which travels off both ends */
+}
+
+.tool[data-open] .tool-row {
+  cursor: pointer;
+}
+
+/* `disabled` here means "not a control", not "a control you cannot use": the
+   row still carries the step it names and must read exactly as it did before
+   there was anything to open. */
+.tool-row:disabled {
+  color: inherit;
+  opacity: 1;
+}
+
+.tool-mark {
+  flex: none;
+  width: 0.8em;
+}
+
+.tool-label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* What the step cost, server-measured. Tabular so a group of tools reads as a
+   column of durations rather than as five ragged numbers, and dim because it is
+   the answer to a question nobody asked until something felt slow. */
+.tool-ms {
+  flex: none;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The disclosure marker, on the rows that have one. It reserves its cell
+   always, so revealing it on hover cannot shift the duration beside it, and it
+   is the ONE thing on the row that turns cyan: the row is only clickable where
+   there is something under it to click for. */
+.tool-chev {
+  flex: none;
+  width: 0.7em;
+  color: var(--ash-dim);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+
+.tool[data-open="open"] .tool-chev,
+.tool[data-open] .tool-row:hover .tool-chev,
+.tool[data-open] .tool-row:focus-visible .tool-chev {
+  opacity: 1;
+}
+
+.tool[data-open="open"] .tool-chev {
+  color: var(--accent);
+  transform: rotate(90deg);
+}
+
+.tool-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A glare band crossing the row, not a pulse of the whole line. The file already
+   argued this once, at the pipeline block: pulsing a legible line animates the
+   text you are trying to read. --frost is the brightest ink on crystal and the
+   darkest on paper, so one band travels the right direction in both themes
+   without a second token. The 10% end hold gives each pass a beat, or the sweep
+   reads as a loading bar rather than as work in progress. */
+.tool[data-state="running"] .tool-row::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 220px;
+  background: linear-gradient(90deg, transparent,
+              color-mix(in srgb, var(--frost) 9%, transparent) 55%, transparent);
+  animation: tool-sweep 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes tool-sweep {
+  from { transform: translateX(-220px); }
+  90%, to { transform: translateX(min(100vw, 1200px)); }
+}
+
+/* A curated stop, not the file's blanket one. The backstop collapses durations
+   to 0.01ms and pins iteration-count to 1, which for a travelling band means it
+   plays once instantly and then reverts to its UNANIMATED position — a static
+   gradient parked over the left of the row, forever. The band has to not exist.
+   The row keeps its running colour and the » mark, which is what carried the
+   state before there was a sweep. */
+@media (prefers-reduced-motion: reduce) {
+
+  .tool[data-state="running"] .tool-row::after {
+    content: none;
+  }
+}
+
+/* What the call asked and what came back, in the two compartments the answer
+   already reads by. A well, not a raised card: this is source material under a
+   line of prose, and the palette puts source material on the floor. */
+.tool-card {
+  margin: 0.3rem 0 0.5rem 1.25rem;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.tc-sec {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 0.8rem;
+  align-items: baseline;
+  padding: 0.5rem 0.7rem;
+  max-height: 11rem;
+  overflow-y: auto;
+}
+
+/* Sticky against the section's OWN scroll: a gutter label that leaves with its
+   payload stops labelling it two lines in, which is exactly when a reader
+   scrolling a long result needs to know which half they are in. */
+.tc-k {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  color: var(--ash-dim);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tc-text {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool[data-state="error"] .tc-text {
+  color: var(--warn);
+}
+
+/* Spans the whole card, so it sits between the padded sections rather than
+   inside one of their grids. */
+.tc-div {
+  height: 1px;
+  background: var(--line);
+}
+
+/* Stated as a count, never as a trailing "…": a result that genuinely ends in
+   an ellipsis and one that was cut look identical otherwise. */
+.tc-cut {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ash-dim);
+  font-family: var(--sans);
+  font-size: 10px;
+}
+
+/* --- injector pipeline block ------------------------------------------------
+   A nucleate run is minutes long with a repeating phase cycle inside it; every
+   other tool is one line because every other tool is one step. Two tracks, in
+   the two scopes the FSM actually runs: file phases advance once per document,
+   the chunk cycle restarts for each chunk of it. No third signal colour is
+   invented — running borrows --accent, failure --warn, exactly as elsewhere. */
+.tool-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.15rem 0 0.35rem;
+}
+
+.pipe-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tool-pipeline.running .pipe-title { color: var(--frost); }
+.tool-pipeline.ok .pipe-title,
+.tool-pipeline.empty .pipe-title { color: var(--ash); }
+.tool-pipeline.partial .pipe-title,
+.tool-pipeline.failed .pipe-title { color: var(--warn); }
+
+.pipe-pos {
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Collapsed is the resting state of a good run: it has nothing left to say that
+   its one summary line does not already say. */
+.tool-pipeline.collapsed .pipe-track { display: none; }
+
+.pipe-track {
+  padding-left: 0.9rem;
+  overflow-x: auto;   /* narrow viewports scroll the track, never the page */
+}
+
+.pipe-file {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+}
+
+.pipe-chunk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.pipe-phase {
+  display: flex;
+  gap: 0.45rem;
+  align-items: baseline;
+  color: var(--ash);
+  transition: color var(--dur) var(--ease);
+}
+
+.pipe-mark { width: 0.8em; flex: none; }
+
+.pipe-time {
+  color: var(--ash);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;   /* a ticking timer must not reflow the row */
+}
+
+.pipe-phase.pending { opacity: 0.45; }
+.pipe-phase.running { color: var(--accent); }
+.pipe-phase.failed  { color: var(--warn); }
+
+.pipe-failed {
+  padding-left: 0.9rem;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+/* Opaque, and the blur it used to carry is gone. .composer-shell has a
+   backdrop-filter of its own, which makes it a BACKDROP ROOT: a descendant's
+   backdrop-filter can only sample within that root, so this one was compositing
+   a layer to blur nothing, and the .78 alpha left the transcript legible
+   straight through the palette. Measured 2026-08-22: the text behind rendered
+   sharp. Anything anchored inside the shell is in the same position, hence the
+   shared surface below. */
+.commands,
+#ctx-panel {
+  background: var(--sheet);
+}
+
+.commands {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: 100%;
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  margin-bottom: 8px;
+  z-index: 100;
+}
+
+.commands[hidden] {
+  display: none !important;
+}
+
+/* `.commands button` in the shared chrome rule above is (0,1,1) and beats a bare
+   `.cmd-item`, which is how the palette kept inheriting the uppercase. */
+.commands .cmd-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  color: var(--ash);
+  text-align: left;
+  border: none;
+  background: transparent;
+  /* was var(--font-mono), which is not a token in this file and silently fell
+     back to the inherited face */
+  font-family: var(--sans);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.commands .cmd-item:hover,
+.commands .cmd-item.sel {
+  background: var(--slate-2);
+  color: var(--frost);
+}
+
+.commands .cmd-item .cmd-name {
+  font-family: var(--mono);
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The palette used to inherit the chrome buttons' uppercase + wide tracking, so
+   a 90-character description was SHOUTED and then cut mid-word ("SURFACES
+   CONTRADI…"). The affordance built to relieve recall could not finish its own
+   sentence. Sentence case, and two lines to land it. */
+.commands .cmd-item .cmd-summary {
+  font-size: 12px;
+  color: var(--ash-dim);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The composer used to be a footer bar: a rule across the pane, a field, and a
+   button, three siblings at pane width under a transcript capped at the reading
+   measure. The two columns disagreed by ~380px, and they started disagreeing at
+   the first message, because the centred-island rule below only applied while
+   the log was empty. Now the island is the permanent state and the bar is gone:
+   one object, on the transcript's measure, holding its own controls. */
+#composer,
+#dock-composer {
+  display: flex;
+  padding: 0.5rem 2rem 1.1rem;
+  position: relative;
+}
+
+.composer-shell {
+  /* One row of the field — its line box (15px x 1.5, on #input below) plus its
+     own padding — and the height every control beside it takes. They are all
+     shorter than a row on their own, and `align-items: flex-end` (there so they
+     stay on the bottom edge once the field has grown past one row) therefore
+     hung every one of them below the field's centre while it was still one row:
+     2.3px for + and the mic, 2.6px for send, measured 2026-09-02. Sizing them to
+     the row makes bottom-alignment and centring the same thing at one row and
+     leaves the grown field untouched. It also replaces four separate `align-self`
+     declarations that each restated this rule's own flex-end. */
+  --field-pad: 0.45rem;
+  --field-row: calc(15px * 1.5 + 2 * var(--field-pad));
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding: 0.3rem;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--glass-edge);
+  position: relative;
+  /* anchor for the slash-command popup */
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.composer-shell:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--lift);
+}
+
+/* Who answers you, under the box you write in. The line takes the bottom
+   breathing room the composer used to hold alone, so the pane keeps its height.
+   The box mirrors #composer (measure + its 2rem gutters, border-box) so the
+   right edge lands on the send button's, at every width. */
+#view-chat #composer {
+  padding-bottom: 0.45rem;
+}
+
+#chat-models {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: calc(var(--measure) + 4rem);
+  margin-inline: auto;
+  padding: 0 2.3rem 0.9rem;
+  background: none;
+  border: 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ash-dim);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+#chat-models:hover,
+#chat-models:focus-visible {
+  color: var(--text);
+}
+
+.cm-lbl {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 9px;
+}
+
+.cm-val {
+  color: var(--text);
+}
+
+/* the pairs read as pairs: the gap between model and worker is wider than the
+   one between a label and its value */
+.cm-val + .cm-lbl {
+  margin-left: 0.5rem;
+}
+
+/* the transcript reads as passing under the composer instead of stopping at a
+   hairline. Chat only: the dock draws on its own strip, which already has one. */
+#composer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 2rem;
+  background: linear-gradient(to top, var(--void), transparent);
+  pointer-events: none;
+}
+
+#input,
+#dock-input {
+  flex: 1;
+  resize: none;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  background: transparent;
+  color: var(--frost);
+  border: none;
+  padding: var(--field-pad) 0.35rem;
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* still scrollable past max-height, no visible track */
+}
+
+#input::-webkit-scrollbar,
+#dock-input::-webkit-scrollbar {
+  display: none;
+}
+
+/* the shell carries the focus ring for the whole object (:focus-within), so the
+   field itself must not draw a second one inside it */
+#input:focus,
+#dock-input:focus {
+  outline: none;
+}
+
+#input::placeholder,
+#dock-input::placeholder {
+  color: var(--ash-dim);
+  /* the hint is two clauses long and the field is one row tall, so without this
+     it wrapped and the second line was clipped mid-word. `text-overflow` is the
+     half of that fix which does NOT work: Chromium honours it on an <input>
+     placeholder and drops it on a <textarea>, so what a squeezed field actually
+     showed was a hard cut ("⇧⏎ nev") and never an ellipsis. Measured at the
+     900px floor with the work drawer folded open: 263px of text into 223px of
+     room. fitPlaceholder() in app-boot.js drops the whole clause there instead, and
+     these three lines stay as the guard for the pixel-level case it leaves. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- the context ring: how full the window is, and what filled it -----------
+   It used to be `CTX 12.4k/250.0k` in the header, and a toolbar is where you put
+   things that are true of the app. How much room is left is true of THIS
+   conversation, which is the same argument that put the model line under this
+   box, so it reads here. */
+#ctx-ring {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--field-row);
+  height: var(--field-row);
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease);
+}
+
+#ctx-ring:hover {
+  background: var(--slate-2);
+}
+
+#ctx-ring:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#ctx-ring svg {
+  width: 22px;
+  height: 22px;
+  /* 12 o'clock, clockwise: a meter that starts at 3 o'clock is read as a
+     fraction of a half by everyone who has ever seen a dial. */
+  transform: rotate(-90deg);
+}
+
+.ctx-track {
+  fill: none;
+  stroke: var(--line-2);
+  stroke-width: 2;
+}
+
+/* Neutral, not cyan: --accent means clickable in this file and the ring's FILL
+   is a reading, not a control (the button around it is the control, and it says
+   so by lighting its own background on hover). Amber is caution and arms only
+   where the caution starts — see [data-level="high"]. */
+.ctx-fill {
+  fill: none;
+  stroke: var(--ash);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--dur) var(--ease), stroke var(--dur) var(--ease);
+}
+
+#ctx-ring[data-level="high"] .ctx-fill {
+  stroke: var(--warn);
+}
+
+#ctx-panel {
+  position: absolute;
+  right: 0.3rem;
+  bottom: calc(100% + 0.5rem);
+  z-index: 40;
+  width: 17rem;
+  padding: 0.75rem 0.85rem 0.8rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+  font-size: 12px;
+  cursor: default;
+}
+
+.ctxp-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.ctxp-title {
+  color: var(--ash-dim);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ctxp-fig {
+  margin-left: auto;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctxp-pct {
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 8px, not the metrics stack's 14: three adjacent steps of a one-hue ramp need
+   enough height to read as three, and below 8 the 2px gaps were doing all the
+   separating while the steps themselves read as one bar. */
+#ctx-panel .stack {
+  height: 8px;
+  margin-bottom: 0.65rem;
+}
+
+.ctxp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.12rem 0;
+  color: var(--text);
+}
+
+/* Free carries no swatch: it is not in the bar above, and a fourth dot in the
+   legend's colour family would claim it is. The rule and the tone say what it
+   is instead. */
+.ctxp-row.free {
+  margin-top: 0.2rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  color: var(--ash);
+}
+
+.ctxp-k {
+  flex: 1;
+  min-width: 0;
+}
+
+.ctxp-v {
+  flex: none;
+  color: var(--frost);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctxp-row.free .ctxp-v {
+  color: var(--ash);
+}
+
+/* Shown only while it is true, which is the whole point of it. */
+.ctxp-note {
+  margin: 0.6rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --- the composer mirror ----------------------------------------------------
+   A layer the exact size of the field, behind it. It draws BACKGROUND BANDS and
+   the greyed rest of a half-typed command; the textarea above keeps its own
+   opaque glyphs, caret and selection. The usual trick is the other way round —
+   transparent textarea, glyphs in the backdrop — and its failure mode is showing
+   the WRONG characters for a frame on IME input or a composited wheel scroll.
+   This one's worst case is a band a pixel off its word.
+
+   Every metric below has to match #input exactly or the bands drift a character
+   further with every line: font, size, line-height, padding, wrapping. */
+.grow {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.grow #input {
+  display: block;
+  width: 100%;
+  position: relative;
+  background: transparent;
+}
+
+.hl {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  padding: 0.45rem 0.35rem;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* Tinted, not coloured: the band sits UNDER the real glyphs, so its job is to
+   say "the box parsed this", and a fill dark enough to read through is a fill
+   that changes the contrast of text it does not own. */
+.hl-cmd {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* One hue at three strengths, not three hues. This band was --violet, which is
+   deleted: a three-level hierarchy is a hierarchy of weight, and expressing it
+   as three separate colours is what made the palette drift. Below .hl-cmd
+   because it carries no ring, above .hl-path because it is not neutral. */
+.hl-link {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Weakest of the three on purpose, and still readable: a path is the commonest
+   token in a sentence about this vault, and at the cyan band's weight a normal
+   message would be more band than text. The first pass had these at 20% over
+   --glass and they were invisible at 1440px. */
+.hl-path {
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--ash) 34%, transparent);
+}
+
+/* The one place the mirror draws a glyph, and it can: this text does not exist
+   in the textarea, so there is nothing above it to disagree with. */
+.hl-ghost {
+  color: var(--ash-dim);
+}
+
+#attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--slate-2);
+  color: var(--frost);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.chip-x {
+  background: transparent;
+  border: none;
+  color: var(--ash-dim);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+}
+
+.chip-x:hover {
+  color: var(--accent);
+}
+
+:is(#attach, .mic) {
+  background: transparent;
+  color: var(--ash-dim);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  width: var(--field-row);
+  height: var(--field-row);
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+:is(#attach, .mic):hover {
+  color: var(--accent);
+  background: var(--line);
+}
+
+:is(#attach, .mic):active {
+  transform: translateY(1px);
+}
+
+:is(#attach, .mic):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--frost);
+}
+
+/* --- dictation ------------------------------------------------------------- */
+.mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Whisper transcribes in one batch, so there is no partial text to show while
+   you talk: the button has to carry the whole state itself. Amber for recording
+   and not the accent, because the accent means "you can press this" and this one
+   is already pressed — the same rule that de-inverted .tool. */
+.mic.recording {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  animation: mic-pulse 1.6s var(--ease) infinite;
+}
+
+.mic.busy {
+  color: var(--accent);
+  cursor: progress;
+  animation: mic-pulse 1s linear infinite;
+}
+
+@keyframes mic-pulse {
+  50% {
+    opacity: .45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .mic.recording,
+  .mic.busy {
+    animation: none;
+  }
+}
+
+/* Dictation needs an endpoint most installs do not have, and that is a fact
+   about the configuration rather than an event — so it gets a dialog you close,
+   not a toast that expires. Centred over the composer, which is where the button
+   that opened it lives, and one panel serves both composers. */
+#stt-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 7rem;
+  transform: translateX(-50%);
+  z-index: 130;
+  width: min(430px, 92vw);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  box-shadow: var(--lift), var(--glass-edge);
+  padding: 0 0 0.8rem;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+#stt-panel p {
+  margin: 0.7rem 0.9rem 0;
+}
+
+#stt-panel pre {
+  margin: 0.6rem 0.9rem 0;
+  padding: 0.6rem 0.7rem;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--ash);
+  white-space: pre-wrap;
+  /* break-word, not break-all: these are commands meant to be read and retyped,
+     and break-all split ggml-base.bin across two lines mid-filename */
+  overflow-wrap: break-word;
+}
+
+#stt-panel #stt-why {
+  color: var(--warn);
+}
+
+#stt-close {
+  margin: 0.8rem 0.9rem 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+/* Translucency is a preference the OS can withdraw, and every surface above has
+   an opaque twin one line away. Chrome's own fill is the token's colour at
+   alpha 1; the overlays fall back to the plane they used before the glass. */
+/* Both selectors, and the second one is not decoration: :root[data-theme] outranks
+   a bare :root no matter where it sits in the file, so with only the first line
+   here a light session kept its translucent chrome and the preference did
+   nothing. An accessibility opt-out that silently applies to one theme is worse
+   than none — it reads as honoured. */
+@media (prefers-reduced-transparency: reduce) {
+
+  :root,
+  :root[data-theme="light"] {
+    --chrome-glass: var(--slate);
+    --glass: var(--sheet);
+    --glass-blur: none;
+    --glass-edge: 0 0 0 0 transparent;
+  }
+}
+
+#send,
+#dock-send {
+  background: var(--accent);
+  color: var(--on-vivid);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 0.5rem 1rem;
+  min-height: var(--field-row);
+  flex-shrink: 0;
+}
+
+#send:hover,
+#dock-send:hover {
+  background: var(--frost);
+  border-color: var(--frost);
+  color: var(--on-vivid);
+}
+
+/* One turn at a time server-side, so the button recedes to a chip for the length
+   of it rather than staying vivid and swallowing the click. */
+#send:disabled,
+#dock-send:disabled {
+  background: var(--slate-2);
+  border-color: var(--line-2);
+  color: var(--ash-dim);
+  cursor: default;
+}
+
+#graph-frame,
+#map-frame {
+  flex: 1;
+  border: none;
+  background: var(--void);
+}
+
+#view-graph {
+  position: relative;
+}
+
+.frame-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  background: var(--void);
+  color: var(--ash);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.frame-loading[hidden] {
+  display: none;
+}
+
+/* A 20s indeterminate wait with no exit is a trap, not a state. The previous
+   report stays underneath at reduced opacity, so cancelling puts the user back
+   exactly where they were rather than on a blank pane. */
+.fl-cancel {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.fl-cancel:hover {
+  color: var(--frost);
+  border-color: var(--ash-dim);
+}
+
+.fl-cancel:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--accent);
+  animation: spin 0.9s steps(8) infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

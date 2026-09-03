@@ -18,8 +18,7 @@ from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static"
 INDEX = WEB / "index.html"
-APP_JS = WEB / "app.js"
-APP_CSS = WEB / "app.css"
+from tests.webassets import app_css, app_js
 WORK_JS = WEB / "work.js"
 
 
@@ -45,7 +44,7 @@ def test_the_area_count_has_one_rule():
     """The strip and the chat landing both state 'N areas'. A cluster count made
     entirely of singletons names nothing, so the count is gated -- and the gate
     stated twice is two numbers that can disagree about the same vault."""
-    src = APP_JS.read_text()
+    src = app_js()
     assert src.count("function areaCount(") == 1
     # the raw expression lives only inside that function
     assert src.count("(data.topics || []).length ?") == 1
@@ -61,7 +60,7 @@ def test_the_notices_are_behind_the_chip_not_camped_in_the_rail():
     panel = _block(html, 'id="notices-panel"', "</div>\n    <!-- the gear alone")
     assert 'id="boot-notices"' in panel
     # the chip IS the count: with nothing to report there is no chip
-    assert "noticesBtn.hidden = !n;" in APP_JS.read_text()
+    assert "noticesBtn.hidden = !n;" in app_js()
 
 
 def test_the_rail_holds_what_only_the_rail_can():
@@ -88,7 +87,7 @@ def test_the_strip_is_one_bar_and_not_six_compartments():
     zones, and the two edge buttons). What separates a fact from the next one is
     now the space around it, which only works in a bar tall enough to have any:
     the height and the absence of the rules are one change, not two."""
-    css = APP_CSS.read_text()
+    css = app_css()
     header = css[css.index("header {"):css.index("#tree {")]
     assert "min-height: 46px" in header
     # the bar keeps its own bottom edge; what is gone is every rule INSIDE it
@@ -103,7 +102,7 @@ def test_the_strip_is_one_bar_and_not_six_compartments():
 def test_a_pin_is_scoped_to_the_vault_it_was_made_in():
     """Switching vaults must not carry one vault's pins into another, so the
     storage key carries the path and a /vault switch re-reads it."""
-    src = APP_JS.read_text()
+    src = app_js()
     assert 'return "pinned:" + ($("#top-vname").title || "");' in src
     assert "if (path && path !== was) loadPins();" in src
 
@@ -123,7 +122,7 @@ def test_no_two_functions_in_app_js_share_a_name():
     call in the file silently reaches the wrong body. That is how the rail's
     area spectrum shipped invisible for one commit -- it collided with the shape
     view's area-coupling matrix, and nothing in the console said so."""
-    src = APP_JS.read_text()
+    src = app_js()
     names = re.findall(r"^(?:async )?function ([A-Za-z_$][\w$]*)\(", src, re.M)
     dupes = sorted({n for n in names if names.count(n) > 1})
     assert not dupes, f"declared twice at top level in app.js: {dupes}"

@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-APP_JS = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static" / "app.js"
+from tests.webassets import app_css, app_js
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ def client(tmp_vault, tmp_path, monkeypatch):
 
 
 def test_every_worklist_signal_has_an_evidence_pane():
-    src = APP_JS.read_text()
+    src = app_js()
     block = re.search(r"^  const signals = \[(.*?)^  \]\.sort", src, re.S | re.M)
     assert block, "the worklist's signal table moved"
     listed = re.findall(r'^\s*\["(\w+)",', block.group(1), re.M)
@@ -53,7 +53,7 @@ def test_every_worklist_signal_has_an_evidence_pane():
 def test_the_absorbed_cards_are_gone_from_the_sections():
     """A signal stated twice is two places that can disagree about the same
     vault, and the second one is the wall of tables this pass removed."""
-    src = APP_JS.read_text()
+    src = app_js()
     for gone in ("Maintenance", "Orphans", "Unresolved links", "Attention",
                  "Structural gaps", "Contested", "Integration deficits"):
         assert f'mCard("{gone}"' not in src, f"{gone} is a card again as well as a pane"
@@ -101,12 +101,12 @@ def test_the_column_chart_is_not_wrapped_in_the_tail_chart_s_box():
     band plus an axis band, and it shipped inside a div.hist -- 150px of chart
     in a 44px box, overflowing the Link distribution card and painting over the
     line under it. The renderer returns its .hist-plot directly now."""
-    src = APP_JS.read_text()
+    src = app_js()
     body = re.search(r"^function histogram\(bins\) \{(.*?)^\}", src, re.S | re.M)
     assert body, "histogram() moved"
     assert 'mkEl("div", "hist")' not in body.group(1)
     assert "return plot;" in body.group(1)
 
-    css = Path(APP_JS).parent.joinpath("app.css").read_text()
+    css = app_css()
     # and the box that made it a bug is still the fixed one, so this stays real
     assert re.search(r"^\.hist \{[^}]*height: 44px;", css, re.S | re.M)

@@ -33,7 +33,7 @@ from silica.ui.web.server import (  # noqa: E402
     _signal_areas,
 )
 
-APP_JS = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static" / "app.js"
+from tests.webassets import app_js
 
 
 def _fn_body(src: str, name: str) -> str:
@@ -234,7 +234,7 @@ def _fields_read(body: str, *vars_: str) -> set[str]:
 def test_the_coupling_matrix_gets_every_field_it_reads(two_triangles):
     """One renderer, two endpoints. `/metrics` mirrors `/shape`'s area shape so
     that stays true; this is the test that notices when it stops being."""
-    body = _fn_body(APP_JS.read_text(), "couplingMatrix")
+    body = _fn_body(app_js(), "couplingMatrix")
     reads = _fields_read(body, "a", "b")
     assert reads, "couplingMatrix stopped reading its rows by name"
     supplied = set(_area_matrix(two_triangles)["areas"][0])
@@ -249,7 +249,7 @@ def test_the_area_treemap_gets_every_field_it_reads():
     mapping the tiles render nameless, so the mapping is the contract and this
     is what holds it: the reader is the JS, and the payload is `/metrics`.
     """
-    src = APP_JS.read_text()
+    src = app_js()
     body = _fn_body(src, "areaTreemap")
     reads = _fields_read(body, "a", "t")
     assert reads, "areaTreemap stopped reading its rows by name"
@@ -278,7 +278,7 @@ def test_the_lens_only_offers_signals_the_server_tallies():
     and a coloured field that quietly stops meaning anything is worse than one
     that says why.
     """
-    src = APP_JS.read_text()
+    src = app_js()
     block = re.search(r"^  const signals = \[(.*?)^  \]\.sort", src, re.S | re.M)
     assert block, "the worklist's signal table moved"
     rows = set(re.findall(r'^\s*\["(\w+)",', block.group(1), re.M))

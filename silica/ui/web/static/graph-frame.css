@@ -1,7 +1,7 @@
 /* Palette mirrors the app shell: graphite substrate, one signal hue at 189deg,
    amber for caution. Community hues stay data-driven. Type: Archivo, inlined
    as a data: URI because this file must stay self-contained for file:// use.
-   Keep these tokens in sync with static/app.css: this block had already
+   Keep these tokens in sync with static/app-base.css: this block had already
    drifted a generation behind it once (--ash-dim was still #757F99, which
    fails 4.5:1 on --slate-2), so drift here is not hypothetical.
    --violet is deleted, see docs/specs/visual-identity.md. */
@@ -29,7 +29,7 @@
   --g-ghost:#454b54;--g-fallback:#545d67;--g-dim:#1A1D20;--g-link-dim:#131517;
 }
 /* Light: same ramp as the app shell, same warm paper, same reasoning — see
-   static/app.css. Kept in sync by hand because this file must stay
+   static/app-base.css. Kept in sync by hand because this file must stay
    self-contained for file:// export; the app's block is the original. */
 :root[data-theme="light"]{
   color-scheme:light;

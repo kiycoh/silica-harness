@@ -12,6 +12,9 @@ from pathlib import Path
 import pytest
 
 from tests.link_cases import URL_CASES
+from tests.webassets import WEB as STATIC_SRC, app_css, app_js
+
+INDEX_HTML = (STATIC_SRC / "index.html").read_text(encoding="utf-8")
 
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -228,15 +231,21 @@ def test_transcript_replay_restates_the_injector_outcome():
 
 
 def test_index_cache_busts_churning_assets(client):
-    # app.js/app.css must carry a ?v= content hash so an edited asset can't be
+    # The churning assets must carry a ?v= content hash so an edit can't be
     # served stale from the browser's heuristic cache; vendored bundles don't.
+    # Derived from index.html rather than listed: app.js became eight cuts and
+    # app.css nine, and a hardcoded list here is what let work.js sit
+    # unversioned for a release.
     tc, _ = client
     html = tc.get("/").text
     import re
 
-    assert re.search(r"/static/app\.js\?v=[0-9a-f]{8}", html), "app.js not cache-busted"
-    assert re.search(r"/static/app\.css\?v=[0-9a-f]{8}", html), "app.css not cache-busted"
-    assert "/static/app.js\"" not in html, "unversioned app.js reference still present"
+    wanted = re.findall(r'"/static/(app-[\w-]+\.(?:js|css)|work\.js)', INDEX_HTML)
+    assert len(wanted) >= 18, f"index.html loads too few churning assets: {wanted}"
+    for asset in wanted:
+        pat = "/static/" + re.escape(asset)
+        assert re.search(pat + r"\?v=[0-9a-f]{8}", html), f"{asset} not cache-busted"
+        assert not re.search(pat + r'["?](?!v=)', html), f"unversioned {asset} served"
 
 
 def test_quick_action_segments_name_real_commands():
@@ -1021,7 +1030,7 @@ def test_fence_gets_pygments_spans():
 
 def test_command_output_fence_is_the_class_the_stylesheet_wraps():
     """The ```text fence a slash command's output is wrapped in must land on the
-    one class app.css lets wrap. Both halves are needed: the fence renders to
+    one class app-chat.css lets wrap. Both halves are needed: the fence renders to
     `language-text`, and that selector carries pre-wrap. Miss either and the
     tail of a message runs off the right edge, which is how /fetch's yt-dlp
     error hid the pip command it prescribes."""
@@ -1030,7 +1039,7 @@ def test_command_output_fence_is_the_class_the_stylesheet_wraps():
     from silica.ui.web.server import _linkify
 
     assert 'class="language-text"' in _linkify("```text\nFetched\n```", _fake_resolve)
-    css = (Path(__file__).parent.parent / "silica/ui/web/static/app.css").read_text()
+    css = app_css()
     rule = css.split("pre code.language-text {")[1].split("}")[0]
     assert "white-space: pre-wrap" in rule
 
@@ -1850,7 +1859,7 @@ def test_write_card_path_opens_the_diff_not_the_note():
     """
     from silica.ui.web.server import STATIC_DIR
 
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    js = app_js()
 
     assert '.note-link, .wc-open' not in js, \
         "a citation and a change share one handler again, so both open the note"
@@ -1868,7 +1877,7 @@ def test_write_card_does_not_paint_a_landed_write_in_the_caution_colour():
     working. It announced itself in amber, which is the palette's caution."""
     from silica.ui.web.server import STATIC_DIR
 
-    css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    css = app_css()
     block = css[css.index(".wc-op {"):css.index(".wc-path {")]
     assert "var(--warn)" not in block, "the write-card label is amber again"
     assert "var(--add)" in css[css.index(".wcard.written .wc-op"):][:120]
@@ -1880,7 +1889,7 @@ def test_reduced_motion_is_honoured_for_transitions_not_only_animations():
     tabs, the sidebar and every row moving."""
     from silica.ui.web.server import STATIC_DIR
 
-    css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    css = app_css()
     blocks = css.split("@media (prefers-reduced-motion: reduce)")
     assert len(blocks) > 1, "no reduced-motion handling at all"
     blanket = [b for b in blocks[1:] if b.lstrip().startswith("{\n\n  *,")]
@@ -1898,7 +1907,7 @@ def test_every_frame_loading_overlay_has_a_positioned_containing_block():
 
     from silica.ui.web.server import STATIC_DIR
 
-    css = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+    css = app_css()
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     views = set(re.findall(
@@ -1918,7 +1927,7 @@ def test_a_write_card_meets_the_changes_payload_on_the_resolved_path():
     fell through openDiff's baseline lookup to openNote."""
     from silica.ui.web.server import STATIC_DIR
 
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    js = app_js()
     block = js[js.index("function stampWriteTallies"):]
     block = block[:block.index("\n}\n")]
     assert 'replace(/\\.md$/, "")' in block, "no stem key: a bare name never matches"
@@ -1968,7 +1977,7 @@ def test_the_vault_changed_offer_is_derived_state():
     """
     from silica.ui.web.server import STATIC_DIR
 
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    js = app_js()
 
     assert 'graphMode === "graph" && graphStale' in js, \
         "the offer no longer derives from the mode AND the staleness"
@@ -1982,7 +1991,7 @@ def test_the_vault_poll_never_rebuilds_the_graph_on_screen():
     the camera, the zoom and the focused node of a graph someone is reading."""
     from silica.ui.web.server import STATIC_DIR
 
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    js = app_js()
 
     body = js[js.index("function markVaultChanged"):]
     body = body[:body.index("\n}\n") + 3]
@@ -1997,7 +2006,7 @@ def test_the_vault_poll_skips_a_hidden_tab():
     stat sweep on the server — every open tab would pay it forever."""
     from silica.ui.web.server import STATIC_DIR
 
-    js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    js = app_js()
 
     body = js[js.index("async function pollVaultVersion"):]
     body = body[:body.index("\n}\n") + 3]

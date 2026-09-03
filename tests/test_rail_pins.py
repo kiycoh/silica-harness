@@ -15,8 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "silica" / "ui" / "web" / "static"
-APP_JS = WEB / "app.js"
-APP_CSS = WEB / "app.css"
+from tests.webassets import app_css, app_js
 
 NODES = [
     {"id": "Concepts/Neural.md", "label": "Neural", "type": "note", "path": "Concepts/Neural.md"},
@@ -58,7 +57,7 @@ def test_the_rail_asks_for_the_pins_and_the_frame_does_not():
 def test_the_pin_click_does_not_also_open_the_note():
     """The pin sits inside the row, so the row's own handler would win: pinning
     a note would open it, which is the opposite of what a pin is for."""
-    app = APP_JS.read_text()
+    app = app_js()
     handler = app[app.index('$("#tree").addEventListener("click"'):]
     handler = handler[:handler.index("});")]
     assert handler.index('.closest(".tree-pin")') < handler.index('.closest(".tree-note")')
@@ -71,7 +70,7 @@ def test_a_pinned_row_says_so_in_the_tree():
     """Pinned is a state of the NOTE. A toggle that only ever looks unpressed is
     a button you have to click twice to learn what it did -- and the tree is
     re-rendered from /vault_info, which knows nothing about the pins."""
-    app = APP_JS.read_text()
+    app = app_js()
     assert app.count("function syncTreePins(") == 1
     pins = app[app.index("function renderPins()"):]
     assert "syncTreePins();" in pins[:pins.index("\n}")], "renderPins does not re-sync the tree"
@@ -82,7 +81,7 @@ def test_a_pinned_row_says_so_in_the_tree():
 
 def test_the_filter_hides_the_row_and_not_only_its_label():
     """Hiding the label alone leaves a bare pin floating on an empty line."""
-    app = APP_JS.read_text()
+    app = app_js()
     f = app[app.index("function applySidebarFilter()"):]
     f = f[:f.index('$("#pinned")')]
     assert '.closest(".tree-row")' in f and "row.hidden = off;" in f
@@ -92,7 +91,7 @@ def test_the_filter_hides_the_row_and_not_only_its_label():
 
 def test_the_pin_is_reachable_without_a_pointer():
     """Hover-only affordances are the half a CSS rule always forgets."""
-    css = APP_CSS.read_text()
+    css = app_css()
     start = css.index(".tree-pin {")
     block = css[start:css.index("}", start)]
     assert "opacity: 0" in block

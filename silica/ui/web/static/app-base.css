@@ -1,0 +1,445 @@
+/* Silica reads and writes for a living, so it is typeset as a reading tool,
+   not as a terminal. Graphite substrate and one signal hue at 189deg, the same
+   hue the paper theme and the mark carry, so every surface agrees. Rigid
+   1px-compartment grid, 90 degree corners only. Type: Archivo for UI and prose,
+   Martian Mono only where the cell grid matters, meaning code.
+   Two rules carry the design. First, hierarchy comes from size and surface, not
+   from decoration: uppercase and letterspacing stay on chrome micro-labels and
+   never touch prose. Second, the surface steps are far enough apart to actually
+   read as separate planes, which is what the earlier palette got wrong. */
+@font-face {
+  font-family: "Martian Mono";
+  src: url("/static/martian-mono-latin.woff2") format("woff2");
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* font-stretch is the point of choosing Archivo over Lexend: without the width
+   range declared the browser will not expose the axis, and every
+   font-variation-settings "wdth" below silently does nothing. */
+@font-face {
+  font-family: "Archivo";
+  src: url("/static/archivo-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* surfaces, blue-black crystal, never pure black. Four steps spread far
+     enough apart to read as separate planes: the answer sits up on --page,
+     your own turn and all the chrome recede to --slate, controls rise to
+     --slate-2. The old set spanned #0A0D14 to #161B27, so every plane landed
+     within a few percent of the others and the whole screen read as one flat
+     field crossed by hairlines.
+
+     The ramp no longer travels in hue. It sits flat at 214deg, 10% saturation:
+     enough hue that it is not a dead grey, far too little to read as the
+     blue-violet every tool in this category ships. The travelling 258-to-224deg
+     version was keyed to the mascot, which the mark no longer quotes. See
+     docs/specs/visual-identity.md. Step separation is what the ramp is actually
+     for, and this one never drops below 1.058:1 where the old one bottomed out
+     at 1.039:1 between --void and --slate. */
+  --void: #0D0E0F;
+  /* app floor and code wells */
+  --slate: #141518;
+  /* chrome: header, sidebar, your own turns */
+  --page: #1B1E21;
+  /* the reading surface */
+  --slate-2: #24272B;
+  /* raised: inputs, chips, hover */
+  --line: #2F343A;
+  --line-2: #3F454D;
+  /* type. Prose is --text so that --frost has somewhere brighter to go: the
+     model emits a lot of bold, and bold at the same colour as body is noise. */
+  --frost: #F4F5F7;
+  /* cool off-white: headings, bold, what you type */
+  --text: #C5CAD2;
+  /* prose */
+  --ash: #AEB4BE;
+  /* secondary */
+  --ash-dim: #969CA6;
+  /* meta labels. The rule this token exists to enforce: measure against the
+     BRIGHTEST plane the token is allowed on, not a convenient one. An earlier
+     value held AA over --slate and fell to 3.83:1 on --slate-2, which is where
+     the 9-10px stat labels and every placeholder actually sit. #969CA6 clears
+     4.54:1 there. */
+  --accent: #22B4CC;
+  /* the signal, hue 189deg. One hue at two stops, this one for graphite and
+     #0A6070 for paper, because no single chromatic hex clears AA on both a
+     near-white and a near-black ramp. 189deg is short of the cyan the category
+     reaches for: far enough toward teal to read as an instrument colour rather
+     than a glow, far enough from green not to collide with --add. The only
+     vivid colour that is ever interactive. */
+  --warn: #E0A93B;
+  /* amber, caution only */
+  --add: #4FD08A;
+  --del: #EB778E;
+  /* the two diff poles. Added and removed is the one place in this app where the
+     colour is a convention older than any brand, and inventing a teal for
+     "removed" would cost the reader a legend. --del was #E8657F, which fell to
+     3.94:1 on --slate-2; #EB778E clears 4.52:1 on every plane it touches. */
+  --mono: "Martian Mono", ui-monospace, Menlo, monospace;
+  --sans: "Archivo", ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  /* the sidebar's width, so #dock's left inset cannot drift from it */
+  --side-w: 264px;
+
+  /* The transcript's two objects. The four surface steps above sit 1.04-1.28:1
+     from each other, which was survivable while every turn was a flat band and
+     is not survivable now: a bubble that does not step off its floor is a
+     rectangle. So the chat floor drops to --void and these two rise off it.
+       --sheet  1.28:1 on --void, and still 4.63:1 under --ash-dim, which is
+                where the role byline and the turn hint sit.
+       --bubble 1.53:1 on --void, plus a --line-2 hairline for the edge.
+     Both computed, not eyeballed. */
+  --sheet: #23272B;
+  --bubble: #2F3339;
+
+  /* Soft where you read, rigid where you scan. --r is for the transcript's
+     objects and the controls you aim at; the compartment chrome (header strip,
+     file tree, tables, hairline grids) keeps the 90-degree corner it was built
+     on. `* { border-radius: 0 }` below still holds, so every corner here is
+     opted into by name and nothing rounds by accident. */
+  --r: 14px;
+  --r-sm: 8px;
+  /* The xs step. It existed as a literal 4px at six sites and was the reason the
+     calendar could drift to 5, 6 and 9 without anything catching it: a scale
+     with a gap in it is a scale you round off by eye. Named, the rule above
+     holds again, since every corner in the file is now opted in BY NAME. */
+  --r-xs: 4px;
+
+  /* One chevron, worn as a mask so currentColor fills it: a coloured SVG would
+     need a light twin and a disabled twin, and this needs neither. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* The reading measure. Transcript and composer share it so a turn and the box
+     you answer it in line up on the same two edges; changing it here moves both. */
+  --measure: 58rem;
+
+  /* One easing, one duration. Everything was .1s linear, and linear at 100ms is
+     the single loudest cheap tell in the file: it reads as a state swap rather
+     than as movement. Exponential ease-out from an already-visible default. */
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --dur: .18s;
+  /* offset + soft blur, never a zero-offset halo */
+  --lift: 0 10px 28px -12px rgb(var(--shadow-rgb) / .7);
+
+  /* Glass, in two kinds, because only one of them is glass.
+     --chrome-glass is for header and sidebar. Both sit in normal flow with
+     nothing scrolling behind them, so backdrop-filter there would composite a
+     layer to blur a flat fill: pure cost, zero effect. What makes them read as
+     glass is that the page wash below travels, so a translucent fill genuinely
+     changes colour across its own width. No filter, no GPU work.
+     --glass is for the surfaces that really do overlay something — the note
+     drawer, the explore dock, the header dropdowns, the slash palette, toasts.
+     There the blur has something to distort, so it is a real one.
+     Alpha is not free but it is nearly free here: the palette is dark enough
+     that translucency barely moves contrast. Measured on the worst pairs,
+     --ash-dim on chrome goes 5.70:1 -> 5.56:1, and --ash on the drawer over a
+     bubble goes 5.36:1 -> 5.14:1. Both still clear AA with room. */
+  --chrome-glass: rgba(20, 21, 24, .88);
+  /* --slate */
+  --glass: rgba(35, 39, 43, .78);
+  /* --sheet */
+  --glass-blur: blur(20px) saturate(1.3);
+  /* The lit top edge that says "pane of something", not "translucent box". */
+  --glass-edge: inset 0 1px 0 rgba(244, 245, 247, .07);
+
+  /* Two jobs --void used to do alone. They are the same colour here and only
+     here: in the dark palette "deeper" and "the ink that survives a vivid fill"
+     both resolve to the floor, so the split costs nothing and reads the same.
+     In light they diverge hard — a code well has to be a step DOWN from the
+     paper while text on a teal chip has to be white — and one token cannot be
+     both. Naming them now is what lets the light block below stay a pure
+     value swap instead of a second set of rules.
+       --well     inset surfaces: code blocks, the .env sample in the stt panel.
+       --on-vivid foreground on --accent / --warn / --frost fills. */
+  --well: #0D0E0F;
+  --on-vivid: #0D0E0F;
+
+  /* The page wash's two poles, see html,body. Was a blue pole and a magenta
+     pole, which smuggled a second brand hue into the ambient field. Now one
+     hue plus tone: --accent lifts one corner, a neutral lifts the other. */
+  --wash-a: rgba(34, 180, 204, .16);
+  --wash-b: rgba(63, 69, 77, .30);
+
+  /* Shadow, scrim and glow do not follow the surfaces: they all reverse
+     direction between the two themes, and each reverses differently.
+       --shadow-rgb  the ink a cast shadow is made of. Channels, not a colour,
+                     so each shadow keeps its own alpha. Warm-black in light,
+                     because a neutral black shadow on warm paper reads as dirt.
+       --scrim       what a modal puts between you and the app. Dark in both
+                     themes: on paper a scrim still has to darken, only less.
+                     One token for the backdrop and the sheet inside it — they
+                     were .66 and .72, a difference nobody has ever seen.
+       --drop-scrim  the full-bleed drop target, which is the opposite case: it
+                     nearly hides the app, so in light it goes to paper, not ink.
+       --art-glow    the halo under the mascot on the empty transcript. Cyan on
+                     crystal; on paper a cyan halo is a printing error, so light
+                     gets contact shadow instead of emission.
+   --brand-sweep is gone with the mark's gradient. The identity carries zero
+   gradients now: the logotype hovers to --accent, which is one token and the
+   same thing every other control does on hover. See
+   docs/specs/visual-identity.md. */
+  --shadow-rgb: 0 0 0;
+  --scrim: rgba(13, 14, 15, .70);
+  --drop-scrim: rgba(13, 14, 15, .88);
+  --art-glow: rgba(34, 180, 204, .16);
+}
+
+/* --- light: the same room, lit --------------------------------------------
+   Warm paper, and warm on purpose. The crystal palette is the mark's own
+   substrate and it has no light half to invert into; a cool white would have
+   read as the dark theme with the lamp turned up, which is the one thing a
+   second theme must not do. So light is a different material — laid paper, a
+   toned desk under it, deep teal where the dark theme is emissive cyan.
+
+   The ramp is not the dark one flipped. Flipping it puts the reading surface
+   at the bottom and the chrome above it, and on paper that is backwards: the
+   answer sheet is the whitest thing on the desk, everything else is a tone off
+   it. So the ORDER is preserved semantically, not numerically — the answer
+   still sits on the brightest plane, your own turn and the chrome still recede
+   — while the direction of "recede" flips from darker to more toned.
+
+   The steps are wider than the first pass had them, and the widening was
+   measured, not felt: on crystal --bubble sits 1.53:1 off the floor, and the
+   first light ramp gave it 1.11:1 — a difference that survives on a screen and
+   dies on paper, where the whole range between the floor and white is 1.16:1
+   wide to begin with. Anything that has to read as an OBJECT (the two turns, a
+   code well) now takes a real share of that range instead of an even slice.
+
+   Every ink below clears 4.5:1 on all seven surfaces, computed, worst pair
+   --ash-dim on --bubble at 4.71:1. --accent lands on a deep teal rather than
+   the mascot's cyan because cyan cannot clear 4.5:1 on paper at any useful
+   saturation; it keeps the hue and gives up the glow, which is the honest
+   trade and not a compromise worth hiding. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --void: #EFEAE0;
+  /* the desk: app floor, iframe backing, full-bleed overlays */
+  --well: #E0D8C6;
+  /* Inset: code blocks. A full step below --slate-2 rather than beside it —
+     on crystal a code well is --void and a callout --slate-2, four steps
+     apart, and the first light pass landed them 1.01:1 from each other, so a
+     fenced block and a callout became the same object. */
+  --slate: #F5F1E9;
+  /* chrome: header, sidebar */
+  --page: #FFFDF9;
+  /* the reading surface */
+  --slate-2: #E9E2D4;
+  /* raised chips, inputs, hover, inline code. Toned, not brighter: on paper a
+     control reads as pressed into the sheet, and there is nothing above white
+     to raise it to. */
+  --line: #D9D1C0;
+  --line-2: #C6BCA8;
+
+  --frost: #1A1815;
+  --text: #3A362F;
+  --ash: #5B554B;
+  --ash-dim: #655D4F;
+  --on-vivid: #FFFFFF;
+
+  --accent: #0A6070;
+  /* the same 189deg hue as graphite, at the stop that survives paper: 5.03:1 on
+     the brightest plane it touches. Keeps the hue and gives up the glow, which
+     is the honest trade and not a compromise worth hiding. */
+  --warn: #7A4F03;
+  /* the diff poles walked into paper's contrast range: the dark set's mint and
+     rose are both under 2:1 on a white sheet */
+  --add: #186B44;
+  --del: #9B2439;
+
+  --sheet: #FFFFFF;
+  /* the answer, printed */
+  --bubble: #E1D7C1;
+  /* your own turn, written. Toned rather than raised — see the ramp note */
+
+  /* Shadow on paper is contact, not glow: shorter throw, warm-black, and a
+     hairline of real edge under it, because at these alphas a blur alone
+     disappears against a white sheet. */
+  --lift: 0 8px 20px -12px rgba(58, 44, 20, .34);
+
+  /* Glass over paper is thinner than glass over crystal — a heavy translucent
+     white is just a lighter white. Alpha goes up so the fill still reads as a
+     pane, and the lit edge inverts: on a dark palette the edge is where light
+     catches, on a light one it is where the pane's own thickness shows. */
+  --chrome-glass: rgba(247, 244, 238, .90);
+  --glass: rgba(255, 255, 255, .86);
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -1px 0 rgba(58, 44, 20, .05);
+
+  /* Same two poles, an eighth of the strength. Enough that the header's
+     translucency has something to travel across — which is the whole reason
+     the wash exists — and not enough to tint the paper. */
+  --wash-a: rgba(10, 96, 112, .07);
+  --wash-b: rgba(58, 44, 20, .05);
+
+  --shadow-rgb: 58 44 20;
+  --scrim: rgba(48, 38, 22, .34);
+  --drop-scrim: rgba(247, 244, 238, .93);
+  --art-glow: rgba(58, 44, 20, .13);
+}
+
+/* Supported floor: 900px. Below it the three-column shell compresses rather
+   than reorganising — no phone layout, by decision. What the floor requires is
+   that nothing overflows the viewport and the drawer never eats the transcript;
+   both are handled where they arise (.view min-width, #note-panel max-width). */
+
+* {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* keep hidden working under `header > * { display:flex }` */
+
+/* scrollbars — square, hairline, silica. elements with scrollbar-width:none still win */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 2px solid var(--void);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ash-dim);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  /* The wash moved up here from #view-chat, and it moved because the chrome now
+     shows it: a translucent header over a flat fill is a tint, over a travelling
+     one it is glass. Two poles instead of one violet, taken from the mascot's
+     own body — blue on its lit half, magenta on its far one. Cyan is left out
+     on purpose: in the mark it is only the eye, and in the app it is only what
+     you can click, so it never becomes atmosphere. Fixed attachment, so the
+     poles stay put and no scroll repaints them.
+     The two poles are tokens because light keeps the same geometry at a
+     fraction of the strength: on paper the same alphas are a stain, and a
+     warm-white desk with a cool cast at the top edge is daylight on it. */
+  background:
+    radial-gradient(58rem 30rem at 3% -3rem, var(--wash-a), transparent 70%),
+    radial-gradient(54rem 27rem at 99% -2rem, var(--wash-b), transparent 70%),
+    var(--void);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The chrome's explaining copy: the second line under a stat, a caption, an
+   empty state. Every one of these is one or two lines of a fixed sentence in a
+   column the layout decides, which is exactly the case `pretty` is for: it
+   costs nothing and it stops the two-word last line these were landing on, eg
+   "rising and which are falling." under a 68ch band.
+   Deliberately not on prose and not on code. A turn is long enough that the
+   last-line rule buys nothing and the reflow is real, and the mono blocks want
+   their breaks where the characters fall. The headings inside a turn take
+   `balance` instead, further down, because a heading is short and centred-ish
+   raggedness reads as a title. */
+:is(.mnote, .mband-p, .mempty, .mcard-sub, .msec-s, .wl-d, .wk-empty-d,
+    .map-picker-hint, .meter-lbl, .st-banner) {
+  text-wrap: pretty;
+}
+
+/* --- scrollbars: the one piece of chrome the app was letting the OS draw -----
+   Every scrolling region rendered the UA bar, which knows nothing about this
+   palette: a light native track over crystal, and a second one inside the note
+   drawer. The chat's answer was to hide its bar entirely, which costs the only
+   cue a reader has for how far into a long answer they are.
+
+   One thumb colour, rebindable. A raised surface (the drawer, a menu, the
+   settings panel) sets --sb on itself and both rendering paths below read the
+   indirection, so one line moves whichever path the engine took. The gate is
+   load-bearing, not defensive: a non-auto `scrollbar-width` makes Chromium and
+   Safari drop every ::-webkit-scrollbar rule for that element, hover included,
+   so declaring both unconditionally leaves the hover state with nothing to
+   render on the engines that implement it. `not selector(::-webkit-scrollbar)`
+   is true only where the pseudo-element is unimplemented, which is Firefox. */
+:root {
+  --sb: var(--line-2);
+  --sb-hover: var(--ash-dim);
+}
+
+/* raised planes: the thumb steps with the surface it rides on */
+#note-panel,
+#st-modal,
+#ctx-panel,
+.commands,
+#help-panel {
+  --sb: var(--ash-dim);
+  --sb-hover: var(--ash);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+
+  /* Re-declared per element rather than inherited: inheritance would pass down
+     the COLOUR already substituted at :root, so a descendant's rebind could not
+     take. `scrollbar-width` is not an inherited property in any case. */
+  body,
+  body * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb) transparent;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* Transparent, so the thumb reads against whatever is scrolling under it and a
+   two-axis region does not draw a cross of tracks through the content. */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* the 2px inset clips the thumb inward so it floats off a rounded edge
+     instead of hugging it — every capped box in this file has one */
+  border: 2px solid transparent;
+  background: var(--sb);
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-hover);
+  background-clip: padding-box;
+}
+

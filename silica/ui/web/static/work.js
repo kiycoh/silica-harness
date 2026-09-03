@@ -11,8 +11,9 @@
 // exists, not new plumbing: every duration, token delta, phase and write below
 // is a record the agent already wrote.
 //
-// It loads after app.js and uses two of its globals on purpose — openNote() to
-// read a source and send() to revert a write — rather than restating either.
+// It loads after every cut of app.js and uses two of their globals on purpose —
+// openNote() from app-notes.js to read a source, send() from app-chat.js to
+// revert a write — rather than restating either.
 
 // --- projection:begin --------------------------------------------------------
 // Everything between this marker and projection:end is pure: no DOM, no fetch,

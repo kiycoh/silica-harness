@@ -24,8 +24,7 @@ import pytest
 from silica.kernel.report import structure
 
 WEB = Path(__file__).resolve().parent.parent / "silica" / "ui" / "web"
-APP_JS = WEB / "static" / "app.js"
-APP_CSS = WEB / "static" / "app.css"
+from tests.webassets import app_css, app_js
 WORK_JS = WEB / "static" / "work.js"
 FRAME_JS = WEB / "static" / "graph-frame.js"
 FRAME_HTML = WEB / "static" / "graph-frame.html"
@@ -422,7 +421,7 @@ def test_the_work_panel_reads_the_structure_block_through_the_projection():
 
 
 def test_the_structure_row_has_a_warning_state_and_a_neutral_one():
-    css = APP_CSS.read_text()
+    css = app_css()
     assert ".wk-str {" in css and ".wk-str.warn .wk-str-sw {" in css
 
 
@@ -434,7 +433,7 @@ def test_path_is_a_pane_surface_that_keeps_the_root_search():
     """It renders where the shape views render and is not one of them: they are
     three readings of one /shape load, this one is rooted on a note and needs
     the search they hide."""
-    app = APP_JS.read_text()
+    app = app_js()
     body = app.split("function setGraphMode(m) {")[1].split("\n}")[0]
     assert 'const isPath = m === "path";' in body
     assert '$("#shape-pane").hidden = !(isShape || isPath);' in body
@@ -446,13 +445,13 @@ def test_the_shape_click_defers_to_the_re_root_button():
     """Both handlers live on #shape-pane, and registration order on one node is
     not a contract. The generic one declines rather than the specific one
     shouting."""
-    app = APP_JS.read_text()
+    app = app_js()
     assert 'if (e.target.closest("[data-root]")) return;' in app
     assert "rootPath(b.dataset.root)" in app
 
 
 def test_the_ladder_wires_are_measured_from_the_chips_not_laid_out():
-    app = APP_JS.read_text()
+    app = app_js()
     assert "function drawPathWires()" in app
     assert "getBoundingClientRect()" in app.split("function drawPathWires()")[1][:900]
     # and they redraw on resize, because the chips are text of unknown width
@@ -462,7 +461,7 @@ def test_the_ladder_wires_are_measured_from_the_chips_not_laid_out():
 def test_sprawling_is_a_worklist_row_and_bursting_is_not():
     """A worklist is what needs attention. A burst needs none: it is what the
     fortnight turned out to be about, so it is a card in Activity."""
-    app = APP_JS.read_text()
+    app = app_js()
     assert '["sprawling", full ? T.sprawling : null, "sprawling notes",' in app
     assert '"bursting"' not in app.split("].sort((a, b) => (b[1] || 0) - (a[1] || 0));")[0]
     assert 'case "sprawling":' in app
@@ -470,7 +469,7 @@ def test_sprawling_is_a_worklist_row_and_bursting_is_not():
 
 
 def test_the_calendar_carries_the_burst_strip_above_its_days():
-    app = APP_JS.read_text()
+    app = app_js()
     assert "function calBurstStrip()" in app
     body = app.split("function renderCalAgenda() {")[1].split("\n}")[0]
     assert body.index("calBurstStrip()") < body.index('head.className = "cal-ag-head"')

@@ -16,7 +16,7 @@ import pytest
 
 from tests.link_cases import URL_CASES
 
-APP_JS = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static" / "app.js"
+from tests.webassets import app_js
 
 STREAMED = (
     "### Panoramica\n\n"
@@ -33,7 +33,7 @@ STREAMED = (
 
 
 def _md_lite_source() -> str:
-    m = re.search(r"^function mdLite\(src\) \{.*?^\}", APP_JS.read_text(), re.S | re.M)
+    m = re.search(r"^function mdLite\(src\) \{.*?^\}", app_js(), re.S | re.M)
     assert m, "mdLite() not found in app.js"
     return m.group(0)
 

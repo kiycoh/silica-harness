@@ -1,0 +1,719 @@
+/* --- calendar ---------------------------------------------------------------
+   Two reading surfaces (grid + agenda panel) carry the 14px radius; chips and
+   bars are aim targets and stay tight. Every color is a theme token, so light
+   mode needs no extra rules. */
+/* position: the #cal-loading overlay is .frame-loading (inset:0), so without
+   a positioned ancestor it resolves against the viewport and blanks header and
+   sidebar for the whole first /calendar fetch. #view-graph and #view-metrics
+   already carry this for the same reason. */
+#view-calendar { position: relative; padding: 12px 16px; gap: 10px; overflow-y: auto; }
+#cal-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+#cal-nav { display: flex; gap: 2px; }
+#cal-title { font-size: 15px; font-weight: 600; color: var(--frost); }
+#cal-mode { display: flex; gap: 2px; background: var(--slate-2); border-radius: var(--r-sm); padding: 2px; }
+#cal-mode button { border: 0; background: transparent; color: var(--ash); padding: 3px 10px; border-radius: var(--r-xs); cursor: pointer; font: inherit; font-size: 12px; }
+#cal-mode button.active { background: var(--page); color: var(--frost); }
+#cal-main { display: flex; gap: 12px; flex: 1; min-height: 0; align-items: stretch; }
+#cal-grid { flex: 2 1 480px; min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--page); }
+.cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.cal-dow div { padding: 5px 8px; font-size: 10px; color: var(--ash-dim); text-transform: uppercase; letter-spacing: 0.07em; text-align: right; }
+.cal-week { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--line); flex: 1; min-height: 0; }
+.cal-week:last-child { border-bottom: 0; }
+.cal-day { grid-row: 1 / -1; display: flex; flex-direction: column; border-right: 1px solid var(--line); padding: 0 3px 3px; min-height: 84px; min-width: 0; cursor: pointer; overflow: hidden; }
+.cal-week.wk .cal-day { min-height: 340px; }
+.cal-day.c7 { border-right: 0; }
+.cal-day:hover { background: var(--slate-2); }
+.cal-day.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+/* Adjacent-month days recede by taking the dimmer token, not by going
+   translucent. opacity 0.35 composited --ash down to 1.85:1 dark and 1.74:1
+   light, so the day numbers either side of a month boundary were the least
+   legible text in the app; and no opacity can fix it, because --ash at 0.70 is
+   still only 3.64:1. --ash-dim at full strength measures 5.19:1 dark and 6.63:1
+   light against the cell, and still reads as a step down from the --ash the
+   current month's numbers carry (6.01:1 / 7.26:1). */
+.cal-day.other .cal-num { color: var(--ash-dim); }
+.cal-num { height: 20px; display: flex; align-items: center; justify-content: flex-end; font-size: 11px; color: var(--ash); flex: 0 0 auto; }
+/* A pill, and 9px was aiming at one and missing: the badge is 20px tall, so
+   any radius under half its height leaves four flat spots on what reads as a
+   round day marker. 999px states the intent instead of approximating it. */
+.cal-num span { padding: 0 5px; border-radius: 999px; }
+.cal-day.today .cal-num span { background: var(--accent); color: var(--void); font-weight: 700; }
+.cal-chips { display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow: hidden; }
+.cal-chip { font-size: 11px; color: var(--text); background: var(--slate-2); border-radius: var(--r-xs); padding: 1px 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.cal-chip:hover { background: var(--line); color: var(--frost); }
+.cal-chip .t { color: var(--ash); margin-right: 4px; font-variant-numeric: tabular-nums; }
+.cal-bar { z-index: 1; margin: 1px 3px; border-radius: var(--r-xs); background: var(--accent); color: var(--void); font-size: 11px; line-height: 18px; font-weight: 600; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
+/* The three derived axes: what already happened here, or is waiting. Not
+   chips — a filled chip is an appointment, and printing sixty agent writes in
+   the same shape as a meeting would make the month unreadable in the other
+   direction. A dot and a count, on no surface at all. */
+/* A block, not a flex row: a bare text node inside a flex container is an
+   anonymous item that no rule can reach, so text-overflow did nothing and a
+   narrow cell cut "nucleate ×50" to "nucleat" with no mark that it had. */
+.cal-sig {
+  display: block;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 5px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-sig::before {
+  content: "";
+  display: inline-block;
+  vertical-align: 0.15em;
+  margin-right: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+}
+/* the review queue, which is the one derived axis that is waiting on you.
+   Amber, not cyan: nothing in a month cell is a control, and this is the one
+   line in the cell that is asking for something. It was violet for the same
+   reason, but violet measures 2.80:1 on the cell at 10px, and the palette's
+   other non-interactive vivid is the caution one, which measures 8.12:1 dark
+   and 6.74:1 light and happens to mean exactly what this row means. */
+.cal-sig.due { color: var(--warn); }
+.cal-day:hover .cal-sig { color: var(--ash); }
+.cal-day:hover .cal-sig.due { color: var(--warn); }
+
+.cal-chip.done, .cal-bar.done { opacity: 0.55; }
+.cal-chip.cancelled, .cal-bar.cancelled { opacity: 0.55; text-decoration: line-through; }
+.cal-more { font-size: 10px; color: var(--ash-dim); margin-top: auto; padding-top: 1px; }
+/* 400, not 330: every row here is a note name with a folder or a set of counts
+   after it, and at 330 the ellipsis landed before the name did. The grid loses
+   70px it was spending on empty cells. */
+#cal-agenda { flex: 1 1 340px; min-width: 260px; max-width: 400px; border: 1px solid var(--line); border-radius: var(--r); background: var(--page); padding: 10px 12px; overflow-y: auto; }
+.cal-ag-head { font-size: 10px; color: var(--ash-dim); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+.cal-ag-day { margin-bottom: 12px; }
+.cal-ag-date { font-size: 12px; font-weight: 600; color: var(--frost); margin-bottom: 3px; }
+.cal-ag-date .wd { color: var(--ash-dim); font-weight: 400; margin-left: 6px; }
+.cal-ag-item { display: flex; gap: 8px; font-size: 12px; color: var(--text); padding: 2px 0; min-width: 0; }
+/* :not(.cal-ag-txt), because the note name is the one field that must survive a
+   narrow rail. The rail is `flex: 1 1 340px` between the grid and the window,
+   so at a 1000px viewport it lands around 188px while a row like
+   "nucleate 09-the-second-book-of-the-pistis-sophia.md" wants 476px: with
+   nowrap every row in the rail ellipsised away most of its own subject. The
+   comment below already said only the note wraps; this is the rule that was
+   stopping it. */
+.cal-ag-item > span:last-child:not(.cal-ag-txt) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-ag-item.ev { cursor: pointer; }
+.cal-ag-item.ev:hover > span:last-child { color: var(--frost); text-decoration: underline; }
+.cal-ag-item.cancelled > span:last-child { text-decoration: line-through; opacity: 0.6; }
+.cal-ag-item .when { flex: 0 0 52px; color: var(--ash); font-variant-numeric: tabular-nums; font-size: 11px; padding-top: 1px; }
+.cal-ag-kind { text-transform: uppercase; letter-spacing: 0.05em; font-size: 9px !important; color: var(--ash-dim) !important; padding-top: 3px !important; }
+.cal-ag-empty { color: var(--ash-dim); font-size: 11px; }
+/* An agenda row is three fields, not one sentence: the verb leads, the note is
+   the part you scan for, and the counts trail. Only the note wraps — the other
+   two are short by construction, and letting them wrap would break the column
+   the `when` gutter establishes. */
+.cal-ag-txt { min-width: 0; overflow-wrap: anywhere; }
+.cal-ag-txt b { font-weight: 500; color: var(--ash); }
+.cal-ag-txt i { font-style: normal; color: var(--ash-dim); }
+.cal-ag-item.clickable { cursor: pointer; }
+.cal-ag-item.clickable:hover .cal-ag-txt { color: var(--frost); }
+.cal-ag-more {
+  display: block;
+  margin: 2px 0 0 60px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.cal-ag-more:hover { text-decoration: underline; }
+@media (max-width: 860px) {
+  #cal-main { flex-direction: column; overflow-y: auto; }
+  #cal-grid { flex: 0 0 auto; }
+  .cal-day { min-height: 64px; }
+  #cal-agenda { max-width: none; flex: 0 0 auto; }
+}
+
+/* --- reduced motion, the backstop -------------------------------------------
+   Three curated blocks above name the handful of moving parts that need a
+   static ALTERNATIVE rather than just a stop: the wordmark's sweep freezes at
+   full width instead of cropping to its cyan third, the mic drops its pulse,
+   the caret and the spinner and the toast stop. Those stay, because they encode
+   a decision this rule cannot make.
+
+   What was missing is everything else. The file carries 44 transition
+   declarations and exactly four of them were switched off here, so a session
+   that had asked the OS for less motion still got roughly thirteen hundred
+   elements sliding, fading and colour-fading on hover: the header, the tab
+   strip, the sidebar, every tree row, every session row, every tool row, the
+   copy buttons, the quick actions, send. One animation was uncovered too,
+   .mcard.flash, a 1.2s border flash on the metrics card you just jumped to.
+
+   A blanket rule is the right shape for a backstop: the named blocks say what
+   motion MEANS somewhere, and this says the preference is honoured everywhere
+   else, including in whatever gets added to this file next. Durations collapse
+   rather than going to zero so that transitionend and animationend still fire
+   and no handler waiting on them is left hanging. */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- hit targets ------------------------------------------------------------
+   SC 2.5.8 asks for 24x24 CSS px on a pointer target. Four controls are drawn
+   smaller than that on purpose and should stay that way: `collapse` is a 10px
+   affordance riding in the Files summary and must not grow the row it sits in,
+   the notice cross and the copy button are dismissals that would shout if they
+   were bigger, and `bridge` is packed twenty to a metrics card.
+
+   So the drawn size does not change and the CLICKABLE size does: a transparent
+   pseudo-element, centred on the control, floored at 24px on each axis. It is
+   `pointer-events` inert to nothing and it takes no layout space, so it cannot
+   push its neighbours around the way padding would. */
+#tree-collapse,
+.notice-x,
+.copy-btn,
+.m-do {
+  position: relative;
+}
+
+#tree-collapse::after,
+.notice-x::after,
+.copy-btn::after,
+.m-do::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 24px);
+  height: max(100%, 24px);
+  transform: translate(-50%, -50%);
+}
+
+/* --- work mode: the run, in the right sidebar ------------------------------
+   What the agent is doing has never had a surface in this app. The account
+   exists — silica/agent/narration.py writes it and /narration/sse serves it
+   live — and the transcript could only ever show its shadow: a tool line while
+   a call is in flight, nothing at all while the model is thinking, and no way
+   to see the token a turn actually cost. This renders the stream itself.
+
+   It was a column of its own (#work, --work-w: 372px) against the right edge,
+   which is the edge the note drawer already owned: `body.note-open #work` set
+   it to display:none, so the one surface that says what the agent is doing was
+   the surface any opened note switched off. It is a pane of that drawer now,
+   with the drawer's own width and its own segment in #note-mode, and it keeps
+   its geometry from #work-body alone — the header, the name, the close button
+   and the 1195px fold all belonged to being a second panel and are gone with
+   it. Still read WHILE the turn runs, still never over the answer: the drawer
+   insets the transcript rather than covering it. */
+
+/* What the run is currently about (report, node), as a chip beside the sidebar
+   mode rather than replacing it. Boxed, because unboxed it reads as a second
+   word of the title and the header is back to being a name that changes under
+   you. Empty on the run itself: :empty carries no box. */
+.wk-scope {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash);
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xs);
+}
+
+.wk-scope:empty {
+  display: none;
+}
+
+.wk-state {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.wk-state::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--ash-dim);
+}
+
+.wk-state.live {
+  color: var(--frost);
+}
+
+/* The chip is inline, so [hidden] carries itself; this one declares display and
+   would keep it. */
+.wk-state[hidden] {
+  display: none;
+}
+
+/* In the rail it is the compartment's own reading, so it sits at the far end of
+   the title row: folded shut, the dot is the whole answer to "is anything
+   happening". Lowercase against the title's caps for the same reason the counts
+   beside Pinned and This session are. */
+#side-work>.side-title>.wk-state {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.wk-state.live::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The pane itself, on the same footing as #note-body and #note-diff: one of the
+   drawer's three children, shown by the segment that names it. No display of its
+   own, so the [hidden] JS sets is the whole switch. */
+#node-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  --sb: var(--line);
+}
+
+/* The run's pane is a rail compartment, not a drawer child: .side-body above
+   already owns its height and its scroll, so all this carries is the rule
+   colour the beat spine reads. */
+#work-body {
+  --sb: var(--line);
+}
+
+.wk-empty {
+  padding: 1.4rem 0.9rem;
+}
+
+.wk-empty-t {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 0.4rem;
+}
+
+.wk-empty-d {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ash-dim);
+}
+
+.wk-run {
+  padding: 0.7rem 0.85rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-run-t {
+  font-size: 12px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.4rem;
+}
+
+.wk-run-m {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.wk-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+}
+
+/* The spine. One 1px rule down the beat stream, and while the run is live its
+   top two thirds are accent: the run's own progress bar, at the cost of a
+   border rather than a widget. */
+/* --- what moved, read positionally ----------------------------------------
+   NOT a slope chart, though that is the form this answers to. A slope chart
+   puts every series on one axis, and these counts do not share one: notes runs
+   to the hundreds and gaps to single digits, so a shared axis draws eight of
+   the nine flat along the bottom. Give each its own axis instead and the slope
+   angle stops meaning anything across lines, which is the only thing a slope
+   chart is read for.
+
+   Proportional change is the currency that does compare them, so the bars grow
+   from one centre line: the two directions are two sides of one axis rather
+   than two bar charts side by side, and the beats below keep the counts. */
+.wk-mv {
+  padding: 0.35rem 0.85rem 0.5rem;
+}
+
+.wk-mv-r {
+  display: grid;
+  grid-template-columns: 5.4rem minmax(0, 1fr) 2.6rem;
+  align-items: center;
+  gap: 0.4rem;
+  height: 15px;
+}
+
+.wk-mv-l {
+  font-size: 10px;
+  color: var(--ash-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The zero rule is the track's own centre, drawn as a hairline rather than as
+   a border on the bars: a rule per row would land at a different x on every
+   row the moment one label wraps. */
+.wk-mv-t {
+  position: relative;
+  height: 7px;
+}
+
+.wk-mv-t::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--line);
+}
+
+.wk-mv-b {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  background: var(--ash-dim);
+}
+
+.wk-mv-b.good { background: var(--add); }
+.wk-mv-b.bad { background: var(--del); }
+
+.wk-mv-n {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ash-dim);
+}
+
+.wk-tl {
+  position: relative;
+  padding: 0.45rem 0.85rem 0.65rem;
+}
+
+.wk-tl::before {
+  content: "";
+  position: absolute;
+  left: 1.2rem;
+  top: 0.8rem;
+  bottom: 0.9rem;
+  width: 1px;
+  background: var(--line);
+}
+
+/* --spine is set by work.js from the RUNNING beat's measured centre; the 62%
+   fallback is the fraction the deck drew and is what shows for the one frame
+   before the measurement lands. */
+.wk-tl.live::before {
+  background: linear-gradient(var(--accent) 0 var(--spine, 62%),
+                              var(--line) var(--spine, 62%) 100%);
+}
+
+.wk-beat {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.3rem 0;
+  overflow: hidden;
+}
+
+/* The mark sits ON the spine and has to occlude it, so it carries the pane's
+   own background rather than a transparent one. */
+.wk-mark {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  position: relative;
+  z-index: 1;
+  background: var(--slate);
+}
+
+.wk-mark::before {
+  content: "";
+  display: block;
+}
+
+.wk-think::before {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--ash-dim);
+}
+
+.wk-tool::before {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+}
+
+.wk-call::before {
+  width: 0;
+  height: 0;
+  /* impeccable-disable-next-line side-tab -- a zero-box border triangle, not an accent rail: this IS the marker, see .wk-think and .wk-phase beside it */
+  border-left: 5px solid var(--accent);
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+}
+
+.wk-phase::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+}
+
+.wk-beat.failed .wk-tool::before {
+  background: var(--warn);
+}
+
+.wk-v {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.wk-verb {
+  font-size: 11.5px;
+  color: var(--text);
+  flex: 0 0 auto;
+}
+
+.wk-target {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A thought is prose the model wrote, so it clamps rather than ellipsising on
+   one line: two lines is enough to recognise a plan, and the transcript holds
+   the whole of it. */
+.wk-thought {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wk-sub {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  margin-top: 1px;
+}
+
+.wk-dur {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+  white-space: nowrap;
+  margin-top: 1px;
+}
+
+.wk-beat.running .wk-verb,
+.wk-beat.running .wk-thought {
+  color: var(--frost);
+}
+
+.wk-beat.running .wk-dur {
+  color: var(--accent);
+}
+
+/* Running is a band crossing the row, never a pulse of the whole line: a pulse
+   animates the text you are reading, which is the argument the pipeline block
+   one file over already made for itself. */
+.wk-beat.running::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--accent) 11%, transparent) 50%,
+      transparent 80%);
+  background-size: 220% 100%;
+  animation: wk-glare 1.6s linear infinite;
+}
+
+@keyframes wk-glare {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wk-beat.running::after { animation: none; }
+}
+
+.wk-sec {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 1.8rem;
+  padding: 0 0.85rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.wk-sec-t {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+}
+
+.wk-sec-n {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-dim);
+}
+
+/* A write is an object here for the same reason it is one in the transcript:
+   the vault changed, and a chip cannot carry a revert. */
+.wk-write {
+  margin: 0.5rem 0.85rem 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.wk-write.failed {
+  border-style: dashed;
+  border-color: var(--warn);
+}
+
+.wk-write-h {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.wk-op {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.wk-note {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+
+.wk-path {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.45rem;
+}
+
+.wk-acts {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.wk-mini {
+  height: 1.35rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--ash);
+  font-family: var(--sans);
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.wk-mini:hover {
+  border-color: var(--line-2);
+  color: var(--frost);
+}
+
+.wk-mini.go {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.wk-src {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.4rem 0.85rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.wk-src:hover {
+  background: var(--slate-2);
+}
+
+.wk-src-sw {
+  width: 3px;
+  height: 16px;
+  background: var(--accent);
+}
+
+.wk-src-n {
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wk-src-v {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ash-dim);
+}
+

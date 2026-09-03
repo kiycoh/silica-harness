@@ -18,16 +18,15 @@ from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[1] / "silica" / "ui" / "web" / "static"
 INDEX = WEB / "index.html"
-APP_JS = WEB / "app.js"
-APP_CSS = WEB / "app.css"
+from tests.webassets import app_css, app_js
 WORK_JS = WEB / "work.js"
 
 
 def test_the_fold_threshold_is_not_duplicated_across_the_two_scripts():
-    """work.js used to carry WORK_W/MIN_PROSE/SIDE_W and app.css carried the
+    """work.js used to carry WORK_W/MIN_PROSE/SIDE_W and the stylesheet carried the
     same widths. Two constants that must match are two constants that eventually
     do not, so the threshold is the media query and both scripts ask it."""
-    css, app, work = APP_CSS.read_text(), APP_JS.read_text(), WORK_JS.read_text()
+    css, app, work = app_css(), app_js(), WORK_JS.read_text()
     assert len(re.findall(r"max-width:\s*1195px", css)) == 1
     assert "1195" not in app and "1195" not in work
     # the old pixel arithmetic is gone, not merely unused
@@ -48,14 +47,14 @@ def test_the_run_needs_no_fold_of_its_own():
     are gone. The two things the fold has to keep are still here: it is
     dismissable from itself, and it reserves its inset rather than covering
     #send, which is the bug the drawer already had to fix once."""
-    html, css, app, work = (INDEX.read_text(), APP_CSS.read_text(),
-                            APP_JS.read_text(), WORK_JS.read_text())
+    html, css, app, work = (INDEX.read_text(), app_css(),
+                            app_js(), WORK_JS.read_text())
     assert 'id="note-close"' in html, "an overlay must be dismissable from itself"
     assert "max-width: 55vw" in css, "the sidebar does not fold against the viewport"
     assert "body.note-open #view-chat" in css
     rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     for dead in ("work-fold", "--work-w", "#work-close"):
-        assert dead not in rules, f"app.css still folds a second panel via {dead}"
+        assert dead not in rules, f"the stylesheet still folds a second panel via {dead}"
     assert "work-fold" not in work and "work-fold" not in app
     # There is no preference left to keep in step: the run moved to a rail
     # compartment, where <details open> in the markup IS the restore. app.js
@@ -69,7 +68,7 @@ def test_the_composer_hint_is_a_clause_the_fitter_can_drop():
     It shortens by stripping the trailing parenthetical, which silently does
     nothing the day someone rewrites the hint without one -- and the failure is
     the old clip, which looks like a rendering artefact rather than a rewrite."""
-    html, app = INDEX.read_text(), APP_JS.read_text()
+    html, app = INDEX.read_text(), app_js()
     assert "function fitPlaceholder(" in app
     hints = re.findall(r'<textarea[^>]*placeholder="([^"]*)"', html)
     assert hints, "no composer placeholder in index.html"
@@ -84,7 +83,7 @@ def test_every_view_but_the_graph_reserves_the_drawer_gap():
     agenda rail and its month/week toggle, and a month grid that stops at
     Saturday still looks like a month grid. #view-graph is the one exception on
     purpose -- it hides its own HUD instead, see syncDrawerToViews."""
-    html, css = INDEX.read_text(), APP_CSS.read_text()
+    html, css = INDEX.read_text(), app_css()
     views = set(re.findall(r'id="(view-[a-z]+)"', html)) - {"view-graph"}
     assert views, "no views found in index.html"
     # one rule, because there is one overlay: the work panel had a second inset
@@ -114,7 +113,7 @@ def test_an_icon_for_a_hidden_compartment_hides_itself():
     themselves; an icon standing for one of them is a button that opens an
     empty drawer. The sections are unhidden from several places, so this watches
     the result rather than adding a call site to each."""
-    app = APP_JS.read_text()
+    app = app_js()
     assert "function syncRailIcons(" in app
     assert 'attributeFilter: ["hidden"]' in app
 
@@ -124,7 +123,7 @@ def test_the_spine_ends_at_the_running_beat():
     the same two thirds whatever the run was doing. It is the run's own progress
     bar; measured, not counted, because a thought row is two lines and a tool
     row is one."""
-    css, work = APP_CSS.read_text(), WORK_JS.read_text()
+    css, work = app_css(), WORK_JS.read_text()
     assert "var(--spine, 62%)" in css
     assert re.search(r"linear-gradient\(var\(--accent\) 0 62%", css) is None
     spine = work[work.index("function paintSpine("):work.index("// --- the Report panel")]

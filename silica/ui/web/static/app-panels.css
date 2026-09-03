@@ -1,0 +1,1085 @@
+/* --- the legend: one panel, all six explore surfaces ------------------------
+   Anchored to the picture, not to the window chrome, because everything in it
+   is a reading OF the picture. Layout and Areas were two compartments of the
+   left rail until now — a screen's width from the thing they described, and
+   present on a transcript that has no areas to colour.
+
+   Same 216px as the graph frame's HUD and the same right margin: on the graph
+   surface the two stack against one edge and read as one panel, which is why
+   the frame is told this element's height (silica-legend-h) instead of being
+   covered by it. */
+#legend {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  z-index: 6;
+  width: 216px;
+  max-height: calc(100% - 1.2rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-s, 4px);
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--lift);
+  scrollbar-width: thin;
+}
+
+/* The drawer is fixed against the same edge, and the two overlapping is the
+   defect the frame's HUD already answers by hiding. This one does not hide:
+   Layout is how you leave the surface you are on, and a way out that disappears
+   when you open a note is a way out you cannot use. */
+body.note-open #legend {
+  right: calc(var(--note-w, 630px) + 0.6rem);
+}
+
+.lg-title {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  color: var(--ash-dim);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lg-title::-webkit-details-marker {
+  display: none;
+}
+
+.lg-title::after {
+  content: "▸";
+  margin-left: auto;
+  padding-left: 0.5rem;
+}
+
+.lg-sec[open]>.lg-title::after {
+  content: "▾";
+}
+
+.lg-sec:hover>.lg-title {
+  color: var(--ash);
+}
+
+.lg-title .si {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  margin-right: 0.4rem;
+  opacity: 0.62;
+}
+
+/* Which of the six you are on, stated on the row that switches them: closed,
+   the fold would otherwise name the control and never the state. Hidden while
+   open, where the pressed row below says it. */
+#lg-layout-now {
+  margin-left: 0.5rem;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ash);
+}
+
+#lg-layout[open] #lg-layout-now {
+  display: none;
+}
+
+.lg-body {
+  margin-top: 0.45rem;
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* What the marks in front of you mean. Prose, deliberately: it is read once per
+   surface and never clicked, so it takes the smallest type in the panel and
+   none of its contrast. */
+.lg-key {
+  color: var(--ash-dim);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+#lg-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+#lg-surface .gmode-tabs {
+  align-self: flex-start;
+}
+
+/* explore toolbar: the head itself is invisible — mode buttons + the active
+   mode's controls float over the graph as chips, not a full-width banner.
+   pointer-events:none lets the transparent gaps pass clicks to the graph. */
+#graph-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding: 0.6rem;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+  /* The graph iframe's HUD is right-anchored, 216px + 10px margin. Keep the
+     bar out of that band and wrap instead: at ~1030px the find-a-note box
+     was sitting ON the HUD's renderer toggle. */
+  max-width: calc(100% - 236px);
+  flex-wrap: wrap;
+}
+
+#graph-bar>* {
+  pointer-events: auto;
+}
+
+.gmode-tabs {
+  display: flex;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.gmode-tabs button {
+  background: var(--slate-2);
+  color: var(--ash);
+  border: 1px solid var(--line-2);
+  border-right: none;
+  padding: 0.45rem 1.1rem;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
+
+.gmode-tabs button:last-child {
+  border-right: 1px solid var(--line-2);
+}
+
+.gmode-tabs button:hover {
+  color: var(--frost);
+}
+
+.gmode-tabs button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-vivid);
+  font-weight: 700;
+}
+
+/* Offer, not alarm: the graph on screen is not wrong, only older than the
+   vault. Accent outline rather than an accent fill, so it reads as available
+   next to the filled ACTIVE mode button and never competes with it. */
+#graph-refresh {
+  background: var(--slate-2);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+#graph-refresh:hover {
+  background: var(--accent);
+  color: var(--on-vivid);
+}
+
+#graph-refresh:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* per-mode control cluster (note search), pushed to the right */
+.gbar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  position: relative;
+}
+
+/* a captioned field: tiny mono label stacked over its input, so the unit
+   ("min wt %") reads at a glance instead of only on hover */
+.gbar-f {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.gbar-f.gbar-grow {
+  flex: 0 0 240px;
+}
+
+.gbar-lbl {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ash-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 1px;
+}
+
+#graph-bar input {
+  font-family: var(--sans);
+  font-size: 13px;
+  background: var(--slate-2);
+  color: var(--frost);
+  border: 1px solid var(--line-2);
+  border-right: none;
+  padding: 0.45rem 0.6rem;
+  height: 31px;
+  width: 100%;
+  transition: border-color var(--dur) var(--ease);
+}
+
+#graph-bar input:focus {
+  outline: none;
+  border-color: var(--accent);
+  position: relative;
+  z-index: 1;
+}
+
+#graph-bar input::placeholder {
+  color: var(--ash-dim);
+}
+
+/* note-search ranked dropdown — drops below the toolbar, same idiom as the
+   graph viewer's internal search results */
+#node-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--slate-2);
+  border: 1px solid var(--line-2);
+  scrollbar-width: thin;
+}
+
+.node-result {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.node-result:hover,
+.node-result.sel {
+  background: var(--slate);
+  border-left-color: var(--accent);
+}
+
+.node-result .nr-name {
+  font-size: 12px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-result .nr-path {
+  font-size: 10px;
+  color: var(--ash-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* map landing (hub picker) — fills the frame area until a note is rooted */
+#map-picker {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--void);
+  overflow-y: auto;
+}
+
+#map-picker[hidden] {
+  display: none;
+}
+
+.map-picker-inner {
+  width: min(560px, 90%);
+  /* the dock composer floats over the bottom of this pane, so the last row of
+     the launch pad sat underneath it. Same clearance .shape-body reserves. */
+  padding: 1.5rem 0 5.5rem;
+}
+
+.map-picker-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--frost);
+}
+
+
+.map-picker-hint {
+  font-size: 11px;
+  color: var(--ash-dim);
+  margin: 0.3rem 0 0.9rem;
+}
+
+#map-picker-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+#map-picker-list:empty::after {
+  content: "no linked notes yet. Pick one from Files in the sidebar.";
+  grid-column: 1 / -1;
+  background: var(--slate-2);
+  color: var(--ash-dim);
+  font-size: 11px;
+  padding: 0.8rem;
+}
+
+.hub-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  background: var(--slate-2);
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.hub-row:hover {
+  background: var(--slate);
+  border-left-color: var(--accent);
+}
+
+.hub-name {
+  font-size: 12px;
+  color: var(--frost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hub-deg {
+  font-size: 10px;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.hub-deg::after {
+  content: " links";
+}
+
+#drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--drop-scrim);
+  color: var(--accent);
+  border: 2px dashed var(--accent);
+  /* the headline step, stated in px like every other step: 1.2rem resolves to
+     the same 18px at the 15px root and reads as a sixteenth step to anything
+     that checks the ramp */
+  font-size: 18px;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+}
+
+body.dragging #drop-hint {
+  display: flex;
+}
+
+/* streaming caret — the live-status readout. A slow
+   oil-slick color drift through the SiC reflection hues, no blink. */
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* one physical element, re-parented by JS onto the live tail (thinking body,
+   tool group, or text segment) so it is always visible while streaming */
+.caret {
+  margin-left: 1px;
+  user-select: none;
+  color: var(--accent);
+  animation: caret-blink 1.1s steps(1, end) infinite;
+}
+
+/* --- the landing (empty transcript) -----------------------------------------
+   Sili used to hold this space at 240px, which spent the whole first viewport
+   on the logo of the tool rather than on the folder it just opened. The
+   wordmark states the tool in one line and the rest of the space answers
+   "what is in here", which is the question you actually arrive with.
+   #log itself collapses to nothing while empty. */
+#log:empty {
+  display: none;
+}
+
+#vault-hero {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  /* The measure is the composer's, so the sentence, the counts and the box you
+     type into all break on the same two edges. */
+  max-width: min(52ch, 100%);
+  padding: 0 1rem;
+}
+
+#view-chat:has(#log:empty) #vault-hero {
+  display: flex;
+}
+
+/* The mark, at the scale's one display step. Nothing to opt out of any more:
+   the header logotype's animated sweep is deleted along with the mark's
+   gradient, so this is simply the mark at rest like everywhere else. */
+.vh-mark {
+  font-size: 52px;
+  font-weight: 200;
+  line-height: 1;
+  letter-spacing: 0.34em;
+  /* letterspacing pads the right of the last glyph; half of it back centres
+     the word against the sentence under it */
+  text-indent: 0.34em;
+  color: var(--frost);
+}
+
+.vh-brief {
+  margin: 1.5rem 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ash);
+  /* empty until /vault_brief answers, and the reserved line stops the counts
+     from jumping down a row when it does */
+  min-height: 1.55em;
+}
+
+/* the topic labels inside the fallback sentence: the vault's own words, so
+   they read as content and the connective tissue around them stays chrome */
+.vh-brief b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.vh-facts {
+  margin-top: 0.85rem;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ash-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- note panel (right overlay drawer; read-only note view) ----------------- */
+:is(.msg, #note-body, #peek-body) .note-link {
+  color: var(--frost);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+}
+
+:is(.msg, #note-body, #peek-body) .note-link.broken {
+  color: var(--ash);
+  border-bottom-color: var(--warn);
+}
+
+.note-link {
+  color: var(--frost);
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent);
+}
+
+.note-link:hover {
+  background: var(--slate-2);
+}
+
+/* unresolved wikilink — same shape as a live link, underline drops to a neutral */
+.note-link.broken {
+  border-bottom-color: var(--line-2);
+  color: var(--ash);
+  cursor: default;
+}
+
+.note-link.broken:hover {
+  background: none;
+}
+
+#note-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 50;
+  width: 630px;
+  min-width: 280px;
+  /* 55vw, not 90vw: at the 900px floor a 630px drawer left 270px of transcript,
+     so the reading surface lost to the drawer that is meant to serve it. */
+  max-width: 55vw;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Chrome glass, not the blurring kind, and measured rather than assumed: the
+     drawer never overlays the transcript, because body.note-open insets
+     #view-chat by exactly its width. What sits behind it is the page wash, a
+     smooth gradient, and blurring a smooth gradient returns the gradient. So it
+     takes the translucent fill (which does show the wash travel across it) and
+     skips the filter that would cost a composited layer for nothing. */
+  background: var(--chrome-glass);
+  border-left: 1px solid var(--line-2);
+  box-shadow: -18px 0 40px -20px rgb(var(--shadow-rgb) / .8), var(--glass-edge);
+  transform: translateX(100%);
+  transition: transform var(--dur) var(--ease);
+}
+
+#note-panel.open {
+  transform: translateX(0);
+}
+
+#note-resize {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 51;
+}
+
+#note-panel>header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  /* Same band as the app header, so the two strips meet flush instead of
+     stepping. It has to track --header-h and not a constant: the header WRAPS to
+     two rows when the drawer is open on a narrow window, which is exactly when
+     these two sit side by side. Measured before this line: 70px against 41.5px.
+     --header-h is already maintained live by the toast positioning. */
+  min-height: var(--header-h, 3rem);
+  border-bottom: 1px solid var(--line);
+  /* No fill of its own. This strip sits at the top of the window right next to
+     the app header, and an opaque --slate-2 here put the two side by side on
+     different planes — measured (31,36,58) against the header's (16,12,30).
+     Transparent means it IS the panel's material, which is the header's
+     material, so the top of the window reads as one bar. The hairline below
+     still separates it from the note, exactly as the app header is separated
+     from what it sits over. */
+  background: transparent;
+}
+
+#note-title {
+  flex: 1;
+  min-width: 0;
+  /* yield space to the action buttons; ellipsis instead of pushing them off */
+  color: var(--frost);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* header actions (summarize/explain/quiz/map/close) read as real buttons:
+   outlined chips recessed one step darker than the header. Still tight
+   enough that title + all actions hold one line. */
+#note-panel>header .ghost {
+  padding: 0.35rem 0.5rem;
+  font-size: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--slate);
+}
+
+#note-panel>header .ghost:hover {
+  border-color: var(--ash-dim);
+  background: var(--slate-2);
+}
+
+/* The drawer's five actions, labelled, on their own row. Quiet chips: the note
+   is the protagonist, these are what you can do to it. They wrap rather than
+   compress, so the narrow end of the drawer gets two rows instead of five
+   squeezed icons. */
+#note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.6rem 1.3rem;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.na {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 0.32rem 0.75rem;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.na svg {
+  color: var(--ash-dim);
+  transition: color var(--dur) var(--ease);
+}
+
+.na:hover {
+  color: var(--frost);
+  border-color: var(--ash-dim);
+  background: var(--slate-2);
+}
+
+/* The one action in this row that is a STATE rather than an errand: it stays
+   lit while the note is in the rail, which is what tells you the pin took. */
+.na.on,
+.na.on svg {
+  color: var(--accent);
+}
+
+.na.on {
+  border-color: var(--accent);
+}
+
+.na:hover svg {
+  color: var(--accent);
+}
+
+.na:active {
+  transform: translateY(1px);
+}
+
+.na:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* a ghost has no note to summarize, explain or map — the actions say so */
+.na:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.na:disabled:hover {
+  color: var(--ash);
+  border-color: var(--line-2);
+  background: transparent;
+}
+
+.na:disabled:hover svg {
+  color: var(--ash-dim);
+}
+
+#note-body {
+  padding: 1.1rem 1.3rem 2rem;
+  overflow-y: auto;
+  font-size: 16px;
+  line-height: 1.72;
+}
+
+#note-body :first-child {
+  margin-top: 0;
+}
+
+/* A note written for GitHub centres its header with <div align="center">, and in
+   a 630px drawer that turns the whole intro into centred prose with a ragged
+   left edge. The drawer reads left-aligned, whatever the file was formatted
+   for. Presentational attribute only, so a real centred block (display math,
+   a mermaid figure) keeps its own alignment. */
+#note-body [align="center"],
+#note-body [align="center"] * {
+  text-align: start;
+}
+
+/* frontmatter properties box — native <details>, same collapse idiom as .thinking */
+details.fm {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--slate-2);
+  margin-bottom: 0.9rem;
+  font-size: 12px;
+}
+
+details.fm summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.35rem 0.6rem;
+  color: var(--ash-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: color var(--dur) var(--ease);
+}
+
+details.fm summary::-webkit-details-marker {
+  display: none;
+}
+
+details.fm:not([open]) summary::before {
+  content: "▸ ";
+}
+
+details.fm[open] summary::before {
+  content: "▾ ";
+}
+
+details.fm summary:hover {
+  color: var(--frost);
+}
+
+.fm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-top: 1px solid var(--line);
+}
+
+.fm-key {
+  color: var(--ash-dim);
+  min-width: 9ch;
+}
+
+.fm-val {
+  color: var(--frost);
+  background: var(--slate);
+  border: 1px solid var(--line);
+  padding: 0 0.4rem;
+}
+
+.find-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.find-result:last-child {
+  border-bottom: none;
+}
+
+.find-score {
+  color: var(--ash-dim);
+  font-size: 12px;
+}
+
+/* --- the sidebar's mode switch ----------------------------------------------
+   Three states of one surface: two readings of one note (what it SAYS, and what
+   this session changed in it) and the run. A segmented control and not three
+   entry points, because the run used to BE a second entry point — an #work
+   aside at this same edge that the drawer switched off whenever it opened. Three
+   segments of one panel is that arrangement with the collision removed. */
+#note-mode {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+#note-mode button {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-dim);
+  background: var(--slate);
+  border: none;
+  padding: 0.35rem 0.6rem;
+  min-height: 24px; /* was 23: one pixel under the pointer-target floor */
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+#note-mode button:hover:not(:disabled) {
+  color: var(--frost);
+}
+
+#note-mode button.active {
+  background: var(--line);
+  color: var(--frost);
+}
+
+#note-mode button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#note-mode button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* --- diff mode --------------------------------------------------------------
+   A code well, not a document: monospace, no wrapping, one scroller. The tint on
+   a changed line does the reading and the leading +/− carries it for anyone the
+   colour does not reach — which is also what makes a copied diff still parse. */
+#note-diff {
+  padding: 1.1rem 1.3rem 2rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+#note-diff[hidden] {
+  display: none;
+}
+
+#note-diff.dl-wait {
+  display: block;
+  color: var(--ash-dim);
+  font-size: 13px;
+}
+
+.dl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.dl-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash-dim);
+}
+
+.dl-kind.created {
+  color: var(--add);
+}
+
+.dl-kind.deleted {
+  color: var(--del);
+}
+
+.dl-from {
+  flex: 1;
+  min-width: 0;
+  color: var(--ash-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-track {
+  background: var(--void);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0.4rem 0;
+  overflow-x: auto;
+}
+
+.dl-line {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre;
+  padding: 0 0.8rem;
+  color: var(--text);
+}
+
+.dl-add {
+  color: var(--add);
+  background: color-mix(in srgb, var(--add) 12%, transparent);
+}
+
+.dl-del {
+  color: var(--del);
+  background: color-mix(in srgb, var(--del) 12%, transparent);
+}
+
+.dl-ctx {
+  color: var(--ash);
+}
+
+/* the elision itself, not a line of the note: centred, no fill, no text to read */
+.dl-gap {
+  color: var(--ash-dim);
+  text-align: center;
+  padding: 0.15rem 0;
+}
+
+.dl-empty {
+  color: var(--ash-dim);
+  font-size: 12px;
+}
+
+/* The one action a metrics row carries. It used to be `.cx-do`, borrowed from
+   the note drawer's context mode; that mode is gone (the work panel is the one
+   place a note's concepts and neighbours are stated now) and this button is
+   not, so it owns its rule rather than outliving the block it borrowed from. */
+.m-do {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.22rem 0.6rem;
+  color: var(--ash-dim);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+
+.m-do:hover {
+  color: var(--frost);
+  border-color: var(--accent);
+  background: var(--slate-2);
+}
+
+.m-do:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- bottom dock (graph/map): ask-from-here composer + rendered answer card -- */
+/* A lens onto the SAME conversation: the card holds only the latest exchange,
+   the full transcript lives one click away in chat. Fixed strip between the
+   sidebar (left mirrors its flex-basis) and the note drawer (right insets by
+   --note-w while the drawer is open, so neither ever covers the other).
+   z-index below the drawer (50) so the drawer's slide passes cleanly over. */
+#dock {
+  position: fixed;
+  left: var(--side-w);
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  /* No strip. The composer hovers over the graph exactly as it does over the
+     transcript, and the card beside it is a card, so neither needs a bar drawn
+     behind it. The consequence is that this box is now invisible but still
+     hit-testable across the full width of the view, which would eat clicks on
+     the graph underneath it — hence pointer-events, restored on the two things
+     that are actually there. */
+  pointer-events: none;
+  transition: right var(--dur) var(--ease), left var(--dur) var(--ease);
+  /* match drawer + sidebar */
+}
+
+#dock .composer-shell,
+#peek {
+  pointer-events: auto;
+  /* the graph is a bright, busy canvas: without a shadow the composer reads as
+     painted onto it rather than held above it */
+  box-shadow: var(--lift);
+}
+
+body.sidebar-collapsed #dock {
+  left: 0;
+}
+
+body.note-open #dock {
+  right: var(--note-w, 630px);
+}
+
+/* the answer card is now a free-standing card on the same measure as the
+   composer under it, not the top half of a docked strip */
+#peek {
+  width: min(var(--measure), calc(100% - 4rem));
+  margin: 0 auto 0.55rem;
+  background: var(--glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  overflow: hidden;
+  /* let the header's fill respect the top corners; #peek-body scrolls itself */
+}
+
+#peek>header {
+  gap: 0.5rem;
+  padding: 0.2rem 0.2rem 0.2rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--slate-2);
+}
+
+#peek-title {
+  flex: 1;
+  min-width: 0;
+  /* same clip idiom as #note-title */
+  color: var(--frost);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* header actions read as real buttons — same outlined chips as the drawer's */
+#peek>header .ghost {
+  padding: 0.35rem 0.5rem;
+  font-size: 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--slate);
+}
+
+#peek>header .ghost:hover {
+  border-color: var(--ash-dim);
+  background: var(--slate-2);
+}
+
+/* the rendered answer: full OFM typesetting via the shared :is(...) rules,
+   height-capped so the graph stays the protagonist — the card scrolls inside */
+#peek-body {
+  padding: 0.6rem 0.9rem;
+  font-size: 13px;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+#peek-body.error {
+  color: var(--accent);
+  /* same signal as .tool.error */
+}
+
+#dock-composer {
+  border-top: none;
+  /* nothing to separate from: the shell carries its own edge */
+}
+
