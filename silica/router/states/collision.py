@@ -227,7 +227,7 @@ def _collapse_near_dup_concepts(chunk: dict, *, is_near_dup) -> dict:
         kept = [entries[i][1] for i in range(n) if entries[i][0] == bi and i in keep]
         if kept:
             new_batches.append({"inbox_file": batch.get("inbox_file", ""), "concepts": kept})
-    return {"schema_version": chunk.get("schema_version", 1), "batches": new_batches}
+    return {**chunk, "batches": new_batches}
 
 
 def _cold_intra_chunk_near_dup(a: tuple, b: tuple) -> bool:
@@ -316,7 +316,7 @@ def _run_embedder_free_dedup_leg(fsm: "InjectorFSM", idx: int, chunk: dict) -> N
             new_batches.append(
                 {"inbox_file": batch.get("inbox_file", fsm._current_source_file), "concepts": kept}
             )
-    fsm._chunks[idx] = {"schema_version": chunk.get("schema_version", 1), "batches": new_batches}
+    fsm._chunks[idx] = {**chunk, "batches": new_batches}
 
     deferred_op_dicts = [_deferred_op_dict(fsm, d, "minhash_near_dup") for d in deferred]
     fsm._defer_ops(
@@ -375,8 +375,21 @@ def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
     """
     fsm._progress_note(fsm._chunk_task_id("collision", idx), "collision", "running")
 
-    τ_high = getattr(orch.CONFIG, "sim_threshold_high", 0.85)
-    τ_low = getattr(orch.CONFIG, "sim_threshold_low", 0.75)
+    fsm._get_chunks_from_context_if_empty()
+    if fsm._chunks[idx].get("lane") == "outline":
+        # Nothing to route: the outline chunk has no concepts until DELEGATE
+        # names them, and sameness for that lane is stage B's `same_as` plus
+        # the dedup judge (kernel/outline.py). Measured 2026-09-02: this pass
+        # rebuilt the chunk without `lane`/`source_text`, and Lezione 12 then
+        # distilled as an empty keyphrase chunk (0 ops, no call).
+        fsm._progress_note(fsm._chunk_task_id("collision", idx), "collision", "done",
+                           output_ref="outline lane: no concepts to route")
+        return
+
+    # No literal fallbacks: the 0.75 that used to sit here outlived the config
+    # default (0.70 since ADR-0030) and a divergence nothing exercised.
+    τ_high = orch.CONFIG.sim_threshold_high
+    τ_low = orch.CONFIG.sim_threshold_low
 
     from silica.agent.providers import get_embedder_or_none
     from silica.kernel.recall.embed import get_store
@@ -644,7 +657,7 @@ def collision_pass(fsm: "InjectorFSM", idx: int) -> None:
 
     # Replace chunk with filtered version (remove patched/deferred concepts)
     fsm._chunks[idx] = {
-        "schema_version": chunk.get("schema_version", 1),
+        **chunk,  # keep every key the chunk carries (lane, source_text): a rebuild that drops them changes the lane
         "batches": modified_batches,
     }
 

@@ -22,6 +22,7 @@ from functools import partial
 from typing import Any, TYPE_CHECKING
 
 from silica.router import orchestrator as orch
+from silica.kernel.outline import parse_outline, run_outliner, vault_outline
 from silica.kernel.prep_delegation import payload_inbox_text, run_distiller
 
 if TYPE_CHECKING:
@@ -60,12 +61,13 @@ def _doc_date(fsm: "InjectorFSM", idx: int) -> str:
         return ""
 
 
-def _enqueue_near_title_dedups(fsm: "InjectorFSM", rejected_raw: list) -> None:
-    """Fuzzy-band title rejections become live dedup WorkItems (C3 reuses C2).
+def _enqueue_near_title_dedups(fsm: "InjectorFSM", rejected_raw: list, *, landed: bool = False) -> None:
+    """Fuzzy-band title flags become live dedup WorkItems (C3 reuses C2).
 
-    The op is already parked in the deferred bundle by _defer_ops; this hands
-    the same pair to the dedup judge so the verdict is routed in-run — retry
-    stays the exception. Best-effort: no queue (ad-hoc validate) → no-op.
+    `landed`: the op is a note on disk (soft gate, write.py _settle_flagged),
+    so the judge gets `loser_path` and a duplicate verdict has something to
+    mark superseded. Without it the pair is judged as an incoming concept
+    (legacy rejected shape). Best-effort: no queue (ad-hoc validate) → no-op.
     """
     wq = getattr(fsm, "work_queue", None)
     if wq is None:
@@ -110,6 +112,7 @@ def _enqueue_near_title_dedups(fsm: "InjectorFSM", rejected_raw: list) -> None:
                 # CLEANUP stamps and what the dangling-link sweep reads back.
                 "run_id": getattr(getattr(fsm, "progress", None), "run_id", "") or "",
                 "target_dir": fsm.target_dir,
+                **({"loser_path": op.get("path", "")} if landed else {}),
             },
             reason=r.get("reason", "near_title"),
         ))
@@ -429,6 +432,49 @@ def _prefetch_ahead(fsm: "InjectorFSM", idx: int) -> None:
         j += 1
 
 
+def _run_outline_chunk(fsm: "InjectorFSM", idx: int, chunk: dict,
+                       retry_payload: dict | None, steer_context: str | None) -> dict:
+    """DELEGATE for the outline lane: whole source in, distiller-shaped ops out.
+
+    Side effect on purpose: the chunk's concept list is replaced with the
+    titles the model named, so VALIDATE's heading whitelist and patch-path
+    check keep working unchanged. A steer retry reuses the stored outline and
+    regenerates only the rejected bodies.
+    """
+    fi = fsm._chunk_flat_to_fi_ci.get(idx, (fsm._current_file_idx, 0))[0]
+    inbox_file = (chunk.get("batches") or [{}])[0].get("inbox_file", "") or fsm._current_source_file()
+    only: set[str] | None = None
+    prior = None
+    if retry_payload is not None:
+        saved = fsm.context.get(f"chunk_{idx}_outline")
+        prior = parse_outline(saved) if saved else None
+        if prior is not None:
+            only = {c.get("name") for b in retry_payload.get("batches", [])
+                    for c in b.get("concepts", []) if isinstance(c, dict) and c.get("name")}
+    try:
+        rows = vault_outline(fsm.target_dir, exclude_titles={fsm.hub or ""})
+    except Exception as _ve:  # a blind stage B loses cross edges, never the file
+        logger.warning("DELEGATE outline: vault outline unavailable (%s) — no cross edges this chunk", _ve)
+        rows = []
+    from silica.router.states.finalize import file_language
+    source_text = chunk.get("source_text", "")
+    language = file_language(fsm, fi, source_text)
+    res = run_outliner(
+        source_text=source_text,
+        source_basename=os.path.basename(inbox_file),
+        target=fsm.target_dir, hub=fsm.hub,
+        language=language,
+        vault_outline=rows, outline=prior, only_titles=only, steer_context=steer_context,
+    )
+    fsm._chunks[idx] = {**chunk, "batches": [{"inbox_file": inbox_file, "concepts": res["concepts"]}]}
+    if only is None:
+        fsm.context[f"chunk_{idx}_outline"] = res["outline"]
+    if fsm.warning_ledger is not None:
+        for gap in res.get("gaps", []):
+            fsm.warning_ledger.add(inbox_file, "outline_gap", f"no idea and no skip for section '{gap}'")
+    return {"updates": res["updates"], "ephemerals": res.get("ephemerals", [])}
+
+
 def handle_delegate(fsm: "InjectorFSM") -> None:
     fsm._get_chunks_from_context_if_empty()
 
@@ -500,7 +546,11 @@ def handle_delegate(fsm: "InjectorFSM") -> None:
     try:
         _t0 = time.monotonic()
         chunk_result: dict[str, Any]
-        if _chunk_concept_count(current_chunk) == 0:
+        if current_chunk.get("lane") == "outline":
+            # Before the zero-concept guard on purpose: an outline chunk has
+            # no concepts until the model names them.
+            chunk_result = _run_outline_chunk(fsm, idx, current_chunk, retry_payload, steer_context)
+        elif _chunk_concept_count(current_chunk) == 0:
             # Empty chunk: the novelty gate emptied the file, or COLLISION
             # routed every concept away. Nothing to distill; synthesize an
             # empty result so VALIDATE still merges collision ops and its
@@ -696,11 +746,6 @@ def handle_validate(fsm: "InjectorFSM") -> None:
                 len(rejected_raw),
                 fsm._current_content_hash[:8],
             )
-        _enqueue_near_title_dedups(fsm, rejected_raw)
-        if res.get("validated_count", 0) > 0:
-            # Partial rejection only: with 0 validated the steer arc below
-            # re-delegates the whole chunk — expand would race it.
-            _enqueue_short_snippet_expands(fsm, rejected_raw)
 
     # Accumulate cleared parent references across chunks.
     # These are prospective links (parent notes not yet in vault) that the
@@ -711,10 +756,9 @@ def handle_validate(fsm: "InjectorFSM") -> None:
         logger.debug("VALIDATE: %d parent reference(s) cleared to hub fallback (tracked as forward refs)", len(cleared))
 
     # Unresolved inline wikilinks are kept verbatim as dangling forward-refs (no
-    # rejection) and accumulated so later chunks / future runs can anticipate them.
+    # rejection); the tool result lists them, nothing downstream reads the list.
     cleared_links = res.get("cleared_links", [])
     if cleared_links:
-        fsm.context.setdefault("run_cleared_links", []).extend(cleared_links)
         logger.debug("VALIDATE: %d unresolved wikilink(s) kept as forward refs", len(cleared_links))
 
     rejection_rate = res.get("rejection_rate", 0)

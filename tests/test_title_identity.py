@@ -123,19 +123,18 @@ def test_write_gate_coerces_key_equal_title_to_patch(tmp_vault):
     assert coerced[0].path == "Corso/Machine Learning.md"
 
 
-def test_write_gate_defers_fuzzy_near_title(tmp_vault):
-    """Fuzzy band → the op defers to the review queue (dedup judges it);
-    never a hard block, never a silent write."""
+def test_write_gate_flags_fuzzy_near_title(tmp_vault):
+    """Fuzzy band → the op lands flagged (`review:`) and the dedup judge rules
+    on the note once it exists; never a hard block, never a silent write."""
     from silica.kernel.write.validate import validate_operations
 
     tmp_vault.note("Corso/Descriptor.md", "# Descriptor\n\ncorpo")
     validated, rejected = validate_operations(
         [_write_op("Description", "Corso/Description.md")], [], "Corso",
     )
-    assert not any(o.heading == "Description" for o in validated)
-    assert len(rejected) == 1
-    assert "near_title" in rejected[0].reason
-    assert "Descriptor" in rejected[0].reason
+    assert rejected == []
+    [op] = [o for o in validated if o.heading == "Description"]
+    assert "near_title" in op.review and "Descriptor" in op.review
 
 
 def test_near_title_rejection_enqueues_dedup_workitem():

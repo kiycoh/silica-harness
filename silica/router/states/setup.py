@@ -15,6 +15,8 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
+from silica.kernel.forms import read_source_text
+from silica.kernel.outline import lane_for
 from silica.router import orchestrator as orch
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ def handle_recon(fsm: "InjectorFSM") -> None:
         # Warmed early by the distill prefetch window (warm_next_file): reuse
         # the recon it already ran instead of paying the pass twice.
         warm = fsm.context.pop(f"warm_recon_{fi}", None)
-        res = warm if warm is not None else orch.silica_recon(inbox_file)
+        res = warm if warm is not None else _recon_for_lane(fsm, fi, inbox_file)
         if "error" in res:
             fsm._progress_note("recon", "recon", "failed", error=res["error"])
             raise RuntimeError(f"Recon failed for {inbox_file}: {res['error']}")
@@ -68,6 +70,38 @@ def handle_recon(fsm: "InjectorFSM") -> None:
                     existing.append(notice)
                 else:
                     fsm.context["deferred"] = [existing, notice]
+
+
+def _recon_for_lane(fsm: "InjectorFSM", fi: int, inbox_file: str) -> dict:
+    """The miner's report, or the outline lane's stand-in for it.
+
+    The lane is decided here, not at PAYLOAD, because recon is the stage the
+    outline lane has nothing to do in: the model names the units at DELEGATE
+    (kernel/outline.py), so paying keyphrase extraction first would only feed
+    a whitelist DELEGATE overwrites. The profile pin moves up with it (it is
+    idempotent) since the form decides the lane.
+    """
+    try:
+        _pin_file_profile(fsm, fi, inbox_file)
+    except Exception as _form_e:
+        # Same non-fatal contract the pin has at PAYLOAD: an unreadable or
+        # unsniffable source distills under the vault fallback profile.
+        logger.debug("RECON: profile pin skipped (non-fatal): %s", _form_e, exc_info=True)
+    # The lane follows an explicit verdict only: the run-level profile
+    # (/promote, --profile) or a form stamped on the file. A sniffed form
+    # picks the lens, never the lane — the sniffer named the same lecture
+    # `transcript`, `default` and `clip` on three consecutive runs
+    # (2026-09-02), and the third would have sent it down the keyphrase
+    # pipeline silently.
+    run_level = getattr(fsm, "distill_profile", None)
+    stamped = fsm.context.get(f"file_{fi}_form_origin") == "stamp"
+    profile = run_level or (fsm.context.get(f"file_{fi}_profile") if stamped else None)
+    lane = lane_for(profile)
+    fsm.context[f"file_{fi}_lane"] = lane
+    if lane != "outline":
+        return orch.silica_recon(inbox_file)
+    return {"success": True, "outline_lane": True, "file": inbox_file,
+            "source_text": read_source_text(inbox_file)}
 
 
 def _within_cluster_tol(cached_sig, sig: list[int]) -> bool:
@@ -286,7 +320,7 @@ def _pin_file_profile(fsm: "InjectorFSM", fi: int, inbox_file: str) -> None:
     a direct tool call bypassed the dispatch filing path: it distills under
     the vault fallback, with the verdict kept visible in context and the log.
     """
-    if getattr(fsm, "distill_profile", None):
+    if getattr(fsm, "distill_profile", None) or f"file_{fi}_form" in fsm.context:
         return
     import silica.kernel.forms as forms
 
@@ -315,6 +349,14 @@ def _assemble_file_chunks(fsm: "InjectorFSM", recon_cur: dict) -> tuple[dict, li
     The pure assembly core of PAYLOAD, shared with warm_next_file. Raises
     RuntimeError when the payload tool errors; mutates no per-file FSM state.
     """
+    if recon_cur.get("outline_lane"):
+        # One chunk per file, the whole text, no concepts: COLLISION, SALIENCE
+        # and the prefetcher all key off the concept list and stay inert;
+        # DELEGATE fills the list with the titles the model names.
+        chunk = {"schema_version": 1, "lane": "outline",
+                 "batches": [{"inbox_file": recon_cur.get("file", ""), "concepts": []}],
+                 "source_text": recon_cur.get("source_text", "")}
+        return {"chunks": [chunk]}, [chunk]
     recon_path = fsm._make_tmp([recon_cur])
     phase_conf = fsm._get_recipe_phase("payload")
     max_concepts = phase_conf.get("partition_if_over", 200)
@@ -398,7 +440,7 @@ def _attach_file_chunks(fsm: "InjectorFSM", fi: int, inbox_file: str,
         if not get_active_manifest().conventions.language:
             sample = ""
             for _chunk in new_chunks:
-                sample = _payload_sample_text(_chunk)
+                sample = _payload_sample_text(_chunk) or _chunk.get("source_text", "")
                 if sample:
                     break
             fsm.context[f"file_{fi}_language"] = lang_mod.display_name(
@@ -553,7 +595,7 @@ def warm_next_file(fsm: "InjectorFSM") -> bool:
         if fi >= len(fsm.inbox_files) or fsm._file_chunks.get(fi, {}).get("chunks"):
             return False
         inbox_file = fsm.inbox_files[fi]
-        res = orch.silica_recon(inbox_file)
+        res = _recon_for_lane(fsm, fi, inbox_file)
         if "error" in res:
             return False
         payload_res, new_chunks = _assemble_file_chunks(fsm, res)

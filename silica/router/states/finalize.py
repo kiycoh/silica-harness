@@ -305,7 +305,12 @@ def _record_provenance(fsm: "InjectorFSM", fi: int, source_file: str) -> None:
             if e.source_basename == basename and is_deriving_op(e.op)
         })
 
-        append_record(basename, sha256, fsm.progress.run_id, notes)
+        # getattr: the record must land even from a caller without a context
+        # (a bookkeeping key must never cost the record; the except below
+        # would swallow it silently).
+        ctx = getattr(fsm, "context", None) or {}
+        partial = bool(ctx.get("has_partial_failure") or ctx.get("failed_chunks"))
+        append_record(basename, sha256, fsm.progress.run_id, notes, partial=partial)
     except Exception as exc:
         logger.debug("CLEANUP: provenance append skipped (non-fatal): %s", exc)
 
@@ -465,6 +470,31 @@ def txn_touched_paths(txn) -> set[str]:
     return out
 
 
+def residue_enabled(fsm: "InjectorFSM", fi: int) -> bool:
+    """CONFIG.residue_check: "on" / "off" are absolute; "auto" skips the
+    outline lane, whose coverage pass already maps every source heading to
+    an idea or an explicit skip (kernel/outline.py). The lane is read off the
+    file's first chunk, the only place it is stamped."""
+    mode = getattr(orch.CONFIG, "residue_check", "auto")
+    if mode in ("on", "off"):
+        return mode == "on"
+    chunks = getattr(fsm, "_file_chunks", {}).get(fi, {}).get("chunks") or []
+    return not (chunks and chunks[0].get("lane") == "outline")
+
+
+def file_language(fsm: "InjectorFSM", fi: int, source_text: str) -> str | None:
+    """Same precedence as render_prompt: the per-file pin, else the vault's
+    declared language, else detection on the source. The pin is skipped
+    whenever the manifest declares a language, so without the middle rung
+    the outline claims came out in English on an Italian vault (2026-09-02).
+    One home for the chain: the residue decompose reads it too."""
+    from silica.kernel.text import language as lang_mod
+    from silica.kernel.vault_manifest import get_active_manifest
+    return (fsm.context.get(f"file_{fi}_language")
+            or get_active_manifest().conventions.language
+            or lang_mod.display_name(lang_mod.detect(source_text[:4000])))
+
+
 def maybe_dispatch_residue_decompose(fsm: "InjectorFSM", fi: int,
                                      inbox_file: str) -> None:
     """PAYLOAD-attach seam: start decomposing the source into atomic facts.
@@ -476,6 +506,8 @@ def maybe_dispatch_residue_decompose(fsm: "InjectorFSM", fi: int,
     try:
         if fsm.context.get(f"file_{fi}_form") == "draft":
             return
+        if not residue_enabled(fsm, fi):
+            return
         futs = getattr(fsm, "_residue_decompose", None)
         if futs is None:
             futs = fsm._residue_decompose = {}
@@ -486,7 +518,9 @@ def maybe_dispatch_residue_decompose(fsm: "InjectorFSM", fi: int,
         if not source.strip():
             return
         from silica.kernel import residue as _residue
-        futs[fi] = _residue_pool(fsm).submit(_residue.decompose_facts, source)
+        futs[fi] = _residue_pool(fsm).submit(
+            _residue.decompose_facts, source,
+            language=file_language(fsm, fi, source))
     except Exception as exc:
         logger.debug("PAYLOAD: residue decompose dispatch skipped (non-fatal): %s", exc)
 
@@ -606,6 +640,11 @@ def residue_facts(fsm: "InjectorFSM", fi: int, inbox_file: str) -> list[str]:
     (a false "missing" declaration is the disease the 2026-08-16 ROI audit
     killed) so CLEANUP never blocks on it."""
     try:
+        if not residue_enabled(fsm, fi):
+            # Without this the PAYLOAD skip would only move the same tokens
+            # to the synchronous fallback below.
+            fsm.context[f"file_{fi}_residue_stats"] = {"skipped": "outline lane"}
+            return []
         ready = getattr(fsm, "_residue_ready", None)
         pending = getattr(fsm, "_residue_future", None)
         if ready is not None and ready[0] == fi:

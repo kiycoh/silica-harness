@@ -62,6 +62,23 @@ def title_key(t: str, *, lang: str | None = None) -> str:
     return " ".join(stems) if stems else s.strip()
 
 
+_NUMBERS = re.compile(r"\d+")
+
+
+def numbers_differ(a: str, b: str) -> bool:
+    """Two titles that BOTH carry numbers, and not the same ones.
+
+    The key drops digits, and the fuzzy bands sit "Capitolo 3" next to
+    "Capitolo 4" by construction, so every comparator asks this first: a
+    different number is a different note (lecture, chapter, version, theorem).
+    One-sided numbers stay what they were, a slide enumerator ("Foo" vs
+    "Foo 1" fold together, tests/test_golden_probes.py). Measured 2026-09-02:
+    without this the lesson-12 outline note was coerced onto lesson 11's.
+    """
+    na, nb = _NUMBERS.findall(a or ""), _NUMBERS.findall(b or "")
+    return bool(na) and bool(nb) and na != nb
+
+
 def near_titles(
     t: str,
     titles: dict[str, str] | list[str],
@@ -79,7 +96,7 @@ def near_titles(
     out: list[tuple[str, float]] = []
     for other in titles:
         other_key = title_key(other, lang=lang)
-        if not other_key or other_key == key:
+        if not other_key or other_key == key or numbers_differ(t, other):
             continue
         ratio = SequenceMatcher(None, key, other_key).ratio()
         if ratio >= band:

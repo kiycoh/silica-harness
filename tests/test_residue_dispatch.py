@@ -128,7 +128,7 @@ class TestCheckDispatch:
         gate = threading.Event()
         with patch("silica.driver.DRIVER", _driver_stub()), \
              patch("silica.kernel.residue.decompose_facts",
-                   side_effect=lambda s: gate.wait(5) or ["f"]):
+                   side_effect=lambda s, **kw: gate.wait(5) or ["f"]):
             real_decompose_dispatch(fsm, 0, "Inbox/in.md")
             real_check_dispatch(fsm)
             gate.set()
@@ -225,3 +225,76 @@ class TestResidueFactsConsumption:
         fsm._residue_future = (0, ["a"], [pool.submit(boom)])
         assert real_residue_facts(fsm, 0, "Inbox/in.md") == []
         pool.shutdown(wait=False)
+
+
+class TestLaneGate:
+    """SILICA_RESIDUE_CHECK: auto (default) skips the outline lane, whose
+    coverage pass already answers "what did we drop" per source heading in
+    the same call; measured 2026-09-02 the lane cost 61% of a lecture's
+    tokens and every spot-checked declaration was a false positive."""
+
+    def _outline_fsm(self):
+        fsm = _residue_fsm(ci=0, n_chunks=1)
+        fsm._file_chunks[0]["chunks"] = [{"lane": "outline", "source_text": "x"}]
+        return fsm
+
+    def test_auto_skips_decompose_on_outline_lane(self, monkeypatch):
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "auto")
+        fsm = self._outline_fsm()
+        with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.kernel.residue.decompose_facts") as dec:
+            real_decompose_dispatch(fsm, 0, "Inbox/in.md")
+        assert not getattr(fsm, "_residue_decompose", None)
+        dec.assert_not_called()
+
+    def test_auto_keeps_keyphrase_lane(self, monkeypatch):
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "auto")
+        fsm = _residue_fsm()
+        with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.kernel.residue.decompose_facts", return_value=["f"]):
+            real_decompose_dispatch(fsm, 0, "Inbox/in.md")
+            assert fsm._residue_decompose[0].result(timeout=5) == ["f"]
+        _shutdown(fsm)
+
+    def test_on_overrides_outline_lane(self, monkeypatch):
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "on")
+        fsm = self._outline_fsm()
+        with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.kernel.residue.decompose_facts", return_value=["f"]):
+            real_decompose_dispatch(fsm, 0, "Inbox/in.md")
+            assert fsm._residue_decompose[0].result(timeout=5) == ["f"]
+        _shutdown(fsm)
+
+    def test_off_skips_every_lane(self, monkeypatch):
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "off")
+        fsm = _residue_fsm()
+        with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.kernel.residue.decompose_facts") as dec:
+            real_decompose_dispatch(fsm, 0, "Inbox/in.md")
+        assert not getattr(fsm, "_residue_decompose", None)
+        dec.assert_not_called()
+
+    def test_gate_never_verifies_inline_on_a_skipped_lane(self, monkeypatch):
+        # residue_facts falls back to the synchronous verification when no
+        # future is pending: without this guard the skip at PAYLOAD would
+        # only move the same 60k tokens to CLEANUP.
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "auto")
+        fsm = self._outline_fsm()
+        with patch.object(fz, "_verify_now") as vn:
+            assert real_residue_facts(fsm, 0, "Inbox/in.md") == []
+        vn.assert_not_called()
+        assert fsm.context["file_0_residue_stats"]["skipped"] == "outline lane"
+
+    def test_decompose_receives_the_file_language(self, monkeypatch):
+        # English-only prompts decomposed an Italian lecture into English
+        # facts; the lexical evidence window then shared no words with the
+        # notes and the judge saw the wrong paragraphs (2026-09-02).
+        monkeypatch.setattr("silica.config.CONFIG.residue_check", "auto")
+        fsm = _residue_fsm()
+        fsm.context["file_0_language"] = "Italian"
+        with patch("silica.driver.DRIVER", _driver_stub()), \
+             patch("silica.kernel.residue.decompose_facts", return_value=["f"]) as dec:
+            real_decompose_dispatch(fsm, 0, "Inbox/in.md")
+            fsm._residue_decompose[0].result(timeout=5)
+        assert dec.call_args.kwargs["language"] == "Italian"
+        _shutdown(fsm)

@@ -65,15 +65,22 @@ def moc_target(name: str, target_dir: str) -> str:
     return landing
 
 
-def moc_heading(source_name: str, sample: str) -> str:
-    """Language-aware MOC section heading: '## Da: {name}' or '## From: {name}'.
+# Emitted until 2026-09. Recognised forever by merge_moc_section: a hub that
+# already carries this spelling must keep merging into it, or every later chunk
+# of the same source opens a second section. Never emitted again.
+LEGACY_MOC_PREFIX = "## Da: "
 
-    Routes through kernel/language (C1) — the private Italian marker regex
-    this replaces missed prose outside its hardcoded word list.
+
+def moc_heading(source_name: str, sample: str = "") -> str:
+    """MOC section heading: '## From: {name}'.
+
+    Vault strings are UI copy and go out in English. The language-detected
+    Italian spelling this replaces flipped between chunks of ONE source when
+    the sample changed (2026-09-02: `## Da:` in the hub, `## From:` in a
+    spoke), so the same source ended up with two section headings. `sample`
+    is kept so callers need not change.
     """
-    from silica.kernel.text.language import detect
-    prefix = "Da" if detect(sample) == "italian" else "From"
-    return f"## {prefix}: {source_name}"
+    return f"## From: {source_name}"
 
 
 def merge_moc_section(content: str, heading: str, note_lines: list[str]) -> str:
@@ -83,6 +90,10 @@ def merge_moc_section(content: str, heading: str, note_lines: list[str]) -> str:
     HUB_UPDATE.  Rather than duplicating the heading, new links are appended
     inside the existing section.
     """
+    if heading.startswith("## From: "):
+        legacy = LEGACY_MOC_PREFIX + heading[len("## From: "):]
+        if legacy + "\n" in content or legacy + "\r\n" in content:
+            heading = legacy  # keep appending into the pre-2026-09 section
     if heading + "\n" in content or heading + "\r\n" in content:
         # Append new links just before the next same-level heading or end of file.
         pattern = re.compile(re.escape(heading) + r'(.*?)(?=\n##\s|\Z)', re.DOTALL)

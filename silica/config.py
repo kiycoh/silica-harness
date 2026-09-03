@@ -260,6 +260,24 @@ class SilicaConfig:
     worker_model: str | None = field(
         default_factory=lambda: os.getenv("SILICA_WORKER_MODEL", None)
     )
+    # Which DELEGATE input document-shaped sources get: "outline" (the model
+    # reads the source whole and names the ideas, kernel/outline.py) or
+    # "keyphrase" (recon + payload windows). Measured 2026-09-02 on two SVM
+    # lectures: outline 100% section provenance, 37 typed edges, 7 calls;
+    # keyphrase 0%, 0, and 53 min of wall clock. Memory forms (clip,
+    # promotion) stay on keyphrase whatever this says (outline.lane_for).
+    nucleate_lane: str = field(
+        default_factory=lambda: os.getenv("SILICA_NUCLEATE_LANE", "outline")
+    )
+    # Residue verification (kernel/residue.py): "auto" runs it on the
+    # keyphrase lane only, "on" everywhere, "off" nowhere. Auto skips the
+    # outline lane because its coverage pass already maps every source
+    # heading to an idea or an explicit skip in the same call, while the
+    # residue judge cost 61% of a lecture's tokens on 2026-09-02 and every
+    # spot-checked declaration was a false positive.
+    residue_check: str = field(
+        default_factory=lambda: os.getenv("SILICA_RESIDUE_CHECK", "auto")
+    )
     # Worker provider preset name; falls back to "lmstudio" when unset.
     worker_provider: str | None = field(
         default_factory=lambda: os.getenv("SILICA_WORKER_PROVIDER", None)
