@@ -127,7 +127,7 @@ def sections() -> dict[str, tuple[Row, ...]]:
         ),
         "Vault": (
             Row(VAULT_KEY, "vault_path", "vault", "text",
-                "the folder silica reads and writes",
+                "the folder silica reads and writes this session; the next launch curates the folder it starts in",
                 warn="switching rebuilds every index for the new folder"),
             Row("SILICA_INBOX_DIR", "inbox_dir", "inbox folder", "text",
                 "where nucleated files land"),
@@ -235,6 +235,10 @@ def locked(key: str) -> bool:
 def _origin(key: str, on_file: set[str]) -> str:
     if key in SHELL_ENV:
         return "env"  # exported before any .env was layered in — nothing outranks it
+    if key == VAULT_KEY:
+        # The launch folder, or a switch this session: a line still sitting in
+        # the .env is ignored at boot and must not read as the source.
+        return "derived"
     return "file" if key in on_file else "default"
 
 

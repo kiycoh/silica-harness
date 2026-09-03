@@ -455,6 +455,8 @@ def resolve_cwd_vault(cwd, home=None):
       everything you own. The root is not reachable by launching a shell there
       but a GUI client can spawn a stdio server with cwd ``/``, and indexing
       the whole disk is never what that meant.
+    - a system directory itself (`recall.paths.SYSTEM_DIRS`: /tmp, /usr, the
+      temp dir...) → None, same reason; a folder inside one is still a vault.
 
     Adoption of the returned path (a pre-existing ``docs/silica`` under it still
     wins for back-compat) belongs to ``resolve_vault_switch``; where writes may
@@ -462,9 +464,12 @@ def resolve_cwd_vault(cwd, home=None):
     """
     from pathlib import Path
     from silica.kernel.code import gitstate
+    from silica.kernel.recall.paths import is_system_dir
 
     cwd = Path(cwd).resolve()
     if cwd == Path(home or Path.home()).resolve() or cwd == Path(cwd.anchor):
+        return None
+    if is_system_dir(cwd):
         return None
     root = gitstate.find_repo_root(cwd)
     if root is None:
@@ -477,8 +482,8 @@ def _activate_repo_mode() -> None:
 
     An *exported* SILICA_VAULT outranks it (`config.VAULT_PINNED` — the pin for
     headless runs like cron, which start wherever the scheduler put them); one
-    read from a .env file does not. Where cwd is not a vault ($HOME), SILICA_VAULT
-    is the fallback, then a stable ~/.silica/vault.
+    in a .env file is ignored by config.load_user_env. Where cwd is not a vault
+    ($HOME), the export is the fallback, then a stable ~/.silica/vault.
 
     Do NOT pin an MCP server this way: a stdio client (Claude Code) spawns the
     server with cwd set to the project it opened, so cwd is already the answer,

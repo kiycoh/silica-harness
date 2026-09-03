@@ -3212,9 +3212,10 @@ def _apply_vault_switch(path: str) -> dict:
         return {"ok": False, "error": switched.error}
     # The Changes list describes paths in the vault we just left.
     session_changes.clear()
-    # The resolved absolute path, not what was typed: that is what the next boot
-    # must read back, and what the caches were just rebuilt for.
-    result = st.apply(st.VAULT_KEY, switched.vault)
+    # Live only, never persisted: a SILICA_VAULT line in the .env is ignored at
+    # boot (config.load_user_env), the next launch curates the folder it starts
+    # in. The resolved absolute path is what the caches were just rebuilt for.
+    result = {"ok": True, "values": {st.VAULT_KEY: switched.vault}}
     # The fresh-session seed carries the old vault's map until it is rebuilt.
     _prewarm_seed()
     notes = []

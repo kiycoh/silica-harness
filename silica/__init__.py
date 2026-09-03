@@ -9,7 +9,7 @@ import os as _os
 # A SILICA_VAULT *exported* in the real environment (`SILICA_VAULT=x silica`, a
 # cron unit) is a deliberate per-invocation pin: the one thing that outranks the
 # working directory in cli._activate_repo_mode. The same name sitting in a .env
-# file is config, not intent, and loses to cwd.
+# file is config, not intent: config.load_user_env ignores it and warns.
 #
 # Captured HERE, not in config.py, because the two become indistinguishable the
 # moment anything calls load_dotenv — and litellm/__init__.py does exactly that

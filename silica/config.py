@@ -13,6 +13,7 @@ that the rest of the codebase reads from.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,7 +42,45 @@ from silica import SHELL_ENV, VAULT_PINNED  # noqa: E402,F401
 # it. Settings that belong to one directory are that directory's job to export —
 # `set -a; source .env; set +a` — which is explicit and outranks this file.
 USER_ENV = Path.home() / ".silica" / ".env"
-load_dotenv(USER_ENV, override=False)
+
+
+def load_user_env(path: Path) -> None:
+    """Layer `path` under the shell, above anything a foreign loader injected.
+
+    override=False alone was not enough: litellm/__init__.py calls
+    load_dotenv() at import and find_dotenv walks up from the venv to the
+    repo checkout, so `<repo>/.env` reached os.environ BEFORE this file
+    whenever a caller imported litellm (the CLI does) ahead of silica.config.
+    Measured 2026-09-02: the REPL ran on a retired model pinned only in the
+    checkout's .env while a plain `import silica.config` said the right one.
+    SHELL_ENV (captured at package import, before any third-party code) is
+    what separates a deliberate export from that injection: an exported key
+    still wins, a key that appeared behind silica's back loses to the user's
+    own file.
+    """
+    import silica as _pkg  # SHELL_ENV read at call time: tests replace it
+
+    for key, value in (dotenv_values(path) if path.exists() else {}).items():
+        if value is None:
+            continue
+        if key == "SILICA_VAULT":
+            # The vault is a per-launch fact: silica curates the folder it is
+            # launched in, and only an export pins one (VAULT_PINNED). Read
+            # from this file, the same key served every entry point that never
+            # ran the CLI bootstrap (benches, probes, `python -c`) a vault the
+            # user was not in: measured 2026-09-02, an evidence dump ran
+            # against the wrong embed store. Ignored since 2026-09-03.
+            logging.getLogger(__name__).warning(
+                "SILICA_VAULT in %s is ignored: silica curates the folder it is "
+                "launched in. Delete the line, or export SILICA_VAULT to pin a vault.",
+                path)
+            continue
+        if key in _pkg.SHELL_ENV and key in os.environ:
+            continue
+        os.environ[key] = value
+
+
+load_user_env(USER_ENV)
 
 # Silica's ledger of the SILICA_* keys it owns, derived from the two sources
 # above rather than snapshotted out of os.environ — a snapshot would be right

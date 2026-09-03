@@ -20,7 +20,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from silica.kernel.recall.paths import inbox_dir_for
+from silica.kernel.recall.paths import inbox_dir_for, is_system_dir
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,10 @@ def find_vault(cwd: str) -> Path | None:
     """
     d = Path(cwd)
     for candidate in (d, *d.parents):
+        # A manifest a stray launch left in /tmp is not a vault, and stopping
+        # here would hand every session under it someone else's.
+        if is_system_dir(candidate):
+            continue
         if (candidate / "vault.yaml").is_file():
             return candidate
     return None

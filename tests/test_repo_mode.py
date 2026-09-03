@@ -163,3 +163,13 @@ def test_home_vault_when_nothing_else_applies(tmp_path, monkeypatch, vault_env):
 
 def test_default_user_vault_under_home(tmp_path):
     assert default_user_vault(home=tmp_path) == tmp_path / ".silica" / "vault"
+
+
+def test_system_directories_are_never_the_vault(tmp_path):
+    # A root process with cwd /tmp adopted it and wrote /tmp/vault.yaml
+    # (2026-09-02), which the session hook then found above every pytest tmp
+    # dir. A shell can start in /tmp or /usr; a vault cannot be one of them.
+    # Exact match only: /tmp/<x> is somebody's folder (the test above).
+    import tempfile
+    for d in ("/tmp", "/usr", "/etc", "/var", "/home", tempfile.gettempdir()):
+        assert resolve_cwd_vault(d, home=tmp_path) is None, d

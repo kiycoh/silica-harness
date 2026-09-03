@@ -58,3 +58,14 @@ def test_cli_exits_zero_and_prints_nothing_outside_a_vault(tmp_path):
     )
     assert r.returncode == 0
     assert r.stdout == ""
+
+
+def test_a_manifest_in_a_system_directory_is_not_a_vault(tmp_path, monkeypatch):
+    # The walk-up must step over a manifest a stray launch left in /tmp: the
+    # hook otherwise greets every session under it with someone else's vault.
+    from silica.kernel.recall import paths as kp
+    (tmp_path / "vault.yaml").write_text('write_dir: ""\n', encoding="utf-8")
+    monkeypatch.setattr(kp, "SYSTEM_DIRS", kp.SYSTEM_DIRS | {str(tmp_path.resolve())})
+    sub = tmp_path / "pytest-1" / "case"
+    sub.mkdir(parents=True)
+    assert hook_mod.session_start(json.dumps({"cwd": str(sub)})) == ""

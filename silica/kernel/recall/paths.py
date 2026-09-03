@@ -484,6 +484,23 @@ def is_obsidian_vault(path) -> bool:
 # covers .git/.venv/.obsidian). Deliberately NOT `.gitignore`: a gitignored
 # folder can be exactly where private notes live (this repo's own `docs/`), so
 # honouring it would hide notes. Per-vault additions go in `.silicaignore`.
+# Directories a shell or a GUI client can start in that are never a vault: the
+# FHS top level, macOS's, and the temp dir. Exact match only, /tmp/<x> is
+# somebody's folder while /tmp is nobody's. A root process with cwd /tmp
+# adopted it and wrote /tmp/vault.yaml (2026-09-02), which the session hook
+# then found above every pytest tmp dir and greeted with the wrong vault.
+SYSTEM_DIRS: frozenset[str] = frozenset({
+    "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/media",
+    "/mnt", "/opt", "/proc", "/run", "/sbin", "/srv", "/sys", "/tmp", "/usr",
+    "/var", "/var/tmp", "/private/tmp", "/Users", "/Volumes", "/Applications",
+    "/System", "/Library", tempfile.gettempdir(),
+})
+
+
+def is_system_dir(path) -> bool:
+    return str(Path(path).resolve()) in SYSTEM_DIRS
+
+
 NOISE_DIRS: frozenset[str] = frozenset({
     "node_modules", "vendor", "build", "dist", "target", "__pycache__",
     "site-packages", "coverage", "htmlcov",
