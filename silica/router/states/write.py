@@ -157,6 +157,33 @@ def _attach_section_images(fsm: "InjectorFSM", ops: list) -> None:
         op.snippet = append_section_images(op.snippet or "", source, concept)
 
 
+def _settle_flagged(fsm: "InjectorFSM", ops: list, committed: set[str]) -> None:
+    """Soft-gate verdicts, once the note exists: ledger row + the follow-up.
+
+    After the commit and not at VALIDATE, because the workers run concurrently
+    with the FSM: a judge that rules "duplicate" before the note lands has no
+    loser to mark, and an expand that fires first writes where the chunk is
+    about to write. Only ops that actually landed are settled; a flagged op
+    the write reverted is already in the deferred store.
+    """
+    from silica.router.states.distill import (
+        _enqueue_near_title_dedups, _enqueue_short_snippet_expands,
+    )
+    flagged = [
+        {"op": op.model_dump(), "reason": op.review}
+        for op in ops
+        if op.review and op.touched_ref() in committed
+    ]
+    if not flagged:
+        return
+    ledger = getattr(fsm, "warning_ledger", None)
+    if ledger is not None:
+        for f in flagged:
+            ledger.add(f["op"].get("path", ""), "soft_gate", f["reason"])
+    _enqueue_near_title_dedups(fsm, flagged, landed=True)
+    _enqueue_short_snippet_expands(fsm, flagged)
+
+
 def handle_write(fsm: "InjectorFSM") -> None:
     from silica.kernel.write.atomic_write import bulk_write_atomic
     fsm._progress_note(fsm._chunk_task_id("write"), "write", "running")
@@ -179,6 +206,7 @@ def handle_write(fsm: "InjectorFSM") -> None:
         logger.debug("WRITE: claim stamp skipped (%s)", _ve)
 
     result = bulk_write_atomic(ops, hub=fsm.hub, lint=True)
+    _settle_flagged(fsm, ops, committed={r.path for r in result.committed})
 
     # Per-op lint tolerated these pre-existing violations (patch baseline);
     # hand them to the chunk LINT gate so it applies the same tolerance.
@@ -478,8 +506,7 @@ def handle_hub_update(fsm: "InjectorFSM") -> None:
     )
     source_name = os.path.splitext(os.path.basename(_source_file))[0]
 
-    # Language-aware heading: "## Da: {name}" (Italian) or "## From: {name}" (English).
-    # Sample the hub content + first snippet to detect language.
+    # "## From: {name}"; the sample is vestigial (moc.moc_heading).
     _lang_sample = hub_note.content + " ".join(d for _, d in hub_notes[:3])
     moc_heading = _moc_heading(source_name, _lang_sample)
 

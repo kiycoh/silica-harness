@@ -377,6 +377,41 @@ def mark_superseded_by(content: str, winner: str) -> str:
     return frontmatter.dump(data, body)
 
 
+def follow_superseded(path: str, *, max_hops: int = 5) -> str:
+    """The note that absorbed `path`, or `path` itself when nothing did.
+
+    The inverse of mark_superseded_by, and until 2026-09-03 it had no reader:
+    the loser stayed on disk with its pointer while the write gate coerced
+    every later same-title op onto it by exact path, so "Percettrone" took
+    Lezione 2, 8 and 10 and "Percettrone di Rosenblatt" kept only Lezione 1
+    (run f30ace50). The pointer is a basename link, so the winner is looked
+    up next to the loser; a dangling or cyclic pointer stops the walk and
+    the last note that exists wins. Best-effort: unreadable → `path`.
+    """
+    import os
+    from silica.driver import DRIVER
+
+    seen = {path}
+    for _ in range(max_hops):
+        try:
+            data, _raw, _body = frontmatter.split(DRIVER.read_note(path).content or "")
+        except Exception:
+            return path
+        link = str((data or {}).get(SUPERSEDED_BY_KEY) or "").strip()
+        if not link.startswith("[["):
+            return path
+        name = link.strip("[]").split("|", 1)[0].rsplit("/", 1)[-1].strip()
+        nxt = os.path.join(os.path.dirname(path), name + ("" if name.endswith(".md") else ".md"))
+        try:
+            if nxt in seen or not DRIVER.read_note(nxt).content:
+                return path
+        except Exception:
+            return path
+        seen.add(nxt)
+        path = nxt
+    return path
+
+
 def resolve_contested(
     content: str, *, resolved_by: str, valid_to: str, source_ref: str | None = None
 ) -> str:

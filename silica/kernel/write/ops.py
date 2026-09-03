@@ -40,6 +40,8 @@ class Op(BaseModel):
     related: list[str] | None = None
     concepts: list[str] | None = None  # #9: normalized concept phrases for the co-occurrence graph
     reason: str | None = None           # skip reason / rejection note
+    review: str | None = None           # soft-gate verdict: the op landed anyway, this says what to look at (validate.py)
+    section: str | None = None          # source heading the note comes from (outline lane); frontmatter `section:`
     linked_axis: str | None = None      # thematic axis this concept belongs to (Layer 2)
     parent: str | None = None           # specific parent note (≠ run hub); None → falls back to hub
     contested_by: str | None = None     # patch only: contradiction ref → mark_contested on the target

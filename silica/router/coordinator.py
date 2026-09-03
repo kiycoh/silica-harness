@@ -250,11 +250,14 @@ class Coordinator:
             )
             recovered = int(getattr(self.fsm, "_annealed_ops", 0) or 0)
             parked = self._parked_ops()
-            if facts or parked or recovered:
+            ledger = getattr(self.fsm, "warning_ledger", None)
+            flagged = len(ledger.paths("soft_gate")) if ledger is not None else 0
+            if facts or parked or recovered or flagged:
                 result["coverage"] = {
                     "residue_facts": facts,
                     "deferred_ops": parked,
                     "recovered_ops": recovered,
+                    "flagged_notes": flagged,
                 }
         except Exception as e:
             logger.debug("coverage summary failed (non-fatal): %s", e)

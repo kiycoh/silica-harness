@@ -67,11 +67,11 @@ def test_anneal_sweeps_all_bundles(tmp_vault, tmp_path, monkeypatch):
         rejection_reasons={"Reti/PubSub.md": "lint failed (stale)"},
         phase="VALIDATE",
     )
-    # Bundle 2: op still failing (snippet under the 100-char gate).
+    # Bundle 2: op still failing (empty body: the one snippet verdict that stays hard).
     store.put(
         "bbb2", "inbox/b.md", "Reti", None,
         [{"op": "write", "heading": "Stub", "source_basename": "b.md",
-          "path": "Reti/Stub.md", "title": "Stub", "snippet": "troppo corto"}],
+          "path": "Reti/Stub.md", "title": "Stub", "snippet": ""}],
         rejection_reasons={"Reti/Stub.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -93,7 +93,7 @@ def test_anneal_steer_fixes_with_stamped_reason(tmp_vault, tmp_path, monkeypatch
     store.put(
         "ccc3", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -127,13 +127,13 @@ def test_anneal_steer_iterates_on_the_validator_verdict(tmp_vault, tmp_path, mon
     store.put(
         "kkkb", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
 
     still_short = {"op": "write", "heading": "Broker", "source_basename": "c.md",
-                   "path": "Reti/Broker.md", "title": "Broker", "snippet": "ancora corto"}
+                   "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}
     fixed = dict(still_short, snippet=LONG)
     calls = _steer_llm(monkeypatch, [
         _submit_resp("kkkb", [still_short], call_id="t1"),
@@ -228,7 +228,7 @@ def test_anneal_steer_validates_on_the_same_evidence_that_rejected(tmp_vault, tm
     store.put(
         "ggg7", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
         payloads=payloads,
@@ -277,7 +277,7 @@ def test_anneal_steer_healthy_latex_survives_the_tool_transport(tmp_vault, tmp_p
     store.put(
         "hhh8", "inbox/e.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "e.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
         payloads=payloads,
@@ -317,7 +317,7 @@ def test_anneal_steer_prompt_lists_allowed_headings(tmp_vault, tmp_path, monkeyp
     store.put(
         "iii9", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
         payloads=payloads,
@@ -354,7 +354,7 @@ def test_anneal_steer_output_gets_the_sanitize_repairs(tmp_vault, tmp_path, monk
     store.put(
         "jjja", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
         payloads=payloads,
@@ -544,7 +544,7 @@ def test_anneal_steer_commits_are_journaled_and_provenanced(tmp_vault, tmp_path,
     store.put(
         "mmmc", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -579,7 +579,7 @@ def test_anneal_steer_reports_a_dead_loop_and_keeps_the_bundle(tmp_vault, tmp_pa
     store.put(
         "nnnd", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -610,7 +610,7 @@ def test_anneal_steer_cost_is_bounded_by_the_iteration_cap(tmp_vault, tmp_path, 
     store.put(
         "oooe", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -622,7 +622,7 @@ def test_anneal_steer_cost_is_bounded_by_the_iteration_cap(tmp_vault, tmp_path, 
         tools_per_call.append(kw.get("tools"))
         return _submit_resp("oooe", [{
             "op": "write", "heading": "Broker", "source_basename": "c.md",
-            "path": "Reti/Broker.md", "title": "Broker", "snippet": "ancora corto"}],
+            "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
             call_id=f"t{len(tools_per_call)}")
 
     monkeypatch.setattr("silica.agent.loop.call_llm", relentless)
@@ -656,7 +656,7 @@ def test_submit_repaired_ops_names_a_renamed_write_instead_of_looping(tmp_vault,
     store.put(
         "pppf", "inbox/c.md", "Reti", None,
         [{"op": "write", "heading": "Broker", "source_basename": "c.md",
-          "path": "Reti/Broker.md", "title": "Broker", "snippet": "corto"}],
+          "path": "Reti/Broker.md", "title": "Broker", "snippet": ""}],
         rejection_reasons={"Reti/Broker.md": "snippet too short"},
         phase="VALIDATE",
     )
@@ -672,3 +672,27 @@ def test_submit_repaired_ops_names_a_renamed_write_instead_of_looping(tmp_vault,
     assert store.get("pppf") is not None
     from silica.driver import DRIVER
     assert "Mediatore" in DRIVER.read_note("Reti/Mediatore.md").content
+
+
+def test_anneal_reports_the_ops_that_landed_flagged(tmp_vault, tmp_path, monkeypatch):
+    """The mechanical sweep has no judge: a near-title op lands with `review:`
+    and the caller (boundary anneal, /anneal) must learn it did, to write the
+    ledger row and ask the judge now that the note exists."""
+    from silica.tools.pipeline import silica_anneal
+
+    tmp_vault.note("Reti/Reti.md", "# Reti\n")
+    tmp_vault.note("Reti/Descriptor.md", "# Descriptor\n\ncorpo\n")
+    store = _park(monkeypatch, tmp_path)
+    store.put(
+        "fff6", "inbox/f.md", "Reti", None,
+        [{"op": "write", "heading": "Description", "source_basename": "f.md",
+          "path": "Reti/Description.md", "title": "Description", "snippet": LONG}],
+        rejection_reasons={"Reti/Description.md": "near_title candidate='Descriptor'"},
+        phase="VALIDATE",
+    )
+
+    res = silica_anneal()
+
+    assert res["written"] == 1 and res["flagged"] == 1
+    [op] = res["flagged_ops"]
+    assert op["path"] == "Reti/Description.md" and "near_title" in op["review"]

@@ -110,6 +110,39 @@ def _verify_deleted(path: str) -> str | None:
     return "post-write verify: note still present after delete"
 
 
+def render_write(op: Op, snippet: str | None = None) -> str:
+    """The note a write op lands as, before any driver call.
+
+    Shared with the expand worker, which re-authors a landed note in place
+    (overwrite) and must produce byte-for-byte what a fresh write would.
+    """
+    body = op.snippet or "" if snippet is None else snippet
+    fields = templates.prepare_fields(
+        title=op.title or op.heading,
+        body=body,
+        hub=op.hub,
+        tags=op.tags,
+        related=op.related,
+        parent=op.parent,
+    )
+    content = templates.render_note(templates.resolve_template(), fields)
+    content = templates.ensure_system_floor(content)
+    content = templates.stamp_sources(content, op.source_basename)
+    from silica.kernel.write.provenance import citation_of
+    content = templates.stamp_citation(content, citation_of(op.source_basename))
+    if op.review:
+        # Soft-gate verdict, on the note itself: the one place the reader
+        # opens. The run ledger has the same row, but nobody opens a ledger
+        # after a "Success" (the 2026-08-20 coverage-line finding).
+        content = templates.upsert_props(content, {"review": op.review})
+    if op.section:
+        # Its own key, not a `Lezione 11.md#Margine` entry in `sources:`: four
+        # readers (note_authored_by, already_distilled, citation_of, the MOC)
+        # compare sources entries to a basename by equality.
+        content = templates.upsert_props(content, {"section": op.section})
+    return content
+
+
 def _execute_write(op: Op, path: str) -> dict:
     """Create a new note from the resolved template. Requires heading + hub."""
     heading = op.heading
@@ -129,19 +162,7 @@ def _execute_write(op: Op, path: str) -> dict:
         if rendered:
             snippet = f"{rendered}\n\n{snippet.lstrip()}"
 
-    fields = templates.prepare_fields(
-        title=op.title or heading,
-        body=snippet,
-        hub=hub,
-        tags=op.tags,
-        related=op.related,
-        parent=op.parent,
-    )
-    content = templates.render_note(templates.resolve_template(), fields)
-    content = templates.ensure_system_floor(content)
-    content = templates.stamp_sources(content, op.source_basename)
-    from silica.kernel.write.provenance import citation_of
-    content = templates.stamp_citation(content, citation_of(op.source_basename))
+    content = render_write(op, snippet)
     DRIVER.create(path, content)
     err = _verify_landed(op, path, content)
     if err:
@@ -182,8 +203,14 @@ def _execute_patch(op: Op, path: str) -> dict:
     # read_records memoizes the parsed ledger on (path, mtime, size), so this
     # stays one parse per run rather than one per patch op.
     from silica.kernel.write.provenance import note_authored_by
+    # The ledger leg needs the note to still SAY the heading: the ledger is
+    # never pruned (revert rewinds bodies, not records), so on its own it kept
+    # claiming authorship after the section was hand-deleted or the note
+    # rewritten, and the enrichment was skipped as a "duplicate" in silence.
     already_present = templates.block_present(nc.content, heading, source_basename) or (
-        bool(source_basename) and note_authored_by(path, source_basename)
+        bool(source_basename)
+        and heading.casefold() in nc.content.casefold()
+        and note_authored_by(path, source_basename)
     )
     if already_present:
         # Same lint floor as the real-patch path below: a safe-mode skip lands

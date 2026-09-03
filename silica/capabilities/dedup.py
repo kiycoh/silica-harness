@@ -323,9 +323,10 @@ def _mark_merge_loser(ctx: dict, winner_path: str) -> None:
     """Point the absorbed note at the one that took its content.
 
     Only fires when the loser is a real vault note: `loser_path` is set by the
-    note-vs-note seams (/dedup pairs, /curate families), never by the FSM, whose
-    "loser" is an incoming concept that was never written. Best-effort — a
-    committed merge must not be reported failed over a bookkeeping key.
+    note-vs-note seams (/dedup pairs, /curate families) and by the soft gate
+    once a flagged note has landed (write.py _settle_flagged); an incoming
+    concept that was never written has none. Best-effort — a committed merge
+    must not be reported failed over a bookkeeping key.
     """
     loser_path = ctx.get("loser_path")
     if not loser_path or loser_path == winner_path:
@@ -358,11 +359,12 @@ def _mark_merge_loser(ctx: dict, winner_path: str) -> None:
 def _record_absorbed_alias(ctx: dict, winner_path: str, hub: str | None) -> None:
     """Keep the surface form of a concept that was merged away.
 
-    The complement of _mark_merge_loser: there the loser is a real note and
-    survives with a superseded_by pointer, so its title stays in the title
-    index. Here the loser is an incoming concept that was never written, and
-    without this its heading is discarded at the merge — every later mention of
-    that spelling stays unlinked and the concept quietly splits in two. Recorded
+    Runs beside _mark_merge_loser, not instead of it: a landed loser keeps a
+    superseded_by pointer that the write gate follows, but the pointer dies
+    with the stub, and an incoming concept that was never written has no
+    stub at all. Without the alias the heading is discarded at the merge —
+    every later mention of that spelling stays unlinked and the concept
+    quietly splits in two ("Percettrone", run f30ace50, 2026-09-03). Recorded
     as a frontmatter alias, so autolink resolves the spelling onto the note that
     absorbed it (build_alias_map + autolink(aliases=...)).
 
@@ -412,6 +414,16 @@ def _route_verdict(
         return _route_distinct(item, ctx, decision, config)
 
     if not decision.addition.strip():
+        if decision.verdict == "duplicate":
+            # A landed soft-gate note judged a pure duplicate: nothing to merge,
+            # but the note is still on disk saying the same thing as the
+            # candidate — point it at the winner (no-op without loser_path).
+            _mark_merge_loser(ctx, candidate_path)
+            _record_absorbed_alias(ctx, candidate_path, ctx.get("hub"))
+            # The verdict is final, so the parked copy has nothing left to
+            # wait for: release it, or the anneal re-validates it every run
+            # until the TTL drops it (probe run 2026-09-02).
+            _clean_twin_bundle(ctx)
         return {
             "status": "no_merge",
             "verdict": decision.verdict,
@@ -462,10 +474,12 @@ def _route_verdict(
         if decision.verdict == "duplicate":
             if ctx.get("loser_path"):
                 _mark_merge_loser(ctx, candidate_path)
-            else:
-                # No loser note: the absorbed side is an incoming concept, and
-                # its heading is the only record that this spelling exists.
-                _record_absorbed_alias(ctx, candidate_path, hub)
+            # The alias is recorded with or without a loser note: the loser's
+            # pointer is read by the write gate only while the stub exists,
+            # the alias on the winner is what outlives its deletion. Before
+            # 2026-09-03 the branches were exclusive and "Percettrone" left
+            # no trace on "Percettrone di Rosenblatt" (run f30ace50).
+            _record_absorbed_alias(ctx, candidate_path, hub)
         if decision.verdict == "contradicts":
             # Without this the judge's contradictions never reach the run
             # digest worklist: only silica_flag_note used to feed the register,
@@ -496,6 +510,8 @@ def _route_distinct(
     no_merge = {"status": "no_merge", "verdict": "distinct", "rationale": decision.rationale}
     if not target_dir:
         return no_merge
+    if ctx.get("loser_path"):
+        return _settle_landed_distinct(item, ctx, decision)
 
     from silica.kernel.write.templates import (
         has_related_trace, related_trace, related_unjudged, slugify,
@@ -563,6 +579,52 @@ def _route_distinct(
                 "target_path": spoke_path,
                 "context": {"hub": hub} if hub else {},
             }
+    return result
+
+
+def _settle_landed_distinct(item: WorkItem, ctx: dict, decision: DedupDecision) -> dict[str, Any]:
+    """`distinct` on a note that landed under a soft gate: the flag has done
+    its job. Drop `review:` and leave the judged relation as the same typed
+    trace a spoke gets, so the verdict survives in the note and nothing is
+    written a second time under a slugified sibling path.
+    """
+    from silica.agent.bounds import dedup_settle_bounds
+    from silica.kernel.write import frontmatter
+    from silica.kernel.write.templates import has_related_trace, related_trace, related_unjudged
+
+    path = ctx["loser_path"]
+    prior = read_or_skip(path)[0] or ""
+    data, raw, body = frontmatter.split(prior)
+    if data is None:
+        if raw is not None:  # broken YAML: never round-trip what cannot be parsed
+            return {"status": "no_merge", "verdict": "distinct", "rationale": decision.rationale}
+        data, body = {}, prior
+    data.pop("review", None)
+    candidate_name = ctx.get("candidate", "")
+    if candidate_name and not has_related_trace(body, candidate_name):
+        body = body.rstrip("\n") + "\n\n" + (
+            related_trace(candidate_name, decision.rationale) if decision.judged
+            else related_unjudged(candidate_name)
+        ) + "\n"
+    emit_feedback(item, "committing")
+    result = commit_ops(
+        [Op(
+            op=OpType.overwrite,
+            heading=ctx.get("concept", "") or "judged distinct",
+            source_basename=os.path.basename(path),
+            path=path,
+            content=frontmatter.dump(data, body),
+            base_content=prior,
+            reason=f"dedup distinct, flag cleared: {decision.rationale[:120]}",
+        )],
+        target_dir=os.path.dirname(path),
+        hub=ctx.get("hub"),
+        bounds=dedup_settle_bounds(path, hub=ctx.get("hub")),
+    )
+    result.setdefault("verdict", "distinct")
+    result.setdefault("rationale", decision.rationale)
+    if result.get("status") == "committed":
+        _clean_twin_bundle(ctx)
     return result
 
 

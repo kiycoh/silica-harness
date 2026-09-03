@@ -22,7 +22,7 @@ from silica.agent.bounds import expand_bounds
 from silica.kernel.write.ops import Op, OpType
 from silica.kernel.write.validate import min_write_snippet_chars
 from silica.kernel.workqueue import WorkItem
-from silica.capabilities._base import NoteContent, emit_feedback, load_prompt, parse_content
+from silica.capabilities._base import NoteContent, emit_feedback, load_prompt, parse_content, read_or_skip
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +87,23 @@ def run_expand(item: WorkItem, config: Any) -> dict[str, Any]:
         parent=op_raw.get("parent") or None,
         reason=f"expand retry: {ctx.get('reason', '')[:120]}",
     )
+    # The thin note already landed (soft gate): re-author it in place. The
+    # rendered content carries no `review:` key, so the flag clears with the
+    # body that earned it; base_content arms the 3-way conflict guard.
+    prior = read_or_skip(item.target_path)[0] if item.target_path else None
+    landed = bool(prior)
+    if landed:
+        from silica.kernel.write.bulk import render_write
+        op = Op(
+            op=OpType.overwrite, heading=op.heading, source_basename=op.source_basename,
+            path=op.path, content=render_write(op), base_content=prior, hub=hub,
+            reason=op.reason,
+        )
     result = commit_ops(
         [op],
         target_dir=ctx.get("target_dir", "") or os.path.dirname(item.target_path),
         hub=hub,
-        bounds=expand_bounds(item.target_path, hub=hub),
+        bounds=expand_bounds(item.target_path, hub=hub, landed=landed),
     )
     if result.get("status") == "committed":
         _clean_twin_bundle(ctx, heading)

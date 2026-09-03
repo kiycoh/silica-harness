@@ -819,6 +819,15 @@ class InjectorFSM(BaseFSM[InjectorState]):
             if res.get("written"):
                 logger.info("boundary anneal: recovered %d deferred op(s)", res.get("written"))
                 self._lift_recovered_partial()
+            if res.get("flagged_ops"):
+                # Soft-gate landings from the sweep: the retry path has no
+                # judge and no ledger, but this runs inside the run (queue
+                # still open, workers alive), so they get the same settle as
+                # a chunk write: ledger row, judge with loser_path, expand.
+                from silica.kernel.write.ops import Op
+                from silica.router.states.write import _settle_flagged
+                ops = [Op.model_validate(o) for o in res["flagged_ops"]]
+                _settle_flagged(self, ops, committed={o.touched_ref() for o in ops})
         except Exception as e:
             logger.debug("boundary anneal skipped (%s)", e)
 

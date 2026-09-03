@@ -1297,9 +1297,10 @@ def _dc_anneal(args: list[str], **_) -> bool:
         if row.get("error"):
             line += f"  [yellow]{row['error']}[/]"
         CONSOLE.print(line)
+    flagged = f", {res['flagged']} landed flagged for review" if res.get("flagged") else ""
     CONSOLE.print(
         f"  [bold]{res['bundles']}[/] bundle(s): {res['written']} op(s) written, "
-        f"{res['still_deferred']} still deferred."
+        f"{res['still_deferred']} still deferred{flagged}."
     )
     # A sweep that wrote nothing and cleared nothing is the case worth naming:
     # silence there reads as success when the queue is untouched.
@@ -2522,6 +2523,7 @@ def _nucleate_result_line(result: dict) -> str:
             ("recovered_ops", "deferred op(s) recovered"),
             ("deferred_ops", "still deferred"),
             ("residue_facts", "fact(s) uncovered"),
+            ("flagged_notes", "note(s) landed flagged for review"),
         ) if cov.get(k)
     ]
     if bits:

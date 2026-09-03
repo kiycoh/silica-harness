@@ -112,12 +112,13 @@ def test_short_verbatim_floor_is_env_lowerable(tmp_vault, monkeypatch):
     short = "Elena: I signed up for the pottery class at the rec center."  # ~59 chars
     excerpt = short + "\nSam: Nice, when does it start?"
     monkeypatch.delenv("SILICA_MIN_WRITE_SNIPPET_CHARS", raising=False)
-    _, rejected = validate_operations([_write_op(short)], _payload(excerpt), "mem")
-    assert any("snippet too short" in r.reason for r in rejected)  # default floor defers it
+    validated, _ = validate_operations([_write_op(short)], _payload(excerpt), "mem")
+    [op] = [o for o in validated if o.path == "mem/Elena's pottery class.md"]
+    assert "snippet too short" in (op.review or "")  # default floor lands it flagged
     monkeypatch.setenv("SILICA_MIN_WRITE_SNIPPET_CHARS", "40")
-    validated, rejected2 = validate_operations([_write_op(short)], _payload(excerpt), "mem")
-    assert not any("snippet too short" in r.reason for r in rejected2)  # lowered floor admits it
-    assert any(o.path == "mem/Elena's pottery class.md" for o in validated)
+    validated, _ = validate_operations([_write_op(short)], _payload(excerpt), "mem")
+    [op] = [o for o in validated if o.path == "mem/Elena's pottery class.md"]
+    assert op.review is None  # lowered floor admits it clean
 
 
 # ---------------------------------------------------------------------------

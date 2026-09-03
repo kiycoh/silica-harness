@@ -116,7 +116,12 @@ def test_dedup_no_merge_when_addition_empty():
          patch("silica.capabilities.dedup.commit_ops") as commit:
         res = run_dedup(_item(), CONFIG)
     assert res["status"] == "no_merge"
-    commit.assert_not_called()
+    # Nothing merged, but the spelling is not thrown away: the only write is
+    # the alias bookkeeping on the winner (2026-09-03, "Percettrone" left no
+    # trace on the note that absorbed it), never a patch.
+    ops = [c.args[0][0] for c in commit.call_args_list]
+    assert [o.op for o in ops] == [OpType.overwrite]
+    assert ops[0].reason == "dedup merge: 'Discesa del gradiente' kept as alias"
 
 
 def test_dedup_contradicts_builds_contested_patch():

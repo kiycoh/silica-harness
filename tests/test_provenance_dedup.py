@@ -44,7 +44,8 @@ def test_patch_skipped_when_source_already_authored_note(tmp_vault):
     provenance block), so block_present can't catch it — the provenance ledger
     (this source -> this note) does. Real incident: re-ingesting an edited
     lecture re-patched every unchanged concept into its own prior note."""
-    target = tmp_vault.note("Concepts/Machine Learning.md", "---\n---\nseed body\n")
+    target = tmp_vault.note("Concepts/Machine Learning.md",
+                            "---\n---\n# Machine Learning\n\nseed body\n")
     append_record("lezione_1.md", "sha-v1", "run-1",
                   ["Concepts/Machine Learning"], vault_path=CONFIG.vault_path)
 
@@ -115,3 +116,24 @@ def test_duplicate_block_still_repairs_hub_link(tmp_vault):
     after = tmp_vault.read(target)
     assert '[[Hub]]' in after                       # link repaired
     assert after.count("## Note aggiuntive") == 1   # snippet still skipped
+
+
+def test_patch_proceeds_when_the_ledger_claims_a_note_that_lost_the_content(tmp_vault):
+    """The ledger says this source authored the note, but the section it wrote
+    is gone (hand-deleted, note rewritten, mirror discarded on a re-run). The
+    ledger alone used to win and the enrichment was skipped in silence as a
+    "duplicate" (open seam since 2026-08-04). The heading is the cheapest proof
+    the content is still there: absent, the patch lands."""
+    target = tmp_vault.note("Concepts/Machine Learning.md",
+                            "---\nAI: true\n---\n# Something else\n\nrewritten body\n")
+    append_record("lezione_1.md", "sha-v1", "run-1",
+                  ["Concepts/Machine Learning"], vault_path=CONFIG.vault_path)
+    assert note_authored_by(target, "lezione_1.md", vault_path=CONFIG.vault_path)
+
+    op = Op(op=OpType.patch, heading="Machine Learning",
+            source_basename="lezione_1.md", path=target,
+            snippet="re-distilled excerpt", hub="Hub")
+    res = execute_one(op)
+
+    assert res.get("skipped") is None
+    assert "## Additional notes: Machine Learning (from lezione_1.md)" in tmp_vault.read(target)

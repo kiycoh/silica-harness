@@ -158,6 +158,15 @@ class Rejection(BaseModel):
     reason: str
 
 
+def _flag(op: Op, reason: str) -> None:
+    """Soft verdict: the op keeps going, `review` says why a reader should look.
+
+    Two soft gates can fire on one op; both stay readable in the one key
+    (`"; "`-joined) so the note names everything that was suspicious about it.
+    """
+    op.review = f"{op.review}; {reason}" if op.review else reason
+
+
 def validate_operations(
     ops: list[Op] | list[dict],
     payloads: list,
@@ -374,17 +383,36 @@ def validate_operations(
             return _title_gate_cache
         from silica.kernel.text.title import title_key
         out: dict[str, tuple[str, str]] = {}
+        names: dict[str, str] = {}
         try:
             norm_dir = (target_dir or "").replace("\\", "/").strip("/")
             for ref in DRIVER.list_files(norm_dir):
                 ref_dir = os.path.dirname((ref.path or "").replace("\\", "/")).strip("/")
                 if ref_dir != norm_dir:
                     continue
+                names[ref.name] = ref.path
                 key = title_key(ref.name)
                 if key:
                     out[key] = (ref.name, ref.path)
         except Exception as e:
             logger.debug("validate: title gate enumeration failed (abstaining): %s", e)
+        # Frontmatter aliases join the index after the filenames: the alias the
+        # judge leaves on a merge winner is the only trace of the absorbed
+        # spelling once the loser stub is deleted (2026-09-03, "Percettrone"
+        # would have come back as a new note). Same precedence as
+        # autolink.build_alias_map: a real title outranks any alias on its key.
+        # The ws backend serves no alias index, so there the gate sees names only.
+        try:
+            for title, aliases in DRIVER.alias_index():
+                path = names.get(title)
+                if not path:
+                    continue
+                for alias in aliases or []:
+                    key = title_key(str(alias))
+                    if key and key not in out:
+                        out[key] = (str(alias), path)
+        except Exception as e:
+            logger.debug("validate: alias index unavailable (gate sees filenames only): %s", e)
         _title_gate_cache = out
         return out
 
@@ -406,6 +434,11 @@ def validate_operations(
 
         if op.op == OpType.write and op.path and path_exists(op.path):
             op.op = OpType.patch
+            # The existing note may be a merge loser: its content already
+            # lives in the winner, so the append goes there (run f30ace50,
+            # 2026-09-03: three lessons piled onto a superseded "Percettrone").
+            from silica.kernel.write.contested import follow_superseded
+            op.path = follow_superseded(op.path)
         elif op.op == OpType.write and op.path:
             # C3 gate, band 1: a title key-equal to an existing note in the
             # target folder is the SAME note under a cosmetic variant
@@ -413,14 +446,18 @@ def validate_operations(
             # extending the exact-path coercion above.
             from silica.kernel.text.title import title_key
             stem = os.path.splitext(os.path.basename(op.path))[0]
+            from silica.kernel.text.title import numbers_differ
             match = _target_dir_titles().get(title_key(stem))
+            if match and numbers_differ(stem, match[0]):
+                match = None  # "Lezione 12" is not "Lezione 11": numbers are identity
             if match is not None:
                 logger.info(
                     "validate: title '%s' key-equal to existing '%s' — coercing write→patch",
                     stem, match[0],
                 )
                 op.op = OpType.patch
-                op.path = match[1] if match[1].endswith(".md") else f"{match[1]}.md"
+                from silica.kernel.write.contested import follow_superseded
+                op.path = follow_superseded(match[1] if match[1].endswith(".md") else f"{match[1]}.md")
         elif op.op == OpType.patch and op.path and not path_exists(op.path):
             if has_payloads:
                 expected_path = expected_collision_paths.get((op.source_basename, op.heading))
@@ -828,8 +865,15 @@ def validate_operations(
                 continue
 
             # C3 gate, band 2: fuzzy-near an existing title (Descriptor vs
-            # Description) → defer to the review queue so the dedup judge
-            # decides — never a hard block, never a silent fourth duplicate.
+            # Description). SOFT: the note lands with `review:` set and the
+            # dedup judge is asked once it exists (write.py _settle_flagged).
+            # It used to reject-and-defer "so the judge decides", but the judge
+            # only ever ran inside the FSM: the anneal retry re-validated with
+            # no judge, the same band fired again, and 13 of the 23 ops parked
+            # on the ML lessons (2026-09-02) were distinct topics ("Algoritmo
+            # online del percettrone" vs "Algoritmo del percettrone") waiting
+            # for a verdict nobody could give. A flagged near-duplicate the
+            # reader can see beats a topic that silently expires at 30 days.
             from silica.kernel.text.title import near_titles
             stem = os.path.splitext(os.path.basename(path))[0]
             near_hits = near_titles(stem, _target_dir_title_list())
@@ -838,14 +882,16 @@ def validate_operations(
                 cand_path = next(
                     (p for (t, p) in _target_dir_titles().values() if t == cand_title), ""
                 )
-                rejected_ops.append(Rejection(
-                    op=op,
-                    reason=(
-                        f"near_title candidate='{cand_title}' path='{cand_path}' "
-                        f"ratio={ratio:.2f} — deferred for dedup review"
-                    ),
-                ))
-                continue
+                if cand_path:
+                    # A superseded neighbour hands the judge its winner: the
+                    # verdict is about where the content lives, not the stub.
+                    from silica.kernel.write.contested import follow_superseded
+                    winner = follow_superseded(cand_path)
+                    if winner != cand_path:
+                        cand_path = winner
+                        cand_title = os.path.splitext(os.path.basename(winner))[0]
+                _flag(op, f"near_title candidate='{cand_title}' path='{cand_path}' "
+                          f"ratio={ratio:.2f}")
 
             body_len = len((op.snippet or "").strip())
             if body_len == 0 and has_payloads:
@@ -872,7 +918,9 @@ def validate_operations(
             # verbatim fact is real content, not the prose-placeholder this gate
             # guards against — so the extractive arm sets a lower floor.
             _min_snippet = min_write_snippet_chars(_profile)
-            if body_len < _min_snippet:
+            if body_len == 0:
+                # Nothing to land: an empty body IS the placeholder the floor
+                # exists to keep out of the vault (run 5d0a3350). Stays hard.
                 rejected_ops.append(Rejection(
                     op=op,
                     reason=(
@@ -881,6 +929,12 @@ def validate_operations(
                     ),
                 ))
                 continue
+            if body_len < _min_snippet:
+                # SOFT: a 200-char body is thin, not empty. It lands flagged and
+                # the expand worker re-authors it in place (expand.py); before,
+                # the same op sat in the deferred store where deterministic
+                # re-validation could never clear it.
+                _flag(op, f"snippet too short ({body_len} < {_min_snippet} chars)")
 
             # Shape gate: a long-enough body can still be an announcement of the
             # section instead of the section. Skipped under extractive enforce

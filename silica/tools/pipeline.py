@@ -556,6 +556,9 @@ def silica_deferred_retry(content_hash: str) -> dict[str, Any]:
         "written": len(validated),
         "still_deferred": len(still_rejected),
         "bundle_cleared": len(still_rejected) == 0,
+        # Soft-gate landings: this path has no judge and no run ledger, so the
+        # caller that has them (the boundary anneal) settles these itself.
+        "flagged_ops": [o.model_dump() for o in validated if o.review],
     }
 
 
@@ -740,6 +743,7 @@ def silica_anneal(steer: bool = False, limit: int = 0) -> dict[str, Any]:
             "written": res.get("written", 0),
             "still_deferred": res.get("still_deferred", 0),
             "cleared": res.get("bundle_cleared", False),
+            "flagged_ops": res.get("flagged_ops") or [],
         }
         if res.get("error"):
             row["error"] = res["error"]
@@ -752,6 +756,8 @@ def silica_anneal(steer: bool = False, limit: int = 0) -> dict[str, Any]:
         + sum(r.get("steer", {}).get("written", 0) for r in swept),
         "still_deferred": sum(r["still_deferred"] for r in swept)
         - sum(r.get("steer", {}).get("written", 0) for r in swept),
+        "flagged": sum(len(r["flagged_ops"]) for r in swept),
+        "flagged_ops": [o for r in swept for o in r["flagged_ops"]],
         "results": swept,
     }
 

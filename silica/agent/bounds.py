@@ -270,6 +270,12 @@ def _single_write_bounds(spoke_path: str, name: str, *, hub: str | None) -> Capa
     )
 
 
+def dedup_settle_bounds(path: str, *, hub: str | None = None) -> CapabilityBounds:
+    """A soft-gate note judged distinct: one overwrite that drops its
+    `review:` key and appends the relation trace. Framework-computed content."""
+    return _single_overwrite_bounds(path, "dedup_settle", hub=hub)
+
+
 def dedup_spoke_bounds(spoke_path: str, *, hub: str | None = None) -> CapabilityBounds:
     """Spoke bounds for a dedup `distinct` verdict: create exactly ONE new note.
 
@@ -281,13 +287,16 @@ def dedup_spoke_bounds(spoke_path: str, *, hub: str | None = None) -> Capability
     return _single_write_bounds(spoke_path, "dedup_spoke", hub=hub)
 
 
-def expand_bounds(spoke_path: str, *, hub: str | None = None) -> CapabilityBounds:
-    """Expand bounds: re-author exactly ONE gate-rejected spoke.
+def expand_bounds(spoke_path: str, *, hub: str | None = None, landed: bool = False) -> CapabilityBounds:
+    """Expand bounds: re-author exactly ONE thin spoke.
 
-    Same envelope as dedup_spoke_bounds — a single `write` of the path the
-    validator already sanitized, hub never touchable — under its own name so
-    logs attribute the write to the expand retry, not the dedup judge.
+    A single op on the path the validator already sanitized, hub never
+    touchable, under its own name so logs attribute it to the expand retry,
+    not the dedup judge. `landed`: the thin note is on disk (soft gate), so
+    the envelope is one overwrite of it instead of one write.
     """
+    if landed:
+        return _single_overwrite_bounds(spoke_path, "expand", hub=hub)
     return _single_write_bounds(spoke_path, "expand", hub=hub)
 
 

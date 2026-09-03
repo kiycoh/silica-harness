@@ -96,14 +96,16 @@ def test_empty_snippet_write_is_rejected(tmp_vault):
     assert "too short" in rejected[0].reason
 
 
-def test_short_snippet_write_is_rejected(tmp_vault):
+def test_short_snippet_write_lands_flagged(tmp_vault):
+    # Thin but real: the note lands with `review:` and the expand worker
+    # re-authors it in place (soft gate, 2026-09-02). Only "" stays hard.
     validated, rejected = validate_operations(
         [_write_op("Matrici diagonali", "x" * (MIN_WRITE_SNIPPET_CHARS - 1))],
         [], "Corso",
     )
-    assert validated == []
-    assert len(rejected) == 1
-    assert "too short" in rejected[0].reason
+    assert rejected == []
+    [op] = [o for o in validated if o.heading == "Matrici diagonali"]
+    assert "too short" in op.review
 
 
 def test_sufficient_snippet_write_passes(tmp_vault):
@@ -117,22 +119,23 @@ def test_sufficient_snippet_write_passes(tmp_vault):
 
 def test_whitespace_padding_does_not_beat_the_gate(tmp_vault):
     padded = ("x" * 40) + " " * MIN_WRITE_SNIPPET_CHARS
-    validated, rejected = validate_operations(
+    validated, _ = validate_operations(
         [_write_op("Matrici diagonali", padded)], [], "Corso",
     )
-    assert validated == []
-    assert "too short" in rejected[0].reason
+    [op] = [o for o in validated if o.heading == "Matrici diagonali"]
+    assert "too short (40 <" in op.review
 
 
-def test_near_title_still_wins_over_short_snippet(tmp_vault):
-    """The fuzzy-title band routes to dedup review; the length gate must not
-    shadow it (a near-duplicate needs the judge, not a blind retry)."""
+def test_near_title_survives_on_an_empty_body_rejection(tmp_vault):
+    """An empty body is still hard, but the fuzzy-title flag it also earned
+    rides on the rejected op, so the retry knows a near-duplicate exists."""
     tmp_vault.note("Corso/Descriptor.md", "# Descriptor\n\ncorpo")
     validated, rejected = validate_operations(
         [_write_op("Description", "")], [], "Corso",
     )
-    assert validated == []
-    assert "near_title" in rejected[0].reason
+    assert not any(o.heading == "Description" for o in validated)
+    assert "too short" in rejected[0].reason
+    assert "near_title" in rejected[0].op.review
 
 
 def test_patch_ops_are_not_gated(tmp_vault):
