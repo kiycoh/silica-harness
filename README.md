@@ -589,3 +589,5 @@ Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for set
 ## License
 
 **GNU Affero General Public License v3.0.** Strong copyleft, no permissive fallback: anything incorporating Silica must itself be AGPL-3.0 with complete corresponding source offered to its users, and **§13** extends that to network use, so a modified version run as a hosted service owes source to the people using it. Full text in [LICENSE](LICENSE).
+
+A commercial license is available for organizations that cannot comply with the AGPL: embedding Silica in a proprietary product, or running a modified version as a service without releasing source. Terms and contact in [LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md).
