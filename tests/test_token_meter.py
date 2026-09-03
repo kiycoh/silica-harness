@@ -69,7 +69,12 @@ def test_meter_off_is_noop(monkeypatch):
 # ~28 tool docstrings cut to routing + result contracts (litellm-measured
 # 5_727 -> 4_046 tok), plus the anyOf-null/default-null schema compaction in
 # _strip_titles. Deliberate: the whole point was lowering this number.
-CHAT_PREFIX_TOKENS = 10_663
+# Re-measured 2026-09-01 at 11_538: +875 is the cross-vault surface (ADR-0035)
+# — silica_vaults joining the chat set (193 tok), `vault=` on silica_recall
+# and silica_read_note, and scope/since/limit on silica_changes (218 tok, was
+# a no-arg tool). Descriptions were cut to routing + contract before pinning;
+# the first draft had fired the ceiling at 11_871.
+CHAT_PREFIX_TOKENS = 11_538
 CHAT_PREFIX_TOLERANCE = 0.10
 
 

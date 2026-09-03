@@ -45,7 +45,7 @@ from silica.sources.web_research import WebTurn
 logger = logging.getLogger(__name__)
 
 
-def _count_context_tokens(messages: list[dict]) -> int:
+def _count_context_tokens(messages: list[dict], tools: list[dict] | None = None) -> int:
     """Pure counter — lets callers (e.g. the web seed prewarm) count a candidate
     message list without clobbering the live session's CONFIG.context_tokens."""
     # Counted on the WIRE form: litellm's counter bills every string value it
@@ -59,25 +59,42 @@ def _count_context_tokens(messages: list[dict]) -> int:
 
         from silica.config import drop_foreign_env
         drop_foreign_env()  # litellm calls load_dotenv() at import
-        return litellm.token_counter(model=CONFIG.model, messages=messages)
+        return litellm.token_counter(model=CONFIG.model, messages=messages, tools=tools)
     except Exception:
         return sum(len(m.get("content") or "") for m in messages) // 4
 
 
+def _chat_tool_schemas(messages: list[dict]) -> list[dict]:
+    """The tool block every interactive turn ships alongside the history.
+
+    Counted because it is *sent*: 51 schemas measured 7.2k tokens on 2026-09-02
+    against 2.1k of seed messages, so a meter that totalled the messages alone
+    read 2.1k while the provider billed 12.7k for the same turn — the ring was
+    reporting a sixth of the window it was there to guard. `chat_tools` is the
+    same selector the REPL and the GUI hand to AgentConstraints; a batch run
+    (nucleate, injector) ships a different set, but the meter is a chat surface
+    and never shows one.
+    """
+    from silica.agent.constraints import chat_tools
+    from silica.tools import TOOLS
+
+    return [TOOLS[n].json_schema() for n in chat_tools(messages) if n in TOOLS]
+
+
 def _update_context_tokens(messages: list[dict]) -> None:
-    CONFIG.context_tokens = _count_context_tokens(messages)
+    CONFIG.context_tokens = _count_context_tokens(messages, _chat_tool_schemas(messages))
 
 
-# What put a message in the window. `tools` takes the assistant turns that carry
-# tool_calls as well as the results: the arguments are what the model paid to
-# emit, and an assistant message holding a call carries no prose worth billing to
-# the conversation.
+# What put a message in the window. `tool_io` takes the assistant turns that
+# carry tool_calls as well as the results: the arguments are what the model paid
+# to emit, and an assistant message holding a call carries no prose worth billing
+# to the conversation.
 def _context_group(m: dict) -> str:
     role = m.get("role")
     if role == "system":
         return "system"
     if role == "tool" or (role == "assistant" and m.get("tool_calls")):
-        return "tools"
+        return "tool_io"
     return "messages"
 
 
@@ -92,7 +109,7 @@ def _context_breakdown(messages: list[dict]) -> dict[str, int]:
     is what lets the meter print the parts and the total without them
     disagreeing in front of the user.
     """
-    groups: dict[str, list[dict]] = {"system": [], "tools": [], "messages": []}
+    groups: dict[str, list[dict]] = {"system": [], "tool_io": [], "messages": []}
     for m in messages:
         groups[_context_group(m)].append(m)
     counts = {k: (_count_context_tokens(v) if v else 0) for k, v in groups.items()}
@@ -104,6 +121,21 @@ def _context_breakdown(messages: list[dict]) -> dict[str, int]:
         if charged:
             counts[k] = max(0, v - envelope)
         charged = True
+    # The tool block is charged to its own part rather than folded into the
+    # system prompt: it is the single biggest resident of an idle window (7.2k
+    # against 2.1k of instructions), and a part that large hidden inside another
+    # is the reading the panel exists to prevent. Priced as the DIFFERENCE the
+    # block makes to this call, not as a count of its own: litellm's per-call
+    # overhead for a tools argument is not the plain chat envelope subtracted
+    # above, and counting the schemas standalone left the parts four tokens over
+    # the total printed beside them. Measured against the groups' own sum rather
+    # than a fresh count of `messages`, so the part also absorbs the envelope on
+    # an empty window, where there is no message group to charge it to.
+    schemas = _chat_tool_schemas(messages)
+    counts["tool_specs"] = (
+        max(0, _count_context_tokens(messages, schemas) - sum(counts.values()))
+        if schemas else 0
+    )
     return counts
 
 

@@ -61,11 +61,14 @@ def _build_seed() -> tuple[list[dict], int]:
     uses the pure token counter so a background rebuild can't clobber the
     context meter of the conversation in progress."""
     global _seed
-    from silica.cli import _count_context_tokens, seed_messages
+    from silica.cli import _chat_tool_schemas, _count_context_tokens, seed_messages
 
     # The same builder the TUI seeds from, math=True for the MathML renderer.
     msgs = seed_messages(math=True)
-    _seed = (msgs, _count_context_tokens(msgs))
+    # Tools included for the same reason `_update_context_tokens` includes them:
+    # counted without the block, a fresh window read 2.1k and jumped to 9.3k on
+    # the first turn, so the meter's opening number disagreed with its next one.
+    _seed = (msgs, _count_context_tokens(msgs, _chat_tool_schemas(msgs)))
     return _seed
 
 
