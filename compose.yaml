@@ -1,0 +1,55 @@
+# `docker compose run --rm cli` — the REPL, curating whatever is mounted at /vault
+# `docker compose up gui`       — the web UI on http://localhost:8765
+#
+# There is no mcp service here: an MCP server is spawned by its client over
+# stdio, not by a supervisor. Point the client at
+#   docker run -i --rm --network host \
+#     -v silica-state:/data -v /path/to/vault:/vault silica:local mcp
+# `-i` without `-t`: stdout is the protocol channel (silica/ui/mcp.py:17) and a
+# tty would echo into it.
+
+x-common: &common
+  image: silica:local
+  # Host networking on purpose. The embedding (:1234), rerank (:1235) and ollama
+  # (:11434) defaults all point at localhost because the servers run on this
+  # machine, and the GUI binds 127.0.0.1 hardcoded (silica/ui/web/server.py) so
+  # published ports would reach nothing. In bridge mode both need work: the URLs
+  # move to host.docker.internal, and the bind needs a code change.
+  network_mode: host
+  volumes:
+    # Named volume, not a bind mount: ledger.db, checkpoints.db and
+    # undo_journal.db are SQLite, and its locking is unreliable over the
+    # virtiofs/NFS layer a bind mount crosses on Docker Desktop.
+    - silica-state:/data
+    - ${SILICA_VAULT_HOST:-./vault}:/vault
+  environment:
+    # An exported key outranks ~/.silica/.env for good: silica/__init__.py
+    # snapshots os.environ at package import (SHELL_ENV) and load_user_env skips
+    # every name already in it, so these win over anything inside the volume.
+    SILICA_MODEL: ${SILICA_MODEL:-openrouter/anthropic/claude-sonnet-4-20250514}
+    OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+services:
+  cli:
+    <<: *common
+    build: .
+    stdin_open: true
+    tty: true
+
+  gui:
+    <<: *common
+    command: ["--gui"]
+    restart: unless-stopped
+    healthcheck:
+      # No curl in python:slim, and installing one to check a health route is
+      # the wrong trade — the interpreter is already there.
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+
+volumes:
+  silica-state:

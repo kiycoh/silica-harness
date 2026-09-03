@@ -1,0 +1,15 @@
+# Allowlist, not a blocklist: the repo root holds .env, a 346 MB data/, dist/,
+# .venv and five caches, and a blocklist chasing them is one `git add` away from
+# leaking the next one into the build context.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!LICENSE-COMMERCIAL.md
+!silica/
+# setuptools-scm reads it in the build stage to derive the version; without it
+# the wheel installs as pyproject's fallback_version, 0.0.0, and the image can no
+# longer say which build it is. Costs ~115 MB of context. If that matters more
+# than the version does, drop this line and pass
+# --build-arg SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SILICA_HARNESS=$(git describe --tags)
+!.git/
